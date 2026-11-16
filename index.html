@@ -222,7 +222,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v56";
+window.APP_VERSION="v57";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3184,8 +3184,8 @@ function clsScoreView(){
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
     ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
     ${statCard(prev?`<span class="hk" style="color:#dc2626" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" style="color:#16a34a" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
-    ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（距线±${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
-    ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（距线±${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
+    ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（浮动${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
+    ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（浮动${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
   <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
