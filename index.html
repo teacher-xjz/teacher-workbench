@@ -265,7 +265,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v60";
+window.APP_VERSION="v61";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -398,10 +398,12 @@ function render(keepScroll){
   const nav=$("#navInner");
   nav.innerHTML=NAVS.map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${n.icon}</span>${n.label}</div>`).join("");
   const v={home:renderHome,bzr:renderBzr,jks:renderJks,jw:renderJw,gr:renderGr,set:renderSet}[State.route];
-  $("#main").innerHTML=v?v():"";
+  $("#main").innerHTML=(typeof heroBar==="function"?heroBar():"")+(v?v():"");
   const av=v&&v.after?v.after:null;
   window._lastAfter=av||null;
   if(av){try{av();}catch(e){console.error(e);toast("图表渲染异常："+e.message);}}
+  /* 天气胶囊：每个主页面顶部都有问候横条，统一加载 */
+  if(typeof loadWeather==="function"){try{loadWeather();}catch(e){}}
   if(!keepScroll)window.scrollTo(0,0);
 }
 /* details 折叠区展开时重绘其中的图表（折叠期间 canvas 宽度不正确） */
@@ -1034,6 +1036,28 @@ function homeTodaySched(){
   });
   return {day,items};
 }
+/* 问候横条：所有主页面顶部共用（v61） */
+function heroBar(){
+  const today=todayStr();
+  const todos=State.data.todos.filter(t=>!t.done);
+  const overdue=todos.filter(t=>t.due&&daysFromToday(t.due)<0);
+  const todayTodos=todos.filter(t=>t.due===today);
+  const sched=homeTodaySched();
+  const agenda=collectAgenda();
+  const week7=agenda.filter(a=>{const d=daysFromToday(a.date);return d>=0&&d<=7;}).length;
+  const s=settings();
+  const hh=new Date().getHours();
+  const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
+  return `<div class="hero">
+    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
+    <div class="hero-stats">
+      <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
+      <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
+      <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
+      <button class="hstat" data-go="gr" data-sub="events"><b>${week7}</b><span>近7天事项</span></button>
+    </div>
+  </div>`;
+}
 function renderHome(){
   const today=todayStr();
   const todos=State.data.todos.filter(t=>!t.done);
@@ -1048,20 +1072,9 @@ function renderHome(){
     const d=Math.min(...[p.midDate,p.endDate].filter(Boolean).map(daysFromToday).filter(x=>x!=null&&x>=0).map(x=>x),999);
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
-  const s=settings();
-  const hh=new Date().getHours();
-  const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
   const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试安排"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
   return `
-  <div class="hero">
-    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
-    <div class="hero-stats">
-      <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
-      <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
-      <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
-      <button class="hstat" data-go="gr" data-sub="events"><b>${week7.length}</b><span>近7天事项</span></button>
-    </div>
-  </div>
+  ${heroBar()}
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
     <div class="card"><h3>⏰ 待办事项 <span class="sub">${overdue.length?`<span class="tag t-red">${overdue.length} 项逾期</span>`:""}今天 ${todayTodos.length} 项</span>
@@ -1145,7 +1158,6 @@ async function loadWeather(){
     if(b2)b2.innerHTML=wxHtml(w);
   }catch(e){/* 断网/被拦：静默，保留缓存或空 */}
 }
-renderHome.after=()=>{try{loadWeather();}catch(e){}};
 function todoItemHtml(t,over){
   return `<div class="todo-item"><input type="checkbox" data-act="todoToggle" data-id="${t.id}" ${t.done?"checked":""}>
     <div class="txt ${t.done?"done":""}">${esc(t.content)}
