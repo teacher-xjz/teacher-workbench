@@ -72,6 +72,9 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary)}
 /* 表格 */
 .twrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:10px}
 .tscr{max-height:420px;overflow-y:auto}
+#critWrap thead th{position:sticky;top:0;background:var(--card);z-index:1;box-shadow:0 1px 0 var(--line)}
+.crit-grp td{background:#f0f7ff;color:#1e40af;font-weight:700;font-size:13px;border-left:3px solid #2563eb;padding:7px 10px;white-space:nowrap}
+.cgrp-meta{color:#64748b;font-weight:500;font-size:12px;margin-left:10px}
 .tstripe-exc{box-shadow:inset 4px 0 0 #a855f7}
 .tstripe-ben{box-shadow:inset 4px 0 0 #10b981}
 .tstripe-crit{box-shadow:inset 4px 0 0 #f97316}
@@ -252,7 +255,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v58";
+window.APP_VERSION="v59";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2661,13 +2664,14 @@ function jwWatch(){
   const critBand=critRangeTxt(exam,critKind);
   const groups=critGroups(exam,critKind).map(g=>{g.list=g.list.filter(x=>inScope(x.r));return g;}).filter(g=>g.list.length);
   let critRows="";
-  groups.forEach((g,gi)=>g.list.forEach((x,i)=>{
-    const d=x.delta;
-    critRows+=`<tr${gi>0&&i===0?' style="border-top:2px solid var(--line)"':""}>
-      <td class="ctr muted" style="font-size:12px;white-space:nowrap">${i===0?esc(g.name)+"（线"+g.line+"）":""}</td>
-      <td class="ctr">${esc(x.r.cls)}</td><td>${esc(x.r.name)}</td><td class="ctr"><b>${fmtN(x.v,1)}</b></td>
-      <td class="ctr"><span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"+":"-"}${fmtN(Math.abs(d),0)}</span></td></tr>`;
-  }));
+  groups.forEach(g=>{
+    critRows+=`<tr class="crit-grp"><td colspan="4">🎯 ${esc(g.name)}<span class="cgrp-meta">线 ${g.line} · 浮动 ${critBand} · ${g.list.length} 人</span></td></tr>`;
+    g.list.forEach(x=>{
+      const d=x.delta;
+      critRows+=`<tr><td class="ctr">${esc(x.r.cls)}</td><td><b>${esc(x.r.name)}</b></td><td class="ctr">${fmtN(x.v,1)}</td>
+      <td class="ctr"><span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"线上 +":"线下 -"}${fmtN(Math.abs(d),0)}</span></td></tr>`;
+    });
+  });
   return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
     <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
@@ -2690,7 +2694,7 @@ function jwWatch(){
     <button class="btn sm${critKind==="pass"?" primary":""}" data-act="watchCritKind" data-id="pass">本科临界</button>
     <button class="btn sm${critKind==="exc"?" primary":""}" data-act="watchCritKind" data-id="exc">特控临界</button>
     <button class="btn sm" data-act="copyCrit" data-kind="${critKind}" data-id="${exam.id}">📋 复制</button></h3>
-    ${groups.length?`<div class="twrap tscr" id="critWrap"><table class="tb"><thead><tr><th class="ctr">类别</th><th class="ctr">班级</th><th>姓名</th><th class="ctr">分数</th><th class="ctr">距线</th></tr></thead><tbody>
+    ${groups.length?`<div class="twrap tscr" id="critWrap"><table class="tb"><thead><tr><th class="ctr" style="width:64px">班级</th><th>姓名</th><th class="ctr" style="width:76px">分数</th><th class="ctr" style="width:104px">距线</th></tr></thead><tbody>
     ${critRows}
     </tbody></table></div>`:`<div class="empty">无${critLabel}临界生</div>`}
   </div>`;
