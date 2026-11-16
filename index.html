@@ -269,7 +269,54 @@ const NAVS=[
   {id:"gr",icon:"👤",label:"个人"},
   {id:"set",icon:"⚙️",label:"设置"},
 ];
-function go(route,sub){State.route=route;if(sub)State.sub[route]=sub;render();}
+/* ================= 设置密码锁（设备本地，防误操作软锁） ================= */
+let _memLock=null,_memUnlock=false;
+const Lock={
+  _store(){try{localStorage.getItem("tbLockHash");return localStorage;}catch(e){return null;}},
+  _sess(){try{sessionStorage.getItem("tbUnlock");return sessionStorage;}catch(e){return null;}},
+  async sha256(str){
+    try{
+      if(!(window.crypto&&crypto.subtle&&crypto.subtle.digest))throw 0;
+      const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("tb:"+str));
+      return "sha:"+Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }catch(e){ // 降级（个别 file:// 环境 crypto.subtle 不可用）
+      let h=5381;for(let i=0;i<str.length;i++)h=((h<<5)+h+str.charCodeAt(i))>>>0;
+      return "djb2:"+h.toString(16);
+    }
+  },
+  _hash(){const s=this._store();return s?s.getItem("tbLockHash"):_memLock;},
+  has(){return !!this._hash();},
+  unlocked(){const s=this._sess();return s?s.getItem("tbUnlock")==="1":_memUnlock;},
+  unlock(){const s=this._sess();if(s)s.setItem("tbUnlock","1");else _memUnlock=true;},
+  lock(){const s=this._sess();if(s)s.removeItem("tbUnlock");else _memUnlock=false;},
+  async verify(pwd){if(!pwd)return false;return (await this.sha256(pwd))===this._hash();},
+  async set(pwd){const h=await this.sha256(pwd);const s=this._store();if(s)s.setItem("tbLockHash",h);else _memLock=h;this.unlock();},
+  async clear(){const s=this._store();if(s)s.removeItem("tbLockHash");else _memLock=null;this.lock();},
+  prompt(){
+    openModal("🔒 设置已加密",`
+      <div class="notice blue">「设置」板块已启用密码保护。请输入密码进入（本浏览器窗口内一次验证有效，关闭窗口/浏览器后需重新输入）。</div>
+      <div class="field"><label>密码</label><input type="password" id="lockPwd" autocomplete="off" placeholder="输入设置密码"></div>
+      <div class="muted" style="margin-top:6px"><a href="javascript:void(0)" id="lockForgot">忘记密码？</a></div>`,
+      `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="modalOk">解锁</button>`);
+    const submit=async()=>{
+      const v=$("#lockPwd").value;
+      if(await this.verify(v)){this.unlock();closeModal();State.route="set";render();}
+      else{toast("密码不正确");const el=$("#lockPwd");if(el){el.value="";el.focus();}}
+    };
+    $("#modalOk").onclick=submit;
+    $("#lockPwd").onkeydown=e=>{if(e.key==="Enter")submit();};
+    $("#lockForgot").onclick=()=>{
+      if(!confirm("紧急恢复：将跳过密码直接进入「设置」，并关闭密码锁。\n\n仅用于忘记密码时。学生若能操作电脑也能点这个，因此本密码锁只能防误操作、不能防有意改动。确定继续吗？"))return;
+      if(!confirm("再次确认：关闭密码锁并进入设置？（之后可在设置里重新启用）"))return;
+      this.clear();closeModal();State.route="set";render();toast("密码锁已关闭（紧急恢复）");
+    };
+    setTimeout(()=>{const el=$("#lockPwd");if(el)el.focus();},50);
+  }
+};
+function go(route,sub){
+  if(route==="set"&&Lock.has()&&!Lock.unlocked()){Lock.prompt();return;}
+  State.route=route;if(sub)State.sub[route]=sub;render();
+}
 function goSub(sub){State.sub[State.route]=sub;render();}
 function render(keepScroll){
   const nav=$("#navInner");
@@ -1253,6 +1300,17 @@ function renderSet(){
       <div class="field" style="flex:.6"><label>我的姓名（用于个人课表提取）</label><input id="stMyName" value="${escA(s.myName||"")}" placeholder="如：谢俊中"></div>
     </div>
     <button class="btn primary" data-act="saveSettings">保存基本信息</button></div>
+  <div class="card"><h3>🔒 设置密码锁</h3>
+    ${Lock.has()
+      ?`<div class="notice blue">已启用密码保护：进入「设置」板块需输入密码。同一浏览器窗口内一次验证有效，关闭窗口后需重新输入。密码只保存在本设备（不参与云同步），忘记密码可在弹出的解锁框里点「忘记密码」紧急恢复。</div>
+        <div class="flex"><button class="btn" data-act="changeLock">修改密码</button><button class="btn danger" data-act="clearLock">关闭密码锁</button></div>`
+      :`<div class="notice blue">给「设置」板块加一道密码，防止他人在你电脑上误改学校信息、节次结构、数据清空等配置。注意：这是防误操作的软锁，数据本身未加密；密码只保存在本设备，忘记密码可通过解锁框里的「忘记密码」紧急恢复。</div>
+        <div class="frow">
+          <div class="field" style="flex:1"><label>新密码（至少 4 位）</label><input type="password" id="lockNew" autocomplete="new-password"></div>
+          <div class="field" style="flex:1"><label>确认新密码</label><input type="password" id="lockNew2" autocomplete="new-password"></div>
+        </div>
+        <button class="btn primary" data-act="setLock">启用密码锁</button>`}
+  </div>
   ${typeof Sync!=="undefined"?Sync.settingsCard():""}
   <div class="card"><h3>⏰ 作息与节次结构</h3>
     <div class="notice blue">每行一条：「课|名称|时间」或「休|名称|时间」。“课”为上课时段（课表格子），“休”为休息/活动（整行提示，如课间操、午休）。<b>注意：调整行顺序会导致已填课表错位，建议只改名称/时间。</b></div>
@@ -1277,6 +1335,31 @@ ACTIONS.saveSettings=async()=>{
   const s=settings();
   s.school=$("#stSchool").value.trim();s.grade=$("#stGrade").value.trim();s.cls=$("#stCls").value.trim();s.clsCode=$("#stClsCode").value.trim();s.myName=$("#stMyName").value.trim();
   await saveMeta("settings",s);toast("已保存");render();
+};
+/* ================= 设置密码锁 ================= */
+ACTIONS.setLock=async()=>{
+  const a=$("#lockNew").value,b=$("#lockNew2").value;
+  if(a.length<4){toast("密码至少 4 位");return;}
+  if(a!==b){toast("两次输入的密码不一致");return;}
+  await Lock.set(a);toast("密码锁已启用：下次进入设置需输入密码");render();
+};
+ACTIONS.changeLock=()=>{
+  openModal("修改设置密码",`
+    <div class="field"><label>当前密码</label><input type="password" id="lockOld" autocomplete="off"></div>
+    <div class="field"><label>新密码（至少 4 位）</label><input type="password" id="lockNew1" autocomplete="new-password"></div>
+    <div class="field"><label>确认新密码</label><input type="password" id="lockNew2" autocomplete="new-password"></div>`,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="modalOk">保存</button>`);
+  $("#modalOk").onclick=async()=>{
+    const old=$("#lockOld").value,n1=$("#lockNew1").value,n2=$("#lockNew2").value;
+    if(!await Lock.verify(old)){toast("当前密码不正确");return;}
+    if(n1.length<4){toast("新密码至少 4 位");return;}
+    if(n1!==n2){toast("两次输入的新密码不一致");return;}
+    await Lock.set(n1);closeModal();toast("密码已修改");render();
+  };
+};
+ACTIONS.clearLock=async()=>{
+  if(!confirm("关闭密码锁后，任何人都可以直接进入「设置」板块。确定关闭吗？"))return;
+  await Lock.clear();toast("密码锁已关闭");render();
 };
 ACTIONS.exportAll=async()=>{
   await DB.open();
