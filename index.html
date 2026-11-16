@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v46";
+window.APP_VERSION="v47";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4039,8 +4039,16 @@ const Sync={
   async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
   ghUrl(){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(c.path||this.FILENAME);},
   ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
+  /* 统一带 30 秒超时的 fetch：避免手机上点「连接云端」后长时间无任何反馈（v47） */
+  async ghFetch(url,opts){
+    const ctl=("AbortController" in window)?new AbortController():null;
+    const t=ctl?setTimeout(()=>ctl.abort(),30000):null;
+    try{return await fetch(url,Object.assign({},opts||{},ctl?{signal:ctl.signal}:{}));}
+    catch(e){if(e&&e.name==="AbortError")throw new Error("连接超时（30 秒无响应）：网络不稳定或访问 GitHub 受阻，请换网络后重试；不影响本机数据");throw e;}
+    finally{if(t)clearTimeout(t);}
+  },
   async ghRead(){
-    const r=await fetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
+    const r=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
     if(r.status===404)return{payload:null,sha:null};
     if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
     if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
@@ -4049,7 +4057,7 @@ const Sync={
     const b64=(j.content||"").replace(/\n/g,"");
     let txt;
     if(!b64&&j.encoding==="none"&&(j.size|0)>0){
-      const r2=await fetch(this.ghUrl(),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+      const r2=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
       if(!r2.ok)throw new Error("读取云端大文件失败（HTTP "+r2.status+"），为保护数据已中止");
       txt=await r2.text();
       if(!txt)throw new Error("云端大文件读取为空（HTTP "+r2.status+"），为保护数据已中止");
@@ -4072,11 +4080,11 @@ const Sync={
     const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p))));
     const body={message:"工作台数据 rev"+p.rev+"（设备 "+this.device+"）",content:b64};
     if(this.ghSha)body.sha=this.ghSha;
-    let r=await fetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+    let r=await this.ghFetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
     if(r.status===409||r.status===422){ // 远端已变：拿最新 sha 重试一次
       const got=await this.ghRead();this.ghSha=got.sha;
       body.sha=got.sha;
-      r=await fetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+      r=await this.ghFetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
     }
     if(!r.ok)throw new Error("写入云端失败（HTTP "+r.status+"）");
     const j=await r.json();
@@ -4086,7 +4094,7 @@ const Sync={
   },
   async ghHistory(){
     const c=this.ghCfg;
-    const r=await fetch("https://api.github.com/repos/"+c.owner+"/"+c.repo+"/commits?path="+encodeURIComponent(c.path||this.FILENAME)+"&per_page=20",{headers:this.ghHeaders()});
+    const r=await this.ghFetch("https://api.github.com/repos/"+c.owner+"/"+c.repo+"/commits?path="+encodeURIComponent(c.path||this.FILENAME)+"&per_page=20",{headers:this.ghHeaders()});
     if(!r.ok)throw new Error("读取历史失败（HTTP "+r.status+"）");
     const arr=await r.json();
     return arr.map(x=>({sha:x.sha,date:new Date(x.commit.author.date),message:x.commit.message}));
@@ -4097,6 +4105,8 @@ const Sync={
     const token=((($("#ghToken")&&$("#ghToken").value)||"")).replace(/[\s\u3000\u200b-\u200d\ufeff]/g,"");
     if(!token){toast("请先粘贴 GitHub 访问令牌");return;}
     this.ghCfg={owner:"teacher-xjz",repo,path:this.FILENAME,token};
+    this.status="sync";this.updateChip("连接中…");
+    toast("连接中…正在访问 GitHub 服务器（国内网络可能需要几秒到几十秒）");
     try{
       const got=await this.ghRead();
       this.ghSha=got.sha;
@@ -4295,6 +4305,10 @@ const Sync={
     return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
     <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有仓库）　·　数据版本 <b>${this.rev}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
     ${errBox}
+    <div class="notice" style="border-left:4px solid #2563eb;background:#eff6ff"><b>🗂 管理云端备份文件</b>（GitHub 网页版，点击直接跳转）<br>
+    <a href="https://github.com/${escA(c.owner)}/${escA(c.repo)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600">➜ 打开仓库页面（浏览/下载/删除云端备份文件）</a><br>
+    <a href="https://github.com/${escA(c.owner)}/${escA(c.repo)}/commits/main?path=${encodeURIComponent(this.FILENAME)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600">➜ 查看全部上传历史（每次同步的留档）</a><br>
+    <span class="muted" style="font-size:12px">注意：名为「${esc(this.FILENAME)}」的文件是工作台的全部数据，请勿在网页上删除或改名；页面上需要登录你的 GitHub 账号。</span></div>
     <div class="flex">
       <button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>
       <button class="btn" data-act="syncCheckNow">🔄 立即检查云端更新</button>
@@ -4345,7 +4359,7 @@ ACTIONS.ghRestore=async sha=>{
   if(!confirm("确定恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本（"+h.message+"）吗？\n\n将用该版本覆盖本机当前数据并上传。当前未上传的改动会丢失，建议先「导出全部数据」备份。"))return;
   Sync.status="sync";Sync.updateChip();
   try{
-    const r=await fetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+    const r=await Sync.ghFetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
     if(!r.ok)throw new Error("读取历史版本失败（HTTP "+r.status+"）");
     const txt=await r.text(); /* raw 方式：大于 1MB 的历史版本也能取到原文（v46） */
     if(!txt)throw new Error("该历史版本内容为空，已中止");
