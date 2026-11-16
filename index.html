@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v43";
+window.APP_VERSION="v44";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4016,11 +4016,19 @@ const Sync={
     if(r.status===404)return{payload:null,sha:null};
     if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
     if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
-    const j=await r.json();
+    let j;try{j=await r.json();}catch(e){throw new Error("云端响应不是有效 JSON（网络不稳定或被拦截），为保护数据已中止");}
     const b64=(j.content||"").replace(/\n/g,"");
-    let txt;try{txt=decodeURIComponent(escape(atob(b64)));}catch(e){txt=atob(b64);}
-    let p=null;try{p=JSON.parse(txt);}catch(e){}
-    return{payload:(p&&p.app==="teacherBoard")?p:null,sha:j.sha};
+    let txt;
+    try{
+      const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+      txt=new TextDecoder("utf-8").decode(bytes);
+    }catch(e){throw new Error("云端数据解码失败（"+((e&&e.message)||e)+"），为保护数据已中止，请截图发我");}
+    let p=null;
+    try{p=JSON.parse(txt);}catch(e){
+      throw new Error("云端数据解析失败（读到 "+txt.length+" 字符，开头: "+txt.slice(0,60)+"），为保护数据已中止，请截图发我");
+    }
+    if(!p||p.app!=="teacherBoard")throw new Error("云端文件内容不是工作台数据（app标识不符），为保护数据已中止");
+    return{payload:p,sha:j.sha};
   },
   async ghWrite(p){
     const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p))));
@@ -4048,11 +4056,20 @@ const Sync={
       const got=await this.ghRead();
       this.ghSha=got.sha;
       if(!got.payload){
+        /* 云端确实是空的（404）才允许上传；本机没有成绩数据时先确认，避免手机误盖电脑数据 */
+        const hasReal=DB.stores.some(s=>s!=="teachers"&&State.data[s]&&State.data[s].length>0);
+        if(!hasReal&&!silent&&!confirm("云端仓库是空的，但本机没有成绩数据（可能读取云端失败或本机确实是新设备）。\n\n如果你的电脑上已经保存了成绩，请点【取消】，改到电脑上点「⬆️ 立即上传到云端」；\n如果这确实是全新的空设备，请点【确定】上传。")){
+          this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
+          try{localStorage.setItem("tbGhCfg",JSON.stringify(this.ghCfg));}catch(e){}
+          this.updateChip();if(!silent)render();
+          toast("已连接云端（未上传：请到有成绩数据的电脑上点「⬆️ 立即上传到云端」）");
+          return;
+        }
         this.rev=(this.rev||0)+1;
         const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
         await this.ghWrite(p);
         await this.persistAll();
-        toast("云端仓库还是空的，已把本机数据上传上去");
+        toast(hasReal?"云端仓库还是空的，已把本机数据上传上去":"已连接（未上传：本机无成绩数据，请到电脑端上传）");
       }else{
         const changed=await this.applyPayload(got.payload,true);
         this.rev=Math.max(this.rev||0,got.payload.rev||0);
@@ -4580,7 +4597,18 @@ ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步�
 ACTIONS.ghUploadNow=async()=>{
   if(!Sync.ghConn){toast("未连接 GitHub 云同步");return;}
   Sync.status="sync";Sync.updateChip();
-  try{await Sync._ghDoPush();toast("✅ 已上传到 GitHub 私有仓库");}catch(e){toast("上传失败："+((e&&e.message)||e));}
+  try{
+    /* 上传前先读云端：云端版本更新时绝不能盲写覆盖（v44 保护） */
+    const got=await Sync.ghRead();
+    Sync.ghSha=got.sha;
+    if(got.payload&&got.payload.rev>(Sync.rev||0)){
+      Sync.remotePending=got.payload;Sync.status="on";Sync.updateChip("⚠️ 其他设备已更新，点此加载");
+      toast("云端有其他设备的新数据（版本"+got.payload.rev+"），已提示加载，未执行上传覆盖");render();return;
+    }
+    if(got.payload)await Sync.applyPayload(got.payload,true); // 先合并云端，再叠加本机改动
+    await Sync._ghDoPush();
+    toast("✅ 已上传到 GitHub 私有仓库");
+  }catch(e){toast("上传失败："+((e&&e.message)||e));}
   render();
 };
 ACTIONS.syncExport=()=>Sync.manualExport();
