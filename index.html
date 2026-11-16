@@ -2969,6 +2969,7 @@ function clsScoreView(){
   const clsList=ce.classes.map(c=>c.cls);
   const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
   const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
+  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;
   const withTotalPrev=examsSorted();
   const idx=withTotalPrev.findIndex(e=>e.id===exam.id);
   const prev=idx>0?withTotalPrev[idx-1]:null;
