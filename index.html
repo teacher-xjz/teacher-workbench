@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v47";
+window.APP_VERSION="v48";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4044,9 +4044,14 @@ const Sync={
     const ctl=("AbortController" in window)?new AbortController():null;
     const t=ctl?setTimeout(()=>ctl.abort(),30000):null;
     try{return await fetch(url,Object.assign({},opts||{},ctl?{signal:ctl.signal}:{}));}
-    catch(e){if(e&&e.name==="AbortError")throw new Error("连接超时（30 秒无响应）：网络不稳定或访问 GitHub 受阻，请换网络后重试；不影响本机数据");throw e;}
+    catch(e){
+      if(e&&e.name==="AbortError")throw new Error("连接超时（30 秒无响应）：网络不稳定或访问 GitHub 受阻，稍后会自动重试；不影响本机数据");
+      if(e instanceof TypeError)throw new Error("网络无法访问 GitHub（请求未成功发出）：网络不稳定/信号弱或被限制，稍后会自动重试；不影响本机数据");
+      throw e;
+    }
     finally{if(t)clearTimeout(t);}
   },
+  _isNetErr(s){return /超时|无法访问|Failed to fetch|NetworkError|Load failed|fetch/i.test(String(s||""));},
   async ghRead(){
     const r=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
     if(r.status===404)return{payload:null,sha:null};
@@ -4144,6 +4149,7 @@ const Sync={
   },
   ghDisconnect(){
     this.ghConn=false;this.ghSha=null;this._ghErr=null;this._ghHist=null;
+    clearTimeout(this._gt);clearTimeout(this._rt);
     try{localStorage.removeItem("tbGhCfg");}catch(e){}
     this.ghCfg=null;
     this.status="off";
@@ -4159,7 +4165,14 @@ const Sync={
           this.remotePending=got.payload;this.status="on";this.updateChip("⚠️ 其他设备已更新，点此加载");return;
         }
         await this._ghDoPush();
-      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();}
+      }catch(e){
+        this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();
+        /* 网络类失败自动重试（60 秒后），直到成功或用户断开（v48） */
+        if(this._isNetErr(this._ghErr)){
+          clearTimeout(this._rt);
+          this._rt=setTimeout(()=>{if(this.ghConn&&!document.hidden)this._ghNote();},60000);
+        }
+      }
     },1200);
   },
   async _ghDoPush(){
@@ -4167,6 +4180,7 @@ const Sync={
     const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
     await this.ghWrite(p);
     await this.persistAll();
+    clearTimeout(this._rt);
     this.status="on";this.lastSync=new Date();this.updateChip();
   },
   metaClean(){const m={};for(const k in State.meta)if(k!=="syncDir"&&k!=="syncFile")m[k]=State.meta[k];return m;},
