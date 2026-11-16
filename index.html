@@ -109,6 +109,19 @@ table.tb tr.hl td{background:#fffbeb}
 .cmpchip b{font-weight:400;opacity:.55;font-size:13px}
 .cmpchip:hover{background:#e0e7ff;border-color:#a5b4fc}
 @media(max-width:640px){.bzrgrp{padding:5px 8px}.bzrgrp.bzrcmp{min-width:100%}}
+/* 年级总览：基础卡一行 + 线上线卡单独一行（v52） */
+.statcards2{grid-template-columns:repeat(2,minmax(200px,1fr))}
+.statwide .k{margin:0 0 6px}
+.statline{display:flex;align-items:baseline;gap:8px;line-height:1.75}
+.statline>span{width:34px;flex:none;font-size:12px;color:var(--text2)}
+.statline>b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.3}
+.statline>i{font-style:normal;font-size:12px;color:var(--text2)}
+/* 图表横向滚动容器：班级多时保证柱宽可读（v52） */
+.chartscroll{overflow-x:auto;overflow-y:hidden;margin-top:8px}
+.chartscroll>div{min-width:100%}
+/* 卡片内可悬停的小热区（如 退步/进步 数字） */
+.hk{cursor:help;border-bottom:1px dashed currentColor;line-height:1.2}
+@media(max-width:640px){.statcards2{grid-template-columns:1fr}}
 .stat{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
 .stat .v{font-size:22px;font-weight:700;color:var(--primary);line-height:1.35}
 .stat .v small{font-size:12px;font-weight:400;color:var(--text2);margin-right:2px}
@@ -203,7 +216,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v51";
+window.APP_VERSION="v52";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -548,7 +561,7 @@ function chartBarN(cv,labels,series,opt={}){
       const v=(se.values||[])[i];if(v==null)return;
       const bh=v/max*ch,x=cx-(k*bw+(k-1)*2)/2+j*(bw+2);
       ctx.fillStyle=se.color;ctx.beginPath();ctx.roundRect?ctx.roundRect(x,padT+ch-bh,bw,bh,[3,3,0,0]):ctx.rect(x,padT+ch-bh,bw,bh);ctx.fill();
-      if(k<=3){ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,1),x+bw/2,padT+ch-bh-4);}
+      if(k<=3){ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,opt.dec==null?1:opt.dec),x+bw/2,padT+ch-bh-4);}
     });
     ctx.fillStyle="#475569";ctx.textAlign="center";
     ctx.save();ctx.translate(cx,h-padB+8);if(String(lb).length>4){ctx.rotate(-Math.PI/4);ctx.textAlign="right";}ctx.fillText(String(lb),0,0);ctx.restore();
@@ -1943,6 +1956,22 @@ async function doImport(){
   go("jw","overview");
 }
 /* ---------- 年级总览 ---------- */
+/* 各班上线/临界人数（唯一口径）：卡片汇总与「各班上线人数」图都从这里取数，避免两处算法漂移（v52） */
+function clsLineStat(exam){
+  const map={};
+  exam.rows.forEach(r=>{
+    const c=String(r.cls==null?"":r.cls).trim();if(!c)return;
+    const o=map[c]||(map[c]={cls:c,n:0,ben:0,benCrit:0,exc:0,excCrit:0});
+    const scored=r.total!=null&&!(exam.zeroAsMissing&&r.total===0);
+    if(scored)o.n++;
+    if(r.total==null)return;
+    const d=rowDir(r);
+    const bp=totalLine(exam,d,"pass"),ep=totalLine(exam,d,"exc");
+    if(bp!=null){if(r.total>=bp)o.ben++;if(Math.abs(r.total-bp)<=critBandOf(exam,"pass"))o.benCrit++;}
+    if(ep!=null){if(r.total>=ep)o.exc++;if(Math.abs(r.total-ep)<=critBandOf(exam,"exc"))o.excCrit++;}
+  });
+  return Object.keys(map).map(k=>map[k]).sort((a,b)=>natKey(a.cls).localeCompare(natKey(b.cls)));
+}
 function jwOverview(){
   const exam=ensureExam();
   if(!exam)return examSelector();
@@ -1963,8 +1992,7 @@ function jwOverview(){
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
   const benCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");});
   const excCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
-  const tipName=arr=>clipNames(arr,r=>`${r.name}（${r.cls}班）${fmtN(r.total,0)}`);
-  const tipCritG=arr=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,"pass");const df=r.total-ln;return `${r.name}（${r.cls}班）${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
+  const lineRate=(a,b)=>b?`${(a/b*100).toFixed(1)}%`:"—";
   return `<div class="card"><h3>📊 年级总览<span class="sub">${esc(exam.name)}</span><span class="spacer"></span>${examSelector()}</h3>
   <div class="statcards">
     <div class="stat"><div class="v">${exam.rows.length}</div><div class="k">学生总数</div></div>
@@ -1972,11 +2000,22 @@ function jwOverview(){
     <div class="stat"><div class="v">${withTotal}</div><div class="k">有总分学生</div></div>
     <div class="stat"><div class="v">${fmtN(tot&&tot.avg)}<small> 分</small></div><div class="k">年级总分均分</div></div>
     <div class="stat"><div class="v">${fmtN(tot&&tot.max)}</div><div class="k">最高总分</div></div>
-    <div class="stat" title="本科上线：${escA(tipName(benList))}　·　临界（距本科线±${critBandOf(exam,"pass")}）：${escA(tipCritG(benCrit))}"><div class="v"><small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${benCrit.length}</span></div><div class="k"><span class="dot" style="background:#10b981"></span>本科线 · 全年级</div></div>
-    <div class="stat" title="特控上线：${escA(tipName(excList))}　·　临界（距特控线±${critBandOf(exam,"exc")}）：${escA(tipCritG(excCrit))}"><div class="v"><small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${excCrit.length}</span></div><div class="k"><span class="dot" style="background:#a855f7"></span>特控线 · 全年级</div></div>
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算；鼠标悬浮到 本科线/特控线 卡片可查看名单（最多前15人，超出显示"等共N人"）。</div>
-  <details open class="lnsec" style="margin-top:14px"><summary>📶 总分分数段分布（${bandNames.join(" / ")}）（可收起）</summary>
+  <div class="statcards statcards2">
+    <div class="stat statwide"><div class="k"><span class="dot" style="background:#10b981"></span>本科线 · 全年级</div>
+      <div class="statline"><span>上线</span><b style="color:#10b981">${benList.length}</b><i>${lineRate(benList.length,withT.length)}</i></div>
+      <div class="statline"><span>临界</span><b style="color:#f97316">${benCrit.length}</b><i>${lineRate(benCrit.length,withT.length)}</i></div></div>
+    <div class="stat statwide"><div class="k"><span class="dot" style="background:#a855f7"></span>特控线 · 全年级</div>
+      <div class="statline"><span>上线</span><b style="color:#a855f7">${excList.length}</b><i>${lineRate(excList.length,withT.length)}</i></div>
+      <div class="statline"><span>临界</span><b style="color:#f97316">${excCrit.length}</b><i>${lineRate(excCrit.length,withT.length)}</i></div></div>
+  </div>
+  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算（本科临界 ±${critBandOf(exam,"pass")} 分、特控临界 ±${critBandOf(exam,"exc")} 分）；比例 = 占本年级有总分人数（${withT.length} 人）的百分比。各班上线人数见下方图表，具体名单见「重点关注 → 临界生名单」。</div>
+  <details open class="lnsec" style="margin-top:14px"><summary>📊 各班上线人数（本科线 / 特控线，按班级顺序）（可收起）</summary>
+  <div class="chartscroll"><div id="cClsLineBox"><canvas class="chart" id="cClsLine"></canvas></div></div>
+  ${legendHtml([{c:"#10b981",n:"本科上线"},{c:"#a855f7",n:"特控上线"}])}
+  <div class="muted" style="margin-top:4px;font-size:12px">合计：本科上线 ${benList.length} 人、临界 ${benCrit.length} 人；特控上线 ${excList.length} 人、临界 ${excCrit.length} 人。班级较多时图表可左右滑动查看。</div>
+  </details>
+  <details open class="lnsec" style="margin-top:10px"><summary>📶 总分分数段分布（${bandNames.join(" / ")}）（可收起）</summary>
   <canvas class="chart" id="cBands" style="margin-top:8px"></canvas></details></div>
   ${Object.keys(ce.dirs||{}).length?`<div class="card"><h3>🧭 分方向统计（物理方向 / 历史方向）<span class="sub">本科率、特控率、优生率按各自方向的线计算</span></h3>
     <details open class="lnsec"><summary>物理 / 历史方向各自线与达标率（可收起）</summary>
@@ -2015,8 +2054,19 @@ ACTIONS.copySubjTable=id=>{
 };
 jwOverview.after=()=>{
   const exam=currentExam();if(!exam)return;
-  const cv=$("#cBands");if(!cv)return;
   const st=settings();const ce=computeExam(exam);
+  /* 各班上线人数分组柱图（v52）：按班级顺序，班级多时容器可横向滚动 */
+  const cvs=$("#cClsLine"),box=$("#cClsLineBox");
+  if(cvs&&box){
+    const stat=clsLineStat(exam);
+    const wrapW=(box.parentNode&&box.parentNode.clientWidth)||600;
+    box.style.width=Math.max(wrapW,stat.length*54)+"px";
+    if(stat.length)chartBarN(cvs,stat.map(s=>s.cls+"班"),[
+      {name:"本科上线",color:"#10b981",values:stat.map(s=>s.ben)},
+      {name:"特控上线",color:"#a855f7",values:stat.map(s=>s.exc)}
+    ],{h:260,dec:0});
+  }
+  const cv=$("#cBands");if(!cv)return;
   const bands=examCfg(exam).bands.slice().sort((a,b)=>b-a);
   const names=bands.map(b=>`${b}+`);names.push(`${bands[bands.length-1]||0}以下`);
   const vals=names.map(()=>0);
@@ -2310,11 +2360,12 @@ function stuHistData(name,cls){
   });
   return out;
 }
-function stuHistDelta(h,i){ // 较上次：优先按方向内排名，↑退步 / ↓进步
+function stuHistDelta(h,i){ // 较上次：优先按方向内排名；↑进步 / ↓退步（箭头=学生水平方向，v52 统一口径）
   if(i<=0)return null;
   const a=h[i].dirRank||h[i].rank,b=h[i-1].dirRank||h[i-1].rank;
   if(!a||!b)return null;
-  return a-b>0?{t:"↑"+(a-b),cls:"diff-neg"}:a-b<0?{t:"↓"+(-(a-b)),cls:"diff-pos"}:{t:"0",cls:""};
+  if(a===b)return {t:"0",cls:"",cur:a,prev:b};
+  return a-b>0?{t:"↓"+(a-b),cls:"diff-neg",cur:a,prev:b}:{t:"↑"+(-(a-b)),cls:"diff-pos",cur:a,prev:b};
 }
 function stuHistHtml(h,pfx){
   const has2=h.length>=2;
@@ -2327,12 +2378,12 @@ function stuHistHtml(h,pfx){
     ${h.map((x,i)=>{const d=(x.total!=null&&x.gradeAvg!=null)?x.total-x.gradeAvg:null;const dl=stuHistDelta(h,i);
       return `<tr><td><b>${esc(x.exam.name)}</b></td><td class="ctr">${esc(x.exam.date||"—")}</td>
       <td class="ctr"><b>${x.total!=null?fmtN(x.total,1):"—"}</b>${x.totalRaw!=null?`<small class="muted">（原${fmtN(x.totalRaw,1)}）</small>`:""}</td><td class="ctr">${x.rank||"—"}</td><td class="ctr">${x.dirRank?x.dirRank+(x.dir?"（"+x.dir+"）":""):"—"}</td><td class="ctr">${x.cr||"—"}</td>
-      <td class="ctr ${dl?dl.cls:""}" style="font-weight:600">${dl?dl.t:"—"}</td>
+      <td class="ctr ${dl?dl.cls:""}" style="font-weight:600">${dl?`<span title="上次第${dl.prev}名 → 本次第${dl.cur}名">${dl.t}</span>`:"—"}</td>
       <td class="ctr">${x.clsAvg!=null?fmtN(x.clsAvg,1):"—"}</td><td class="ctr">${x.gradeAvg!=null?fmtN(x.gradeAvg,1):"—"}</td>
       <td class="ctr ${d!=null?(d>=0?"diff-pos":"diff-neg"):""}">${d!=null?(d>=0?"+":"")+fmtN(d,1):"—"}</td>
       <td class="muted">${Object.entries(x.s).filter(([k,v])=>v!=null&&v!=="").map(([k,v])=>{const lb=(k==="外语"&&x.lang)?`${k}(${x.lang})`:k;const rv=(x.sRaw&&x.sRaw[k]!=null)?`（原${fmtN(x.sRaw[k],x.sRaw[k]%1?1:0)}）`:"";return esc(lb)+" "+fmtN(Number(v),Number(v)%1?1:0)+rv;}).join("｜")||"—"}</td></tr>`;}).join("")}
     </tbody></table></div>
-    <div class="muted" style="margin-top:6px">口径：与年级差 = 总分 − 年级均分，正数=高于年级平均；排名数字越小越好，“较上次”按方向内排名对比（未分方向时用年级排名）↑=退步、↓=进步；均分不含缺考；本科率/特控率/本科特控线可在「统计设置」分方向设置。</div>`;
+    <div class="muted" style="margin-top:6px">口径：与年级差 = 总分 − 年级均分，正数=高于年级平均；排名数字越小越好，“较上次”按方向内排名对比（未分方向时用年级排名），↑=进步（名次前进）、↓=退步（名次后退），鼠标悬浮可看“上次第x名 → 本次第y名”；均分不含缺考；本科率/特控率/本科特控线可在「统计设置」分方向设置。</div>`;
 }
 function stuHistDraw(h,pfx){
   const labels=h.map(x=>String(x.exam.name||"").slice(0,10));
@@ -3019,8 +3070,10 @@ function clsScoreView(){
     if(weak.length)weakMap[r.name+"|"+r.cls]=weak;});
   const weakList=Object.keys(weakMap).map(k=>({name:k.split("|")[0],weak:weakMap[k].join("/")}));
   const deltaList=prev?rows.map(r=>{const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;const cur=r._grDir||null;
-    if(pr==null||cur==null)return null;return{name:r.name,d:cur-pr};}).filter(Boolean):[];
+    if(pr==null||cur==null)return null;return{name:r.name,cls:r.cls,prev:pr,cur:cur,d:cur-pr};}).filter(Boolean):[];
   const upList=deltaList.filter(x=>x.d>0),downList=deltaList.filter(x=>x.d<0);
+  /* 名单文案：退步=名次数字变大（↓），进步=名次数字变小（↑），与全站统一（v52） */
+  const dTip=arr=>clipNames(arr,x=>`${x.name} 第${x.prev}→第${x.cur}名`);
   if(!mine||!viewCls)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
     <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}</div></div>`;
   const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
@@ -3043,12 +3096,12 @@ function clsScoreView(){
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
     ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
-    ${statCard(prev?`↑${upList.length} <small>退步</small> ↓${downList.length} <small>进步</small>`:"—","较上次（方向排名）",prev?`退步：${clipNames(upList,x=>`${x.name} ↑${x.d}`)}；进步：${clipNames(downList,x=>`${x.name} ↓${-x.d}`)}`:"",null)}
+    ${statCard(prev?`<span class="hk" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
     ${statCard(`<small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critRows.length}</span>`,`本科线`,`${clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距本科线±${critBenBand}）：${tipCrit(critRows,"pass")}`,"#10b981")}
     ${statCard(`<small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critT.length}</span>`,`特控线`,`${clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距特控线±${critExcBand}）：${tipCrit(critT,"exc")}`,"#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 较上次 / 本科线 / 特控线 / 偏科预警 卡片上可查看名单（最多前15人，超出显示"等共N人"）。</div>
+  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
   ${cmpCls.length?bzrCompareSection(exam,ce,viewCls,cmpCls,myCls):""}
   <details open class="lnsec" style="margin-top:10px"><summary>📊 各科对比：班级均分 vs 年级均分（可收起）</summary>
   <canvas class="chart" id="cClsSubj"></canvas>${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
@@ -3073,7 +3126,7 @@ function clsScoreView(){
   <details open class="lnsec" style="margin-top:8px"><summary>📶 总分分数段分布（本班，可收起）</summary>
   <canvas class="chart" id="cClsBands"></canvas></details>
   </div>
-  <div class="card"><h3>👤 本班学生成绩单<span class="sub">${prev?"红字=较上次考试方向排名退步":"（导入更多考试后可显示排名变化）"} · 点击姓名看历次曲线 · 点列头可排序</span></h3>
+  <div class="card"><h3>👤 本班学生成绩单<span class="sub">${prev?"↓红=较上次方向排名退步 · ↑绿=进步（鼠标移到数字上看上次→本次名次）":"（导入更多考试后可显示排名变化）"} · 点击姓名看历次曲线 · 点列头可排序</span></h3>
     ${(()=>{ // 学生成绩单：列头可排序（默认总分降序）
       const sk5=State.sortKey5||"total",sd5=State.sortDir5!=null?State.sortDir5:-1;
       const stuRows=rows.map(r=>{
@@ -3089,7 +3142,7 @@ function clsScoreView(){
           else if(lb!=null&&r.total>=lb)stat="ben";
           else if(lb!=null&&Math.abs(r.total-lb)<=critBandOf(exam,"pass"))stat="crit";}
         const flags=weakMap[r.name+"|"+r.cls]||[];
-        return{r,gr,cr,myDirRank,delta,flags,isCrit,stat};
+        return{r,gr,cr,myDirRank,delta,prevRank:pr,flags,isCrit,stat};
       });
       stuRows.sort((a,b)=>{
         if(sk5==="name")return natKey(a.r.name).localeCompare(natKey(b.r.name))*sd5;
@@ -3105,12 +3158,14 @@ function clsScoreView(){
       });
       const S=(k,label)=>`<th class="ctr sortable" data-sk="${k}" data-skgroup="stu">${label}</th>`;
       return `<div class="twrap tscr"><table class="tb"><thead><tr>${S("name","姓名")}${S("total","总分")}<th class="ctr">方向</th>${S("cr","班级排名")}${S("gr","年级排名")}${S("dir","方向排名")}${S("delta","较上次")}${exam.subjects.map(s=>S("subj:"+escA(s),esc(s))).join("")}<th class="ctr">标记</th></tr></thead><tbody>
-      ${stuRows.map(x=>{const r=x.r,gr=x.gr,cr=x.cr,delta=x.delta,flags=x.flags,myDirRank=x.myDirRank;
+      ${stuRows.map(x=>{const r=x.r,gr=x.gr,cr=x.cr,delta=x.delta,flags=x.flags,myDirRank=x.myDirRank,prevRank=x.prevRank;
       const rowCls=x.stat==="exc"?"tstripe-exc":x.stat==="ben"?"tstripe-ben":x.stat==="crit"?"tstripe-crit":"";
+      const curRk=myDirRank||(gr&&gr.rank);
+      const dTitle=delta!=null&&prevRank!=null?`上次第${prevRank}名 → 本次第${curRk}名，${delta>0?"退步":"进步"}${Math.abs(delta)}名`:(delta===0?"两次名次相同":"");
       const badge=x.stat?` <span class="tag ${x.stat==="exc"?"t-purple":x.stat==="ben"?"t-green":"t-orange"}">${x.stat==="exc"?"特控":x.stat==="ben"?"本科":"临界"}</span>`:"";
       return `<tr class="${rowCls}"><td><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}" style="border:none;padding:2px 6px"><b>${esc(r.name)}</b></button>${badge}</td>
       <td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${cr||"—"}</td><td class="ctr">${gr?gr.rank:"—"}</td><td class="ctr">${myDirRank||"—"}</td>
-      <td class="ctr">${delta!=null?`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600">${delta>0?"↑"+delta:delta<0?"↓"+(-delta):"0"}</span>`:prev?"<span class='muted'>新</span>":"—"}</td>
+      <td class="ctr">${delta!=null?`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600" title="${escA(dTitle)}">${delta>0?"↓"+delta:delta<0?"↑"+(-delta):"0"}</span>`:prev?"<span class='muted'>新</span>":"—"}</td>
       ${exam.subjects.map(s=>`<td class="ctr" style="${flags.includes(s)?"color:var(--orange);font-weight:600":""}">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
       <td class="ctr">${flags.map(s=>`<span class="tag t-orange">${esc(s)}弱</span>`).join("")}</td></tr>`;}).join("")}
       </tbody></table></div>`;
