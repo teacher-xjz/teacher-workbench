@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v44";
+window.APP_VERSION="v45";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3992,22 +3992,50 @@ document.addEventListener("change",e=>{
   }
 });
 
-/* ================= 坚果云文件同步层 ================= */
-/* 数据直接读写坚果云同步文件夹中的「工作台数据.json」，实现多台电脑自动同步。
-   未连接时完全等同本地模式（IndexedDB）。 */
+/* ================= 云同步层（v45：GitHub 私有仓库 · 唯一自动同步通道） ================= */
+/* 数据主副本在本机 IndexedDB；云端为 GitHub 私有仓库中的「工作台数据.json」。
+   - 手机/电脑通用（纯 HTTP，无需文件夹选择权限，无浏览器兼容性坑）
+   - 每次上传自动留档（提交历史 = 版本快照），可在设置页一键恢复历史版本
+   - 读取失败/内容异常一律报错中止，绝不误判"云端为空"而覆盖（v44 教训）
+   - 手动导出/导入作为不依赖网络的保底方式
+   - 注意：file:// 方式打开时浏览器禁止联网，请用 https://teacher-xjz.github.io/teacher-workbench/ 访问 */
 const Sync={
-  avail:(typeof window.showDirectoryPicker==="function"),
-  dir:null,file:null,rev:0,
+  rev:0,
   device:(()=>{let d=null;try{d=localStorage.getItem("tbDevice");}catch(e){}
     if(!d){d=Math.random().toString(36).slice(2,10);try{localStorage.setItem("tbDevice",d);}catch(e){}}
     return d;})(),
-  status:"off",lastSync:null,checking:false,remotePending:null,timer:null,
-  _persistFail:null,_lastErr:null,_memLost:false,
+  status:"off",lastSync:null,remotePending:null,timer:null,_lastErr:null,
   FILENAME:"工作台数据.json",
-  /* ===== GitHub 云同步通道（手机/电脑通用，v41） =====
-     背景：坚果云 WebDAV 不返回 CORS 头，浏览器（含手机）无法直连；
-     改用 GitHub 私有仓库 Contents API（支持浏览器跨域），数据存自己的私有仓库，令牌只存本机浏览器。 */
-  ghCfg:null,ghSha:null,ghConn:false,ghChecking:false,_ghErr:null,_gt:null,
+  /* ===== GitHub 私有仓库通道 ===== */
+  ghCfg:null,ghSha:null,ghConn:false,ghChecking:false,_ghErr:null,_gt:null,_ghHist:null,
+  async init(){
+    this.updateChip();
+    await this.ghLoadCfg();
+    if(this.ghCfg){
+      this.ghConn=true;this.status="sync";this.updateChip();
+      try{
+        const got=await this.ghRead();
+        this.ghSha=got.sha;
+        if(got.payload){
+          const changed=await this.applyPayload(got.payload,true);
+          this.rev=Math.max(this.rev||0,got.payload.rev||0);
+          await this.persistAll();
+          this.status="on";this.lastSync=new Date();
+          if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
+        }else this.status="on";
+      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";}
+      this.updateChip();
+    }
+    document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.checkRemote();});
+    window.addEventListener("focus",()=>this.checkRemote());
+    this.timer=setInterval(()=>{if(!document.hidden)this.checkRemote();},60000);
+    window.addEventListener("beforeunload",()=>{if(this._gt){clearTimeout(this._gt);}});
+    /* 清理旧版坚果云文件夹通道的记忆句柄（v45 起不再使用） */
+    if(State.meta.syncDir||State.meta.syncFile){
+      try{await DB.metaSet("syncDir",null);await DB.metaSet("syncFile",null);}catch(e){}
+      delete State.meta.syncDir;delete State.meta.syncFile;
+    }
+  },
   async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
   ghUrl(){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(c.path||this.FILENAME);},
   ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
@@ -4046,6 +4074,13 @@ const Sync={
     this.lastSync=new Date();this.status="on";this.remotePending=null;this.updateChip();
     return true;
   },
+  async ghHistory(){
+    const c=this.ghCfg;
+    const r=await fetch("https://api.github.com/repos/"+c.owner+"/"+c.repo+"/commits?path="+encodeURIComponent(c.path||this.FILENAME)+"&per_page=20",{headers:this.ghHeaders()});
+    if(!r.ok)throw new Error("读取历史失败（HTTP "+r.status+"）");
+    const arr=await r.json();
+    return arr.map(x=>({sha:x.sha,date:new Date(x.commit.author.date),message:x.commit.message}));
+  },
   async connectGh(silent){
     const repo=(($("#ghRepo")&&$("#ghRepo").value.trim())||"teacher-workbench-data");
     /* 清除复制粘贴可能带入的隐藏字符（零宽字符/全角空格/BOM/首尾空白），避免"明明粘对了却401" */
@@ -4056,7 +4091,7 @@ const Sync={
       const got=await this.ghRead();
       this.ghSha=got.sha;
       if(!got.payload){
-        /* 云端确实是空的（404）才允许上传；本机没有成绩数据时先确认，避免手机误盖电脑数据 */
+        /* 云端确实是空的（404）才允许上传；本机没有成绩数据时先确认，避免空设备误盖电脑数据 */
         const hasReal=DB.stores.some(s=>s!=="teachers"&&State.data[s]&&State.data[s].length>0);
         if(!hasReal&&!silent&&!confirm("云端仓库是空的，但本机没有成绩数据（可能读取云端失败或本机确实是新设备）。\n\n如果你的电脑上已经保存了成绩，请点【取消】，改到电脑上点「⬆️ 立即上传到云端」；\n如果这确实是全新的空设备，请点【确定】上传。")){
           this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
@@ -4088,11 +4123,11 @@ const Sync={
     }
   },
   ghDisconnect(){
-    this.ghConn=false;this.ghSha=null;this._ghErr=null;
+    this.ghConn=false;this.ghSha=null;this._ghErr=null;this._ghHist=null;
     try{localStorage.removeItem("tbGhCfg");}catch(e){}
     this.ghCfg=null;
-    if(!this.file)this.status="off";
-    this.updateChip();toast("已断开 GitHub 云同步");render();
+    this.status="off";
+    this.updateChip();toast("已断开云端同步（本机数据仍在）");render();
   },
   async _ghNote(){
     this.status="sync";this.updateChip();
@@ -4114,185 +4149,12 @@ const Sync={
     await this.persistAll();
     this.status="on";this.lastSync=new Date();this.updateChip();
   },
-  async init(){
-    this.updateChip();
-    await this.ghLoadCfg();
-    if(this.ghCfg){
-      this.ghConn=true;this.status="sync";this.updateChip();
-      try{
-        const got=await this.ghRead();
-        this.ghSha=got.sha;
-        if(got.payload){
-          const changed=await this.applyPayload(got.payload,true);
-          this.rev=Math.max(this.rev||0,got.payload.rev||0);
-          await this.persistAll();
-          this.status="on";this.lastSync=new Date();
-          if(changed)this._ghNote();
-        }else this.status="on";
-      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";}
-      this.updateChip();
-    }
-    if(!this.avail){
-      if(this.ghConn){ // 手机等无文件夹 API 环境：仅注册云端检查定时器
-        document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.checkRemote();});
-        window.addEventListener("focus",()=>this.checkRemote());
-        this.timer=setInterval(()=>{if(!document.hidden)this.checkRemote();},60000);
-      }
-      return;
-    }
-    const h=State.meta.syncDir,hf=State.meta.syncFile;
-    if(hf&&!h){
-      /* 单文件模式：恢复记忆的文件句柄 */
-      try{
-        const perm=await hf.queryPermission({mode:"readwrite"});
-        if(perm==="granted"){
-          this.dir=null;this.file=hf;this.fileMode=true;
-          await this._finishConnect(true,()=>{});
-        }else{
-          this.dir=null;this.file=hf;this.fileMode=true;this.status="auth";this.updateChip("☁️ 点击授权连接同步文件");
-        }
-      }catch(e){this._lastErr="读取记忆的同步文件失败："+((e&&e.message)||e);}
-    }else if(h){
-      try{
-        const perm=await h.queryPermission({mode:"readwrite"});
-        if(perm==="granted")await this.connect(h,true);
-        else{this.dir=h;this.status="auth";this.updateChip("☁️ 点击授权连接同步文件");}
-      }catch(e){this._lastErr="读取记忆的文件夹失败："+((e&&e.message)||e);}
-    }
-    let had=false;try{had=localStorage.getItem("tbSyncConnected")==="1";}catch(e){}
-    if(!h&&!hf&&had)this._memLost=true; // 连过但记忆没了 → 明确告知
-    document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.checkRemote();});
-    window.addEventListener("focus",()=>this.checkRemote());
-    this.timer=setInterval(()=>{if(!document.hidden)this.checkRemote();},30000);
-    window.addEventListener("beforeunload",()=>{if(this._t){clearTimeout(this._t);/* 尽力而为，未完成的写入由下次打开时以文件为准 */}});
-  },
-  async requestPerm(){
-    const hd=this.fileMode?this.file:this.dir;
-    if(!hd)return false;
-    try{const p=await hd.requestPermission({mode:"readwrite"});if(p==="granted"){this.status="on";this.lastSync=new Date();this.refreshFileInfo();}return p==="granted";}catch(e){return false;}
-  },
-  async connect(dirHandle,silent){
-    this._steps=[];
-    const step=(n,extra)=>{this._steps.push({n,extra:extra||"",t:new Date().toLocaleTimeString("zh-CN",{hour12:false})});};
-    const act=(()=>{try{const a=window.navigator&&navigator.userActivation;return a?("点击激活:"+(a.isActive?"有效":"已失效")+(a.hasBeenActive?"(曾激活)":"(从未激活)")):"无userActivation";}catch(e){return "?";}})();
-    try{
-      this.fileMode=false;
-      if(dirHandle){
-        step("① 使用记忆的文件夹，无需弹窗　·　"+act);
-        this.dir=dirHandle;
-        step("② 已获得文件夹",this.dir.name);
-        this.file=await this.dir.getFileHandle(this.FILENAME,{create:true});
-      }else{
-        step("① 请求弹出文件夹选择窗口　·　"+act);
-        let dpicked=null;
-        try{dpicked=await window.showDirectoryPicker({id:"teacherBoardSync",mode:"readwrite"});}
-        catch(de){
-          this._offerFileMode=true;
-          step("⚠️ 文件夹选择窗口未能弹出（"+(de&&de.name)+"："+((de&&de.message)||"")+"）。不会自动连发第二个弹窗（点击激活已被上一个弹窗消耗），请点击下方新增的「🔗 单文件同步连接」按钮继续（单文件方式：保存窗口自带读写授权，选坚果云文件夹内的「工作台数据.json」即可）");
-        }
-        if(dpicked){
-          this.dir=dpicked;
-          step("② 已获得文件夹",this.dir.name);
-          this.file=await this.dir.getFileHandle(this.FILENAME,{create:true});
-        }else{
-          if(!silent)render();
-          return;
-        }
-      }
-      await this._finishConnect(silent,step);
-    }catch(e){
-      this._connectFail(e,act,silent,"选择窗口");
-    }
-  },
-  async connectFileMode(silent){
-    this._steps=[];
-    const step=(n,extra)=>{this._steps.push({n,extra:extra||"",t:new Date().toLocaleTimeString("zh-CN",{hour12:false})});};
-    const act=(()=>{try{const a=window.navigator&&navigator.userActivation;return a?("点击激活:"+(a.isActive?"有效":"已失效")+(a.hasBeenActive?"(曾激活)":"(从未激活)")):"无userActivation";}catch(e){return "?";}})();
-    try{
-      this.fileMode=false;
-      step("① 弹出保存对话框（单文件同步，选坚果云文件夹内的「工作台数据.json」）　·　"+act);
-      if(typeof window.showSaveFilePicker!=="function")throw new Error("浏览器不支持 showSaveFilePicker");
-      this.file=await window.showSaveFilePicker({suggestedName:this.FILENAME,id:"teacherBoardSyncFile",types:[{description:"工作台数据",accept:{"application/json":[".json"]}}]});
-      this.dir=null;this.fileMode=true;
-      step("② 已获得数据文件（单文件模式）",this.file.name);
-      await this._finishConnect(silent,step);
-    }catch(e){
-      this._connectFail(e,act,silent,"保存窗口");
-    }
-  },
-  async _finishConnect(silent,step){
-    step("③ 已打开数据文件",this.FILENAME);
-    let payload=await this.readPayload();
-    step("④ 读取数据",payload?"云端已有数据（版本"+payload.rev+"）":"文件为空，准备写入本机数据");
-    if(!payload){
-      // 空文件/新文件：把本机现有数据迁移进去
-      const hasLocal=DB.stores.some(s=>State.data[s].length>0)||Object.keys(State.meta).some(k=>k!=="syncDir"&&k!=="syncFile");
-      const p={app:"teacherBoard",device:this.device,rev:1,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-      await this.writePayload(p,true);
-      this.rev=1;
-      step("⑤ 已写入本机数据");
-      if(hasLocal&&!silent)toast("已把本机现有数据迁移到同步文件");
-    }else{
-      const changed=await this.applyPayload(payload,true);
-      step("⑤ 已合并云端数据",changed?"本机有较新改动，稍后上传":"本机与云端一致");
-      if(changed)this.noteChange(); // 本地较新的改动随合并结果上传
-    }
-    /* 连接/写入 与 记忆句柄 解耦：记忆失败不影响本次连接与上传 */
-    try{
-      if(this.fileMode){
-        await DB.metaSet("syncDir",null);delete State.meta.syncDir;
-        await DB.metaSet("syncFile",this.file);State.meta.syncFile=this.file;
-      }else{
-        await DB.metaSet("syncFile",null);delete State.meta.syncFile;
-        await DB.metaSet("syncDir",this.dir);State.meta.syncDir=this.dir;
-      }
-      this._persistFail=null;
-      try{localStorage.setItem("tbSyncConnected","1");}catch(e){}
-      step("⑥ "+(this.fileMode?"同步文件":"文件夹")+"已记住，下次打开免重选");
-    }catch(pe){
-      this._persistFail=(pe&&pe.message)||String(pe);
-      try{localStorage.removeItem("tbSyncConnected");}catch(e){}
-      step("⑥ ⚠️ 记住失败",this._persistFail);
-      if(!silent)toast("已连接并写入成功；但本浏览器未能记住（每次打开需重新选一次）");
-    }
-    this._memLost=false;this._lastErr=null;
-    this.status="on";this.lastSync=new Date();this.remotePending=null;this._fileInfo=null;
-    this.refreshFileInfo();
-    this.updateChip();
-    step("⑦ 连接完成 ✓"+(this.fileMode?"（单文件模式）":""));
-    if(!silent)render();
-  },
-  _connectFail(e,act,silent,what){
-    const step=(n,extra)=>{this._steps.push({n,extra:extra||"",t:new Date().toLocaleTimeString("zh-CN",{hour12:false})});};
-    if(e&&String(e.name)==="AbortError"){
-      const msg=(e&&e.message)||"";
-      let hint="可能真被点了关闭/Esc——如果根本没看到窗口";
-      if(/without user activation|activation/i.test(msg))hint="浏览器认为这次点击已失效（激活丢失），请用鼠标直接单击按钮再试";
-      else if(/permission|denied|blocked|editor/i.test(msg))hint="疑似被浏览器权限或安全软件拦截";
-      else hint="请把这行浏览器原文截图发我，并尝试 edge://settings/reset 还原默认设置后重试";
-      step("⛔ "+what+"被取消","浏览器原文：「"+msg+"」　·　"+act+"　·　"+hint);
-      if(!silent)render();
-      return;
-    }
-    this._steps.push({n:"⛔ 出错",extra:(e&&e.message)||String(e),t:new Date().toLocaleTimeString("zh-CN",{hour12:false})});
-    this.status="err";this._lastErr=(e&&e.message)||String(e);this.updateChip();
-    toast("连接失败："+this._lastErr);
-    if(!silent)render();
-  },
   metaClean(){const m={};for(const k in State.meta)if(k!=="syncDir"&&k!=="syncFile")m[k]=State.meta[k];return m;},
   cleanData(){
     const data={};
     for(const s of DB.stores)data[s]=State.data[s];
     data.exams=State.data.exams.map(e=>Object.assign({},e,{rows:(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;})}));
     return data;
-  },
-  async readPayload(){
-    try{
-      const f=await this.file.getFile();
-      if(f.size===0)return null;
-      const p=JSON.parse(await f.text());
-      return (p&&p.app==="teacherBoard")?p:null;
-    }catch(e){return null;}
   },
   async applyPayload(p,merge){
     if(!merge){
@@ -4311,7 +4173,7 @@ const Sync={
     }
     const mt={};for(const k in rt)mt[k]=rt[k];
     for(const k in lt)mt[k]=Math.max(rt[k]||0,lt[k]||0);
-    m.metaTime=mt;m.syncDir=State.meta.syncDir;m.syncFile=State.meta.syncFile;
+    m.metaTime=mt;
     State.meta=m;
     for(const s of DB.stores){
       const local=State.data[s]||[],remote=(p.data&&p.data[s])||[];
@@ -4328,74 +4190,9 @@ const Sync={
     this.rev=p.rev||0;
     return changed;
   },
-  async writePayload(p,silent){
-    for(let i=0;i<3;i++){
-      try{
-        const w=await this.file.createWritable({keepExistingData:false});
-        await w.write(JSON.stringify(p));
-        await w.close();
-        this.lastSync=new Date();this.status="on";this.updateChip();
-        this._fileInfo=null; // 重新缓存文件大小/时间
-        if(this._snapWanted||this._snapDay!==this.dayStr()){await this.makeSnapshot(p);this._snapDay=this.dayStr();this._snapWanted=false;}
-        return true;
-      }catch(e){await new Promise(r=>setTimeout(r,400));}
-    }
-        this.status="err";this.updateChip();
-        if(!silent)toast("写入同步文件失败（坚果云可能正在占用，稍后会自动重试）");
-        // 自动重试，避免因写入失败丢同步
-        if(!this._retry){this._retry=setTimeout(()=>{this._retry=null;this.noteChange();},5000);}
-        return false;
-  },
-  /* 双轨制：固定文件工作台数据.json继续作为同步载体（多设备互认靠它），
-     快照 工作台数据快照_月日_时分.json 只增不改，肉眼可见同步是否成功 + 历史回溯 */
-  dayStr(){const d=new Date();return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();},
-  snapName(){const d=new Date(),z=n=>String(n).padStart(2,"0");
-    return `工作台数据快照_${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}.json`;},
-  async makeSnapshot(p){
-    if(!this.dir)return null; // 单文件模式无文件夹可放快照
-    try{
-      const name=this.snapName();
-      const fh=await this.dir.getFileHandle(name,{create:true});
-      const w=await fh.createWritable();await w.write(JSON.stringify(p));await w.close();
-      await this.cleanSnapshots();
-      return name;
-    }catch(e){return null;}
-  },
-  SNAP_RE:/^工作台数据快照_\d{4}_\d{4}\.json$/,
-  async cleanSnapshots(){
-    try{
-      const names=[];
-      for await(const n of this.dir.values()){if(this.SNAP_RE.test(n))names.push(n);}
-      names.sort(); // 零填充命名，字典序即时间序
-      this._snapNames=names.slice().reverse().slice(0,5);
-      const excess=names.slice(0,Math.max(0,names.length-10));
-      for(const n of excess)await this.dir.removeEntry(n);
-    }catch(e){}
-  },
-  async refreshFileInfo(){
-    if(!this.file)return null;
-    try{const f=await this.file.getFile();this._fileInfo={size:f.size,mtime:new Date(f.lastModified)};return this._fileInfo;}catch(e){return null;}
-  },
-  _t:null,
   noteChange(){
-    if(this.ghConn)this._ghNote();
-    if(!this.file)return;
-    this.status="sync";this.updateChip();
-    clearTimeout(this._t);
-    this._t=setTimeout(async()=>{
-      try{
-        // 写入前先检查云端：若其他设备已更新，不盲写覆盖
-        const rp=await this.readPayload();
-        if(rp&&rp.rev>this.rev){
-          this.remotePending=rp;this.status="on";
-          this.updateChip("⚠️ 其他设备已更新，点此加载");
-          return;
-        }
-      }catch(e){}
-      this.rev=this.rev+1;
-      const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-      await this.writePayload(p);
-    },800);
+    if(!this.ghConn)return;
+    this._ghNote();
   },
   async checkRemote(){
     if(this.ghConn&&!this.ghChecking){
@@ -4414,19 +4211,6 @@ const Sync={
       }catch(e){this._ghErr=(e&&e.message)||String(e);if(this.status!=="sync")this.status="err";this.updateChip();}
       finally{this.ghChecking=false;}
     }
-    if(!this.file||this.checking)return;
-    this.checking=true;
-    try{
-      this.refreshFileInfo();
-      const p=await this.readPayload();
-      if(p&&p.rev!==this.rev&&p.rev>this.rev){
-        this.remotePending=p;
-        this.updateChip("⚠️ 其他设备已更新，点此加载");
-        if(this.status!=="err")this.status="on";
-      }else if(this.remotePending&&p&&p.rev<=this.rev){
-        this.remotePending=null;this.updateChip();
-      }
-    }finally{this.checking=false;}
   },
   async loadRemote(){
     if(!this.remotePending)return;
@@ -4435,57 +4219,6 @@ const Sync={
     this.updateChip();toast(changed?"已合并云端最新数据（并上传本地较新改动）":"已加载云端最新数据");render();
     if(changed)this.noteChange();
   },
-  async disconnect(){
-    this.file=null;this.dir=null;this.fileMode=false;this.remotePending=null;this.status="off";this._fileInfo=null;this._snapNames=null;
-    this._persistFail=null;this._lastErr=null;this._memLost=false;
-    try{localStorage.removeItem("tbSyncConnected");}catch(e){}
-    await DB.metaSet("syncDir",null);
-    delete State.meta.syncDir;
-    await DB.metaSet("syncFile",null);
-    delete State.meta.syncFile;
-    this.updateChip();toast("已断开同步（本机数据仍在）");render();
-  },
-  updateChip(msg){
-    const el=document.getElementById("cloudChip");if(!el)return;
-    if(!this.avail&&!this.ghConn){el.innerHTML="";return;}
-    const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
-    const map={off:["🔗","连接同步"],auth:["🔗","待授权 · 点击授权"],on:["☁️","已同步"+(this.lastSync?" "+hm(this.lastSync):""),""],sync:["☁️","同步中…"],err:["⚠️","同步异常 · 点击重试"]};
-    const[m1,m2]=map[this.status]||["☁️",""];
-    el.innerHTML=`<span style="cursor:pointer;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;white-space:nowrap" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
-  },
-  _diag:null,
-  _diagPush(k,v){if(!this._diag)this._diag=[];this._diag.push({k,v,t:new Date().toLocaleTimeString("zh-CN",{hour12:false})});},
-  _diagTest(kind){
-    const done=()=>{try{render();}catch(e){}};
-    if(kind==="ua"){this._diagPush("① 浏览器环境",navigator.userAgent);done();return;}
-    if(kind==="file"||kind==="dir"){
-      const inp=document.createElement("input");inp.type="file";
-      if(kind==="dir")inp.setAttribute("webkitdirectory","");
-      inp.style.display="none";document.body.appendChild(inp);
-      let settled=false;
-      inp.onchange=()=>{settled=true;this._diagPush(kind==="dir"?"③ 传统文件夹窗口":"② 单文件窗口","成功弹出：已选中 "+inp.files.length+" 项"+(inp.files[0]?"（"+inp.files[0].name+"）":""));inp.remove();done();};
-      inp.onclick=()=>{setTimeout(()=>{if(!settled){this._diagPush(kind==="dir"?"③ 传统文件夹窗口":"② 单文件窗口","30秒内没有弹窗或没有选择——系统对话框被拦/未出现");inp.remove();done();}},30000);};
-      inp.click();
-      return;
-    }
-    if(kind==="picker"){
-      if(typeof window.showDirectoryPicker!=="function"){this._diagPush("④ 新版文件夹API","浏览器不提供 showDirectoryPicker");done();return;}
-      const act=(()=>{try{const a=navigator.userActivation;return a?"点击激活:"+(a.isActive?"有效":"已失效"):"";}catch(e){return "";}})();
-      window.showDirectoryPicker({id:"diagMode",mode:"readwrite"}).then(h=>{this._diagPush("④ 新版文件夹API","成功弹出：已选择「"+h.name+"」");done();}).catch(e=>{this._diagPush("④ 新版文件夹API",e.name+"："+e.message+(act?"　·　"+act:""));done();});
-      return;
-    }
-    if(kind==="fsafile"){
-      if(typeof window.showOpenFilePicker!=="function"){this._diagPush("⑤ 新版单文件API","浏览器不提供 showOpenFilePicker");done();return;}
-      window.showOpenFilePicker({types:[{description:"JSON",accept:{"application/json":[".json"]}}],multiple:false}).then(async hs=>{
-        const hh=hs[0];let perm="?";
-        try{perm=await hh.queryPermission({mode:"readwrite"});}catch(e){perm="查询失败:"+e.message;}
-        this._diagPush("⑤ 新版单文件API","成功弹出：已选「"+hh.name+"」· 读写权限状态:"+perm);
-        done();
-      }).catch(e=>{this._diagPush("⑤ 新版单文件API",e.name+"："+e.message);done();});
-      return;
-    }
-  },
-  /* 手动同步备用通道：不依赖新版API，用传统对话框+下载实现多机同步 */
   async persistAll(){
     for(const s of DB.stores){
       await DB.clear(s);
@@ -4496,13 +4229,21 @@ const Sync={
       try{await DB.metaSet(k,State.meta[k]);}catch(e){}
     }
   },
+  updateChip(msg){
+    const el=document.getElementById("cloudChip");if(!el)return;
+    const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
+    const map={off:["🔗","连接云端同步"],on:["☁️","已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","同步中…"],err:["⚠️","同步异常 · 点击查看"]};
+    const[m1,m2]=map[this.status]||["☁️",""];
+    el.innerHTML=`<span style="cursor:pointer;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;white-space:nowrap" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
+  },
+  /* 手动导出/导入：不依赖任何网络的保底通道 */
   manualExport(){
     this.rev=(this.rev||0)+1;
     const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
     const d=new Date(),z=n=>String(n).padStart(2,"0");
     const name="工作台数据_导出_"+z(d.getMonth()+1)+z(d.getDate())+"_"+z(d.getHours())+z(d.getMinutes())+".json";
     download(name,JSON.stringify(p),"application/json");
-    toast("已导出「"+name+"」——保存/移动到坚果云文件夹，其他电脑用「导入」选它");
+    toast("已导出「"+name+"」——可经微信/QQ 传到其他设备后用「导入」合并");
   },
   manualImport(){
     const inp=document.createElement("input");inp.type="file";inp.accept=".json,application/json";inp.style.display="none";document.body.appendChild(inp);
@@ -4516,86 +4257,59 @@ const Sync={
         const changed=await this.applyPayload(p,true);
         if(p.rev>(this.rev||0))this.rev=p.rev;
         await this.persistAll();
+        if(this.ghConn)this.noteChange();
         toast(changed?"已导入并合并：文件里有本机没有的更新，已写入本机":"已导入：数据一致，无需更新");
         render();
       }catch(e){toast("导入失败："+((e&&e.message)||e));}
     };
     inp.click();
   },
-  settingsCard(){return this._folderCard()+this.ghCard();},
-  _folderCard(){
-    if(!this.avail)return `<div class="card"><h3>☁️ 坚果云文件夹同步（电脑）</h3><div class="notice">当前浏览器不支持文件夹选择（手机浏览器均如此）。电脑上请用 Chrome/Edge 打开本页连接坚果云文件夹；<b>手机请用下方「📱 GitHub 云同步」</b>。</div></div>`;
-    const fi=this._fileInfo;
-    const kb=v=>v>1048576?(v/1048576).toFixed(1)+" MB":Math.round(v/1024)+" KB";
-    const isFile=(location.protocol==="file:");
-    return `<div class="card"><h3>☁️ 坚果云文件同步<span class="sub">三台电脑自动同步的关键</span></h3>
-    ${isFile?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是「本地文件」方式打开（地址栏 file:// 开头）</b><br>浏览器会禁止本地文件页面弹出文件夹选择窗口，因此<b>无法连接同步</b>（点连接会毫无反应）。请在 Edge 地址栏输入本机固定地址 <b>http://127.0.0.1:8800/</b> 打开本页（已设置开机自动启动本机服务）。</div>`:""}
-    <div class="notice blue"><b>使用方法：</b>① 在坚果云同步空间的本地文件夹里建一个文件夹（如"教师工作台"），并确认该文件夹已加入坚果云客户端的同步列表；② 点下方按钮选择它；③ 数据自动保存为其中的「${this.FILENAME}」，坚果云自动在三台电脑间同步。<br>
-    每次打开页面如浏览器提示"允许访问"，点<b>允许</b>即可（免重新选文件夹）。其他电脑改动后，本页顶部 ☁️ 会提示"其他设备已更新"，点击加载最新数据。<br>
-    <b>怎么确认同步成功？</b>点「⬆️ 立即上传并生成快照」，文件夹里立刻出现一份「工作台数据快照_月日_时分.json」——看到新文件就说明写入成功；剩下上传云端由坚果云完成（快照仅保留最近 10 份，自动清理）。</div>
-    ${this._steps&&this._steps.length?`<div class="notice" style="border-left:4px solid #2563eb;background:#eff6ff"><b>最近一次连接过程（步骤追踪）</b><br>${this._steps.map(s=>`<span class="muted">${s.t}</span>　${esc(s.n)}${s.extra?` —— <b>${escA(s.extra)}</b>`:String()}`).join("<br>")}</div>`:String()}
-    <div class="notice" style="border-left:4px solid #64748b;background:#f8fafc"><b>🔎 连接诊断（点连接没反应时用这个）</b><br>按顺序点下面四个按钮：②③④ 每个都会尝试弹一个系统窗口，哪个弹出了窗口哪个就是通的。<br>
-    <div class="flex" style="gap:6px;margin-top:6px;flex-wrap:wrap">
-      <button class="btn sm" data-act="diagTest" data-id="ua">① 环境信息</button>
-      <button class="btn sm" data-act="diagTest" data-id="file">② 单文件窗口</button>
-      <button class="btn sm" data-act="diagTest" data-id="dir">③ 传统文件夹窗口</button>
-      <button class="btn sm" data-act="diagTest" data-id="picker">④ 新版文件夹API</button>
-      <button class="btn sm" data-act="diagTest" data-id="fsafile">⑤ 新版单文件API</button>
-    </div>
-    ${this._diag&&this._diag.length?`<div style="margin-top:8px;font-size:13px;line-height:1.7">${this._diag.map(d=>`<div><span class="muted">${d.t}</span>　<b>${esc(d.k)}</b>：${escA(d.v)}</div>`).join("")}</div>`:`<div class="muted" style="margin-top:4px">尚未测试</div>`}</div>
-    <div class="notice" style="border-left:4px solid #16a34a;background:#f0fdf4"><b>📥 手动同步（备用通道，必定可用）</b><br>如果连接按钮一直弹不出窗口，用这条通道照样多机同步：<b>导出</b>的文件保存/移动到坚果云文件夹里，其他电脑点<b>导入</b>选它。数据按每条记录自动合并，两边的新改动都不会丢。<br>
-    <div class="flex" style="gap:6px;margin-top:6px;flex-wrap:wrap">
-      <button class="btn sm primary" data-act="syncExport">📤 导出到坚果云文件夹</button>
-      <button class="btn sm" data-act="syncImport">📥 从坚果云文件夹导入</button>
-    </div>
-    <div class="muted" style="margin-top:4px">小提示：把 Edge 的默认下载位置设为坚果云文件夹，「导出」就会直接落到文件夹里，连移动都省了（edge://settings/downloads 可改）。</div></div>
-    <div style="font-size:13px;margin:6px 0">当前连接：${this.fileMode?"<b>工作台数据.json（单文件模式）</b>":this.dir?"<b>"+esc(this.dir.name)+"</b>（文件夹模式）":"<b>未连接</b>"}${fi?`　·　数据文件 <b>${kb(fi.size)}</b>　·　最后写入 <b>${fi.mtime.toLocaleString("zh-CN")}</b>`:this.file?`（读取文件信息中…）`:""}</div>
-    ${this._persistFail?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 本浏览器无法记住文件夹</b>（原因：${esc(this._persistFail)}）。<br>连接与上传功能<b>正常可用</b>，但每次打开页面需重新点「连接同步文件夹」选择一次，数据不会丢失。</div>`:""}
-    ${this._memLost?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 记忆丢失</b>：之前连接过，但浏览器没有保存住文件夹连接（可能本浏览器不允许记忆，或浏览器数据被清理软件清空）。请点「连接同步文件夹」重新选择一次。</div>`:""}
-    ${this._lastErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 最近一次连接错误</b>：${esc(this._lastErr)}<br>如反复出现，请截图发我。</div>`:""}</div>
-    ${this._snapNames&&this._snapNames.length?`<div class="muted" style="font-size:12px;margin-bottom:6px">最近快照：${this._snapNames.map(esc).join("、")}</div>`:String()}
-    <div class="flex">
-      ${!this.file&&this.status==="auth"?`<button class="btn primary" data-act="syncAuth">✅ 一键授权并连接</button>`:""}
-      ${!this.file&&this._offerFileMode?`<button class="btn primary" data-act="syncConnectFile">🔗 单文件同步连接（保存窗口）</button>`:""}
-      <button class="btn ${this.file?"":"primary"}" data-act="syncConnect">${this.file?"🔗 更换同步文件夹":"🔗 连接同步文件夹"}</button>
-      ${this.file?`<button class="btn" data-act="syncUploadNow">⬆️ 立即上传并生成快照</button>
-      <button class="btn" data-act="syncCheckNow">立即检查云端更新</button>
-      <button class="btn danger" data-act="syncDisconnect">断开同步</button>
-      <span class="muted">最近同步：${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"} · 数据版本 ${this.rev}</span>`:""}
-    </div></div>`;
-  },
+  settingsCard(){return this.ghCard();},
   ghCard(){
     const c=this.ghCfg;
-    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 连接失败</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/粘了旧令牌（请从对话里重新完整复制）；令牌失效（去 GitHub 重新生成）；网络无法访问 GitHub。</div>`:"";
+    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步异常</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/失效（重新生成）；网络访问 GitHub 不稳定（换网络重试；不影响本机数据）。</div>`:"";
     if(!c||!this.ghConn){
-      return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用，免装坚果云</span></h3>
+      return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
+      ${location.protocol==="file:"?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是本地文件方式打开（地址栏 file:// 开头）</b>：浏览器禁止本地文件联网，无法使用云端同步。请用网址 <b>https://teacher-xjz.github.io/teacher-workbench/</b> 打开本工作台并收藏书签；本地文件仅作离线备份。</div>`:""}
       ${errBox}
-      <div class="notice blue"><b>原理：</b>数据上传到你自己 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（已创建好，外人不可见）；手机和电脑都直接读写云端这一份，双向自动同步。<br>
-      <b>怎么用：</b>① 下方粘贴你的 GitHub 访问令牌（就是之前注册 GitHub 时给我的那个 ghp_ 开头令牌；也可到 github.com → Settings → Developer settings → Fine-grained tokens 新建一个仅授权 teacher-workbench-data 仓库、Contents 可读写的令牌）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接，即可看到全部数据。<br>
-      <b>安全：</b>令牌只保存在本设备的浏览器里，不出现在网页代码中；仓库是私有的，只有持令牌的人能访问。</div>
+      <div class="notice blue"><b>原理：</b>数据上传到你 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（外人不可见）；电脑和手机都直接读写云端这一份，双向自动同步。每次上传自动留档，历史版本可一键恢复。<br>
+      <b>怎么用：</b>① 粘贴 GitHub 访问令牌（ghp_ 开头）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接。<br>
+      <b>安全：</b>令牌只保存在本设备浏览器里，不出现在网页代码中；仓库私有，只有持令牌的人能访问。</div>
       <div class="frow">
         <div class="field" style="flex:.5"><label>仓库名（默认已填好）</label><input id="ghRepo" value="${escA(c?c.repo:"teacher-workbench-data")}"></div>
         <div class="field" style="flex:1"><label>GitHub 访问令牌（ghp_ 开头）</label><input id="ghToken" type="password" placeholder="粘贴 ghp_... 令牌" autocomplete="off">　<button class="btn sm" data-act="ghTogglePwd">👁 显示/隐藏</button></div>
       </div>
-      <button class="btn primary" data-act="ghConnect">🔗 连接云端（GitHub 私有仓库）</button></div>`;
+      <button class="btn primary" data-act="ghConnect">🔗 连接云端</button>
+      ${this._manualCard()}</div>`;
     }
-    return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用</span></h3>
+    return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
     <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有仓库）　·　数据版本 <b>${this.rev}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
-    ${this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步错误</b>：${esc(this._ghErr)}<br>常见原因：令牌失效/过期（重新生成一个再连接）；网络无法访问 GitHub（手机需能正常上网）。</div>`:""}
+    ${errBox}
     <div class="flex">
       <button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>
       <button class="btn" data-act="syncCheckNow">🔄 立即检查云端更新</button>
-      <button class="btn danger" data-act="ghDisconnect">断开云端同步</button>
+      <button class="btn" data-act="ghLoadHistory">🕘 云端历史版本</button>
+      <button class="btn danger" data-act="ghDisconnect">断开同步</button>
     </div>
-    <div class="muted" style="margin-top:6px;font-size:12px">改动后约 1 秒自动上传；其他设备有更新时，页面顶部 ☁️ 胶囊会提示「其他设备已更新」，点击即可加载合并。手机上打开网址后登录同一令牌即可查看全部数据。</div></div>`;
+    ${this._ghHist?`<details open class="lnsec" style="margin-top:8px"><summary>🕘 历史版本（最近 ${this._ghHist.length} 次上传，可一键恢复）</summary>
+    <div style="font-size:12px;line-height:2;margin-top:6px">${this._ghHist.map(h=>`<div>🕒 ${esc(h.date.toLocaleString("zh-CN"))}　${esc(h.message)}　<button class="btn sm" data-act="ghRestore" data-id="${escA(h.sha)}">恢复此版本</button></div>`).join("")}</div>
+    <div class="muted" style="margin-top:4px">恢复 = 用该版本覆盖本机数据并上传。建议恢复前先「导出全部数据」备份当前状态。</div></details>`:""}
+    <div class="muted" style="margin-top:6px;font-size:12px">改动后约 1 秒自动上传；其他设备有更新时，页面顶部 ☁️ 胶囊会提示「其他设备已更新」，点击即合并。</div>
+    ${this._manualCard()}</div>`;
+  },
+  _manualCard(){
+    return `<div class="notice" style="border-left:4px solid #16a34a;background:#f0fdf4;margin-top:10px"><b>📥 手动传文件（保底方式，不依赖网络）</b><br>某台设备暂时连不上 GitHub 时，用导出/导入手动搬家：数据按记录自动合并，两边的新改动都不会丢。<br>
+    <div class="flex" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+      <button class="btn sm" data-act="syncExport">📤 导出数据文件</button>
+      <button class="btn sm" data-act="syncImport">📥 导入数据文件</button>
+    </div></div>`;
   },
 };
-ACTIONS.syncConnectFile=()=>Sync.connectFileMode();
 ACTIONS.ghConnect=()=>Sync.connectGh();
 ACTIONS.ghTogglePwd=()=>{const el=$("#ghToken");if(el)el.type=el.type==="password"?"text":"password";};
 ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步云端，本机数据不受影响。确定断开吗？"))Sync.ghDisconnect();};
 ACTIONS.ghUploadNow=async()=>{
-  if(!Sync.ghConn){toast("未连接 GitHub 云同步");return;}
+  if(!Sync.ghConn){toast("未连接云端同步");return;}
   Sync.status="sync";Sync.updateChip();
   try{
     /* 上传前先读云端：云端版本更新时绝不能盲写覆盖（v44 保护） */
@@ -4611,45 +4325,43 @@ ACTIONS.ghUploadNow=async()=>{
   }catch(e){toast("上传失败："+((e&&e.message)||e));}
   render();
 };
-ACTIONS.syncExport=()=>Sync.manualExport();
-ACTIONS.syncImport=()=>Sync.manualImport();
-ACTIONS.diagTest=(id)=>Sync._diagTest(id);
-ACTIONS.cloudChipClick=async()=>{
-  if(Sync.remotePending){await Sync.loadRemote();return;}
-  if(Sync.status==="auth"&&Sync.dir){
-    const ok=await Sync.requestPerm();
-    if(ok){await Sync.connect(Sync.dir,true);toast("同步已连接");render();return;}
-    toast("未获得授权，请到「设置」页重新连接");
-  }
-  go("set");
-};
-ACTIONS.syncAuth=async()=>{
-  const ok=await Sync.requestPerm();
-  if(ok){
-    if(Sync.fileMode)await Sync._finishConnect(false,()=>{});
-    else await Sync.connect(Sync.dir,true);
-    toast("同步已连接");render();
-  }
-  else toast("未获得授权，请点击「连接同步文件夹」重新选择");
-};
-ACTIONS.syncConnect=()=>Sync.connect();
-ACTIONS.syncUploadNow=async()=>{
-  if(!Sync.file){toast("未连接同步文件夹");return;}
-  Sync._snapWanted=true;
-  Sync.rev=Sync.rev+1;
-  const p={app:"teacherBoard",device:Sync.device,rev:Sync.rev,savedAt:new Date().toISOString(),meta:Sync.metaClean(),data:Sync.cleanData()};
-  const ok=await Sync.writePayload(p);
-  if(ok)toast("✅ 已上传本机数据，快照已生成（去文件夹看新文件）");
+ACTIONS.ghLoadHistory=async()=>{
+  try{Sync._ghHist=await Sync.ghHistory();toast("已读取最近 "+Sync._ghHist.length+" 次上传记录");}
+  catch(e){toast("读取历史失败："+((e&&e.message)||e));}
   render();
 };
+ACTIONS.ghRestore=async sha=>{
+  const h=(Sync._ghHist||[]).find(x=>x.sha===sha);if(!h)return;
+  if(!confirm("确定恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本（"+h.message+"）吗？\n\n将用该版本覆盖本机当前数据并上传。当前未上传的改动会丢失，建议先「导出全部数据」备份。"))return;
+  Sync.status="sync";Sync.updateChip();
+  try{
+    const r=await fetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders(),cache:"no-store"});
+    if(!r.ok)throw new Error("读取历史版本失败（HTTP "+r.status+"）");
+    const j=await r.json();
+    const b64=(j.content||"").replace(/\n/g,"");
+    const bytes=Uint8Array.from(atob(b64),ch=>ch.charCodeAt(0));
+    const p=JSON.parse(new TextDecoder("utf-8").decode(bytes));
+    if(!p||p.app!=="teacherBoard")throw new Error("该版本内容不是工作台数据");
+    await Sync.applyPayload(p,false);
+    await Sync.persistAll();
+    Sync.ghSha=j.sha;
+    await Sync._ghDoPush(); // 恢复结果作为新版本上传
+    toast("✅ 已恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本并上传");
+  }catch(e){Sync.status="err";Sync.updateChip();toast("恢复失败："+((e&&e.message)||e));}
+  render();
+};
+ACTIONS.syncExport=()=>Sync.manualExport();
+ACTIONS.syncImport=()=>Sync.manualImport();
 ACTIONS.syncCheckNow=async()=>{
   await Sync.checkRemote();
   if(Sync.remotePending)await Sync.loadRemote();
-  else toast(Sync.ghConn?"✅ 已是最新：连接云端时已自动拉取全部数据；电脑今后有更新会自动提示":"云端没有新数据");
+  else toast(Sync.ghConn?"✅ 已是最新：连接云端时已自动拉取全部数据；其他设备今后有更新会自动提示":"尚未连接云端同步");
 };
-ACTIONS.syncDisconnect=()=>{
-  if(confirm("断开后数据仍保存在本机浏览器，坚果云文件保持不变。确定断开吗？"))Sync.disconnect();
+ACTIONS.cloudChipClick=async()=>{
+  if(Sync.remotePending){await Sync.loadRemote();return;}
+  go("set");
 };
+
 </script>
 </body>
 </html>
