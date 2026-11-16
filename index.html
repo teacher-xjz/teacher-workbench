@@ -21,6 +21,7 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 #topbar{position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;box-shadow:var(--shadow)}
 #topbar .inner{max-width:1200px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #topbar .brand{font-size:18px;font-weight:700;letter-spacing:.5px}
+#topbar .brandver{display:block;font-size:10px;font-weight:400;opacity:.75;line-height:1.3;margin-top:1px}
 #topbar .brand small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px}
 #topbar .datebox{margin-left:auto;font-size:13px;opacity:.92;text-align:right}
 #cloudChip{flex:0 0 auto;font-size:12px}
@@ -159,7 +160,7 @@ canvas.chart{width:100%;display:block}
 </head>
 <body>
 <div id="topbar"><div class="inner">
-  <div class="brand">📚 教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small></div>
+  <div class="brand"><span>📚 教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small></span><span id="brandVer" class="brandver"></span></div>
   <span id="cloudChip"></span>
   <div class="datebox" id="dateBox"></div>
 </div></div>
@@ -192,8 +193,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
+window.APP_VERSION="v40";
 "use strict";
 /* ================= 工具 ================= */
+/* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
+(function(){const bv=document.getElementById("brandVer");if(bv&&window.APP_VERSION)bv.textContent=window.APP_VERSION;})();
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const escA=s=>esc(s).replace(/\n/g,"&#10;");
@@ -511,6 +515,31 @@ function chartBar2(cv,labels,vals1,vals2,opt={}){
       if(v==null)return;const bh=v/max*ch,y=padT+ch-bh,x=cx-bw-1+off;
       ctx.fillStyle=col;ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,bw,bh,[3,3,0,0]):ctx.rect(x,y,bw,bh);ctx.fill();
       ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,1),x+bw/2,y-4);});
+    ctx.fillStyle="#475569";ctx.textAlign="center";
+    ctx.save();ctx.translate(cx,h-padB+8);if(String(lb).length>4){ctx.rotate(-Math.PI/4);ctx.textAlign="right";}ctx.fillText(String(lb),0,0);ctx.restore();
+  });
+}
+function chartBarN(cv,labels,series,opt={}){
+  /* 多系列分组柱图：series=[{values:[...],color},...]，用于班级对比等场景 */
+  const h=opt.h||280,{ctx,w}=setupCanvas(cv,h);
+  ctx.clearRect(0,0,w,h);
+  const maxLen=Math.max(0,...labels.map(lb=>String(lb).length));
+  const drop=maxLen>4?Math.round(maxLen*8)+8:0;
+  const padL=44,padR=8,padT=14,padB=20+drop,cw=w-padL-padR,ch=h-padT-padB;
+  const all=series.flatMap(s=>s.values||[]).filter(v=>v!=null);
+  const max=(Math.max(...all,opt.max||0)||1)*1.12;
+  ctx.font="11px sans-serif";ctx.fillStyle="#64748b";
+  for(let i=0;i<=4;i++){const y=padT+ch*i/4;ctx.strokeStyle="#e2e8f0";ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();
+    ctx.textAlign="right";ctx.fillText(fmtN(max-max*i/4,0),padL-6,y+4);}
+  const n=labels.length,k=series.length,gap=cw/Math.max(1,n),bw=Math.max(4,Math.min(16,gap*0.62/Math.max(1,k)));
+  labels.forEach((lb,i)=>{
+    const cx=padL+gap*i+gap/2;
+    series.forEach((se,j)=>{
+      const v=(se.values||[])[i];if(v==null)return;
+      const bh=v/max*ch,x=cx-(k*bw+(k-1)*2)/2+j*(bw+2);
+      ctx.fillStyle=se.color;ctx.beginPath();ctx.roundRect?ctx.roundRect(x,padT+ch-bh,bw,bh,[3,3,0,0]):ctx.rect(x,padT+ch-bh,bw,bh);ctx.fill();
+      if(k<=3){ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,1),x+bw/2,padT+ch-bh-4);}
+    });
     ctx.fillStyle="#475569";ctx.textAlign="center";
     ctx.save();ctx.translate(cx,h-padB+8);if(String(lb).length>4){ctx.rotate(-Math.PI/4);ctx.textAlign="right";}ctx.fillText(String(lb),0,0);ctx.restore();
   });
@@ -1327,7 +1356,7 @@ function renderSet(){
     <div class="flex"><button class="btn danger" data-act="clearAll">清空全部数据（不可恢复）</button></div></div>
   <div class="card"><h3>ℹ️ 关于</h3>
     <div class="muted" style="line-height:2">
-    教师工作台 · 单文件本地应用，离线可用。<br>
+    教师工作台 · 单文件本地应用，离线可用。<b>当前版本：${esc(window.APP_VERSION||"未知")}</b>（顶栏标题下方同步显示）。<br>
     板块：首页总览 / 班主任（班级课表·名册·值日·活动·家长联系·班级成绩分析）/ 教科室（文稿看板·归档·课题管理·教学成果·教研）/ 教务（成绩导入·年级分析·教师对比·学生查询·考试安排）/ 个人（课表·待办·随手记·日程）。<br>
     成绩数据从本地 Excel / CSV 文件导入，支持选科、赋分总分、排名列自动识别。</div></div>`;
 }
@@ -2935,13 +2964,16 @@ function clsScoreView(){
   const st=settings();
   const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
   const ce=computeExam(exam);
-  const mine=ce.classes.find(c=>c.cls===myCls);
   const gradeClsRank=classTotalRank(exam);
+  /* 查看班级：默认自己班，可切换到本考试任意班级；对比班级多选（v40） */
+  const clsList=ce.classes.map(c=>c.cls);
+  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
+  const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
   const withTotalPrev=examsSorted();
   const idx=withTotalPrev.findIndex(e=>e.id===exam.id);
   const prev=idx>0?withTotalPrev[idx-1]:null;
   const pRankMap=prev?(()=>{const m={};computeExam(prev).ranks.forEach(x=>m[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);return m;})():null;
-  const rows=exam.rows.filter(r=>r.cls===myCls);
+  const rows=exam.rows.filter(r=>r.cls===viewCls);
   const critRows=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");});
   /* 统计卡数据：上线/临界/前80/进退步/偏科，全部按学生自己的方向线算 */
   const withT=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
@@ -2949,7 +2981,7 @@ function clsScoreView(){
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
   const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
   const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
-  const top80List=ce.ranks.filter(x=>x.rank!=null&&x.rank<=80&&x.row.cls===myCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
+  const top80List=ce.ranks.filter(x=>x.rank!=null&&x.rank<=80&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
   const weakMap={};
   rows.forEach(r=>{const cr=r._cr;if(!cr||!mine.n)return;const weak=[];
     exam.subjects.forEach(s=>{
@@ -2964,29 +2996,38 @@ function clsScoreView(){
   const deltaList=prev?rows.map(r=>{const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;const cur=r._grDir||null;
     if(pr==null||cur==null)return null;return{name:r.name,d:cur-pr};}).filter(Boolean):[];
   const upList=deltaList.filter(x=>x.d>0),downList=deltaList.filter(x=>x.d<0);
-  if(!mine)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
-    <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")}</div></div>`;
+  if(!mine||!viewCls)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
+    <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}</div></div>`;
   const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
   const tipC=arr=>clipNames(arr,x=>`${x.name} ${fmtN(x.total,0)}`);
   const tipCrit=(arr,kind)=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,kind);const df=r.total-ln;return `${r.name} ${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
   const critBenBand=critBandOf(exam,"pass"),critExcBand=critBandOf(exam,"exc");
   return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
+  ${clsList.length>1?`<div class="flex" style="flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px">
+    <label class="muted" style="font-size:12px">查看班级：</label>
+    <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select>
+    <label class="muted" style="font-size:12px;margin-left:10px">对比班级（点选可多选）：</label>
+    ${clsList.filter(c=>c!==viewCls).map(c=>`<button class="btn sm${cmpCls.includes(c)?" primary":""}" data-act="bzrCmpToggle" data-id="${escA(c)}">${esc(c)}班</button>`).join("")}
+    ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空对比</button>`:""}
+  </div>
+  ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
-    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[myCls]?`<small>年级第${gradeClsRank[myCls]}/${ce.classes.length} · </small>`:"")+`<small>前80占${top80List.length}人</small>`,"总分均分",clipNames(top80List,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
+    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+`<small>前80占${top80List.length}人</small>`,"总分均分",clipNames(top80List,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
     ${statCard(prev?`↑${upList.length} <small>退步</small> ↓${downList.length} <small>进步</small>`:"—","较上次（方向排名）",prev?`退步：${clipNames(upList,x=>`${x.name} ↑${x.d}`)}；进步：${clipNames(downList,x=>`${x.name} ↓${-x.d}`)}`:"",null)}
     ${statCard(`<small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critRows.length}</span>`,`本科线`,`${clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距本科线±${critBenBand}）：${tipCrit(critRows,"pass")}`,"#10b981")}
     ${statCard(`<small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critT.length}</span>`,`特控线`,`${clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距特控线±${critExcBand}）：${tipCrit(critT,"exc")}`,"#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
   <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前80名单）/ 较上次 / 本科线 / 特控线 / 偏科预警 卡片上可查看名单（最多前15人，超出显示"等共N人"）。</div>
+  ${cmpCls.length?bzrCompareSection(exam,ce,viewCls,cmpCls,myCls):""}
   <details open class="lnsec" style="margin-top:10px"><summary>📊 各科对比：班级均分 vs 年级均分（可收起）</summary>
   <canvas class="chart" id="cClsSubj"></canvas>${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
   ${(()=>{ // 各科对比表：列头可排序（默认科目序）
     const sk6=State.sortKey6||"s",sd6=State.sortDir6!=null?State.sortDir6:1;
     const cmpRows=exam.subjects.map(s=>{const m=mine.bySubj[s],g2=ce.grade.bySubj[s];if(!m)return null;
       const all=ce.classes.filter(c=>c.bySubj[s]&&c.bySubj[s].avg!=null).sort((a,b)=>b.bySubj[s].avg-a.bySubj[s].avg);
-      const rank=all.findIndex(c=>c.cls===myCls)+1;
+      const rank=all.findIndex(c=>c.cls===viewCls)+1;
       return{s,avg:m.avg,gavg:g2&&g2.avg,d:g2&&g2.avg!=null?m.avg-g2.avg:null,pass:m.pass,exc:m.exc,py:m.passYes,ey:m.excYes,pn:m.n,rank,ncls:all.length};}).filter(Boolean);
     cmpRows.sort((a,b)=>{
       if(sk6==="s")return natKey(a.s).localeCompare(natKey(b.s))*sd6;
@@ -3047,14 +3088,70 @@ function clsScoreView(){
     })()}
     <div class="muted" style="margin-top:6px">行左色条与姓名旁徽章：<span class="dot" style="background:#a855f7"></span>紫色=总分上特控线　<span class="dot" style="background:#10b981"></span>绿色=总分上本科线（未上特控）　<span class="dot" style="background:#f97316"></span>橙色=本科临界（线±${critBandOf(exam,"pass")}）；橙色科目 = 偏科预警：该科在班内名次明显落后于总分名次。</div></div>`;
 }
+/* ================= 班级对比区块（v40） ================= */
+const CMP_COLORS=["#2563eb","#dc2626","#16a34a","#ea580c","#7c3aed","#0d9488","#d97706","#0891b2"];
+function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
+  const gradeClsRank=classTotalRank(exam);
+  const clsArr=[viewCls,...cmpCls];
+  const stat=cls=>{
+    const rowsC=exam.rows.filter(r=>r.cls===cls);
+    const withT=rowsC.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+    const ben=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;}).length;
+    const exc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;}).length;
+    const info=ce.classes.find(c=>c.cls===cls);
+    const top80=ce.ranks.filter(x=>x.rank!=null&&x.rank<=80&&x.row.cls===cls).length;
+    const n=info?info.n:rowsC.length;
+    return{cls,n,avg:info&&info.total?info.total.avg:null,rank:gradeClsRank[cls]||null,ncls:ce.classes.length,ben,exc,
+      benRate:n?ben/n*100:null,excRate:n?exc/n*100:null,top80};
+  };
+  const sts=clsArr.map(stat);
+  const row=(label,fn)=>`<tr><td><b>${label}</b></td>${sts.map(s=>`<td class="ctr">${fn(s)}</td>`).join("")}</tr>`;
+  return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(viewCls)}班 vs ${cmpCls.map(c=>esc(c)+"班").join("、")}（可收起）</summary>
+  <div class="statcards" style="grid-template-columns:repeat(${Math.min(4,sts.length)},1fr);margin-top:6px">
+    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前80占${s.top80}人</div></div>`).join("")}
+  </div>
+  <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(s.cls)}班${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
+    ${row("班级人数",s=>fmtN(s.n,0))}
+    ${row("总分均分",s=>`<b>${fmtN(s.avg)}</b>`)}
+    ${row("年级排名",s=>s.rank?`第${s.rank}/${s.ncls}名`:"—")}
+    ${row("本科上线",s=>`${s.ben}人（${fmtN(s.benRate)}%）`)}
+    ${row("特控上线",s=>`${s.exc}人（${fmtN(s.excRate)}%）`)}
+    ${row("年级前80占席",s=>`${s.top80}人`)}
+  </tbody></table></div>
+  <div style="margin-top:12px"><canvas class="chart" id="cClsCmp"></canvas>${legendHtml(sts.map((s,i)=>({c:CMP_COLORS[i%CMP_COLORS.length],n:s.cls+"班"})))}</div>
+  <details class="lnsec" style="margin-top:8px"><summary>📋 单科均分逐班对照（展开查看）</summary>
+  <div class="twrap" style="margin-top:6px"><table class="tb"><thead><tr><th class="ctr">科目</th>${sts.map(s=>`<th class="ctr">${esc(s.cls)}班</th>`).join("")}<th class="ctr">年级均分</th></tr></thead><tbody>
+    ${exam.subjects.map(sub=>{
+      const vals=sts.map(s=>{const b=ce.classes.find(c=>c.cls===s.cls);const m=b&&b.bySubj&&b.bySubj[sub];return m&&m.avg!=null?m.avg:null;});
+      const gv=ce.grade&&ce.grade.bySubj&&ce.grade.bySubj[sub]?ce.grade.bySubj[sub].avg:null;
+      const valid=vals.filter(v=>v!=null);
+      const best=valid.length?Math.max(...valid):null;
+      return `<tr><td><b>${esc(sub)}</b></td>${vals.map(v=>`<td class="ctr"${v!=null&&best!=null&&v===best&&valid.length>1?' style="color:#16a34a;font-weight:700"':""}>${fmtN(v)}</td>`).join("")}<td class="ctr muted">${fmtN(gv)}</td></tr>`;}).join("")}
+  </tbody></table></div>
+  <div class="muted" style="margin-top:4px;font-size:12px">绿色加粗 = 该科均分最高的班级。</div></details>
+</details>`;
+}
+ACTIONS.bzrCmpToggle=id=>{
+  if(!id)return;
+  State.bzrScoreCmp=State.bzrScoreCmp||[];
+  const i=State.bzrScoreCmp.indexOf(id);
+  if(i>=0)State.bzrScoreCmp.splice(i,1);else State.bzrScoreCmp.push(id);
+  render();
+};
+ACTIONS.bzrCmpClear=()=>{State.bzrScoreCmp=[];render();};
 clsScoreView.after=()=>{
   const exam=currentExam();if(!exam)return;
-  const cv=$("#cClsSubj");if(!cv)return;
   const st=settings();
   const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
   const ce=computeExam(exam);
-  const mine=ce.classes.find(c=>c.cls===myCls);if(!mine)return;
-  chartBar2(cv,exam.subjects,
+  const clsList=ce.classes.map(c=>c.cls);
+  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
+  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;if(!mine)return;
+  /* 班级切换下拉 */
+  const sel=$("#bzrViewCls");
+  if(sel)sel.onchange=()=>{State.bzrScoreCls=sel.value;State.bzrScoreCmp=(State.bzrScoreCmp||[]).filter(c=>c!==sel.value);render();};
+  const cv=$("#cClsSubj");
+  if(cv)chartBar2(cv,exam.subjects,
     exam.subjects.map(s=>mine.bySubj[s]&&mine.bySubj[s].avg),
     exam.subjects.map(s=>{const g=ce.grade.bySubj[s];return g&&g.avg;}),
     {h:230});
@@ -3062,10 +3159,20 @@ clsScoreView.after=()=>{
   if(cvB){
     const bands=examCfg(exam).bands.slice().sort((a,b)=>b-a);
     const names=bands.map(b=>b+"+");names.push((bands[bands.length-1]||0)+"以下");
-    const rowsC=exam.rows.filter(r=>r.cls===myCls&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+    const rowsC=exam.rows.filter(r=>r.cls===viewCls&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
     const vals=names.map((nm,i)=>{const lo=i===names.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
       return rowsC.filter(r=>i===names.length-1?r.total<lo:(r.total>=lo&&r.total<hi)).length;});
     chartBar(cvB,names,vals,{h:200,color:"#0ea5e9",dec:0});
+  }
+  /* 班级对比：各科均分多系列柱图 */
+  const cvC=$("#cClsCmp");
+  if(cvC){
+    const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
+    const clsArr=[viewCls,...cmpCls];
+    chartBarN(cvC,exam.subjects,clsArr.map((c,i)=>{
+      const b=ce.classes.find(x=>x.cls===c);
+      return{color:CMP_COLORS[i%CMP_COLORS.length],values:exam.subjects.map(s=>{const m=b&&b.bySubj&&b.bySubj[s];return m&&m.avg!=null?m.avg:null;})};
+    }),{h:260});
   }
 };
 /* ==================== 考务编排（移植自 智能考务系统V3.8） ==================== */
