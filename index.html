@@ -265,7 +265,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v61";
+window.APP_VERSION="v62";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1074,7 +1074,6 @@ function renderHome(){
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
   const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试安排"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
   return `
-  ${heroBar()}
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
     <div class="card"><h3>⏰ 待办事项 <span class="sub">${overdue.length?`<span class="tag t-red">${overdue.length} 项逾期</span>`:""}今天 ${todayTodos.length} 项</span>
