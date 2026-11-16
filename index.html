@@ -99,6 +99,16 @@ table.tb tr.hl td{background:#fffbeb}
 .todo-item .meta{font-size:11px;color:var(--text2);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 /* 统计卡片 */
 .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+/* 班级成绩分析顶部工具条：查看班级 / 优生线前N / 对比班级 三组分区（v51） */
+.bzrbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:stretch}
+.bzrgrp{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:5px 10px}
+.bzrgrp>span:first-child{font-size:12px;color:var(--text2);white-space:nowrap;font-weight:600}
+.bzrgrp select{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:3px 6px}
+.bzrgrp.bzrcmp{flex:1;min-width:260px;flex-wrap:wrap}
+.cmpchip{display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:2px 9px;font-size:12px;cursor:pointer;user-select:none;line-height:1.5}
+.cmpchip b{font-weight:400;opacity:.55;font-size:13px}
+.cmpchip:hover{background:#e0e7ff;border-color:#a5b4fc}
+@media(max-width:640px){.bzrgrp{padding:5px 8px}.bzrgrp.bzrcmp{min-width:100%}}
 .stat{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px}
 .stat .v{font-size:22px;font-weight:700;color:var(--primary);line-height:1.35}
 .stat .v small{font-size:12px;font-weight:400;color:var(--text2);margin-right:2px}
@@ -193,7 +203,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v50";
+window.APP_VERSION="v51";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2981,6 +2991,7 @@ function clsScoreView(){
   const clsList=ce.classes.map(c=>c.cls);
   const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
   const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
+  const cmpAvail=clsList.filter(c=>c!==viewCls&&!cmpCls.includes(c)); /* 还没加入对比的班（下拉可选） */
   const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;
   const withTotalPrev=examsSorted();
   const idx=withTotalPrev.findIndex(e=>e.id===exam.id);
@@ -3017,14 +3028,16 @@ function clsScoreView(){
   const tipCrit=(arr,kind)=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,kind);const df=r.total-ln;return `${r.name} ${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
   const critBenBand=critBandOf(exam,"pass"),critExcBand=critBandOf(exam,"exc");
   return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
-  ${clsList.length>1?`<div class="flex" style="flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px">
-    <label class="muted" style="font-size:12px">查看班级：</label>
-    <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select>
-    <label class="muted" style="font-size:12px;margin-left:10px">优生线前N：</label>
-    <select id="bzrTopN" style="width:80px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select>
-    <label class="muted" style="font-size:12px;margin-left:10px">对比班级（点选可多选）：</label>
-    ${clsList.filter(c=>c!==viewCls).map(c=>`<button class="btn sm${cmpCls.includes(c)?" primary":""}" data-act="bzrCmpToggle" data-id="${escA(c)}">${esc(c)}班</button>`).join("")}
-    ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空对比</button>`:""}
+  ${clsList.length>1?`<div class="bzrbar">
+    <div class="bzrgrp"><span>查看班级</span>
+      <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select></div>
+    <div class="bzrgrp"><span>优生线前 N</span>
+      <select id="bzrTopN" style="width:88px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select></div>
+    <div class="bzrgrp bzrcmp"><span>对比班级</span>
+      ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
+      ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(c)}班</option>`).join("")}</select>`:""}
+      ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空</button>`:""}
+    </div>
   </div>
   ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
@@ -3156,6 +3169,12 @@ ACTIONS.bzrCmpToggle=id=>{
   render();
 };
 ACTIONS.bzrCmpClear=()=>{State.bzrScoreCmp=[];render();};
+ACTIONS.bzrCmpAdd=id=>{
+  if(!id)return;
+  State.bzrScoreCmp=State.bzrScoreCmp||[];
+  if(!State.bzrScoreCmp.includes(id))State.bzrScoreCmp.push(id);
+  render();
+};
 clsScoreView.after=()=>{
   const exam=currentExam();if(!exam)return;
   const st=settings();
@@ -3170,6 +3189,9 @@ clsScoreView.after=()=>{
   /* 优生线前N选择 */
   const selN=$("#bzrTopN");
   if(selN)selN.onchange=()=>{try{localStorage.setItem("tbTopN",selN.value);}catch(e){}render();};
+  /* 添加对比班级（下拉选即添加） */
+  const selC=$("#bzrCmpAdd");
+  if(selC)selC.onchange=()=>{if(selC.value)ACTIONS.bzrCmpAdd(selC.value);};
   const cv=$("#cClsSubj");
   if(cv)chartBar2(cv,exam.subjects,
     exam.subjects.map(s=>mine.bySubj[s]&&mine.bySubj[s].avg),
