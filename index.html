@@ -222,7 +222,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v55";
+window.APP_VERSION="v56";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1588,13 +1588,40 @@ function totalLine(exam,dir,kind){ // kind:"pass"(本科)|"exc"(特控)|"top"(�
   const top=totalLine(exam,dir,"top");
   return top!=null?Math.round(top*(kind==="pass"?0.6:0.8)):null;
 }
-/* 临界浮动范围（本科临界/特控临界，总分与单科共用）；kind:"pass"→ben、"exc"→te */
-function critBandOf(exam,kind){
+/* 临界浮动范围（本科临界/特控临界，总分与单科共用）；kind:"pass"→ben、"exc"→te
+   支持两种写法（v56）：单个数字 10 → 上下对称 ±10（兼容老数据）；区间 "+10,-10" → 线上10~线下10；
+   "-10,0" → 线下10分~线（线下10分内算临界）。两个数不分先后，自动取小者为下界。 */
+function parseCritRange(v){
+  if(v==null||v==="")return null;
+  if(typeof v==="number")return isNaN(v)?null:{lo:-v,hi:v};
+  const parts=String(v).trim().replace(/，/g,",").split(/[,，\s]+/).filter(Boolean).map(Number).filter(x=>!isNaN(x));
+  if(!parts.length)return null;
+  if(parts.length===1)return {lo:-parts[0],hi:parts[0]};
+  return {lo:Math.min(parts[0],parts[1]),hi:Math.max(parts[0],parts[1])};
+}
+function critRangeOf(exam,kind){
   const st=settings();const L=(exam&&exam.lines)||{};
   const k=kind==="exc"?"te":"ben";
-  if(L.critBands&&L.critBands[k]!=null)return L.critBands[k];
-  if(st.critBands&&st.critBands[k]!=null)return st.critBands[k];
-  return k==="ben"?15:10;
+  const def=k==="ben"?15:10;
+  const raw=(L.critBands&&L.critBands[k]!=null)?L.critBands[k]:(st.critBands&&st.critBands[k]!=null)?st.critBands[k]:def;
+  return parseCritRange(raw)||{lo:-def,hi:def};
+}
+function critRangeTxt(exam,kind){
+  const r=critRangeOf(exam,kind);
+  const off=v=>v>0?"+"+v:String(v);
+  if(r.lo===-r.hi)return "±"+r.hi;
+  return off(r.lo)+"~"+off(r.hi);
+}
+/* 总分/单科 v 是否落在临界区间（相对线 lo~hi） */
+function isCritScore(v,line,kind,exam){
+  if(v==null||line==null)return false;
+  const r=critRangeOf(exam,kind);
+  return v>=line+r.lo&&v<=line+r.hi;
+}
+/* 兼容旧调用：返回区间绝对值上界（仅用于"最多浮动N分"类文案） */
+function critBandOf(exam,kind){
+  const r=critRangeOf(exam,kind);
+  return Math.max(Math.abs(r.lo),Math.abs(r.hi));
 }
 /* 方向分数段：方向自定义 > 全局共用 */
 function dirBands(exam,dir){
@@ -1977,8 +2004,8 @@ function clsLineStat(exam){
     if(r.total==null)return;
     const d=rowDir(r);
     const bp=totalLine(exam,d,"pass"),ep=totalLine(exam,d,"exc");
-    if(bp!=null){if(r.total>=bp){o.ben++;o.benNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(Math.abs(r.total-bp)<=critBandOf(exam,"pass"))o.benCrit++;}
-    if(ep!=null){if(r.total>=ep){o.exc++;o.excNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(Math.abs(r.total-ep)<=critBandOf(exam,"exc"))o.excCrit++;}
+    if(bp!=null){if(r.total>=bp){o.ben++;o.benNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(isCritScore(r.total,bp,"pass",exam))o.benCrit++;}
+    if(ep!=null){if(r.total>=ep){o.exc++;o.excNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(isCritScore(r.total,ep,"exc",exam))o.excCrit++;}
   });
   return Object.keys(map).map(k=>map[k]).sort((a,b)=>natKey(a.cls).localeCompare(natKey(b.cls)));
 }
@@ -2000,8 +2027,8 @@ function jwOverview(){
   const withT=exam.rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
   const benList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
-  const benCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");});
-  const excCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
+  const benCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);});
+  const excCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
   const lineRate=(a,b)=>b?`${(a/b*100).toFixed(1)}%`:"—";
   return `<div class="card"><h3>📊 年级总览<span class="sub">${esc(exam.name)}</span><span class="spacer"></span>${examSelector()}</h3>
   <div class="statcards">
@@ -2019,7 +2046,7 @@ function jwOverview(){
       <div class="statline"><span>上线</span><b style="color:#a855f7">${excList.length}</b><i>${lineRate(excList.length,withT.length)}</i></div>
       <div class="statline"><span>临界</span><b style="color:#f97316">${excCrit.length}</b><i>${lineRate(excCrit.length,withT.length)}</i></div></div>
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算（本科临界 ±${critBandOf(exam,"pass")} 分、特控临界 ±${critBandOf(exam,"exc")} 分）；比例 = 占本年级有总分人数（${withT.length} 人）的百分比。各班上线人数见下方图表，具体名单见「重点关注 → 临界生名单」。</div>
+  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算（本科临界 ${critRangeTxt(exam,"pass")}、特控临界 ${critRangeTxt(exam,"exc")}，区间可在「统计设置」改）；比例 = 占本年级有总分人数（${withT.length} 人）的百分比。各班上线人数见下方图表，具体名单见「重点关注 → 临界生名单」。</div>
   <details open class="lnsec" style="margin-top:14px"><summary>📊 各班上线人数（本科线 / 特控线，按班级顺序）（可收起）</summary>
   <div class="chartscroll"><div id="cClsLineBox"><canvas class="chart" id="cClsLine"></canvas></div></div>
   ${legendHtml([{c:"#10b981",n:"本科上线"},{c:"#a855f7",n:"特控上线"}])}
@@ -2473,11 +2500,11 @@ ACTIONS.stuDetail=(id,el)=>{
   const d=rowDir(cur||{});
   let crit="";
   if(cur&&cur.total!=null){
-    const bl=totalLine(exam,d,"pass"),bb=critBandOf(exam,"pass");
-    const tl=totalLine(exam,d,"exc"),tb=critBandOf(exam,"exc");
+    const bl=totalLine(exam,d,"pass");
+    const tl=totalLine(exam,d,"exc");
     const db=cur.total-bl,dt2=cur.total-tl;
-    if(bl!=null&&Math.abs(db)<=bb)crit=`<span class="tag t-orange">本科临界（${d?d+"方向":""}${bl}±${bb}）</span>`;
-    else if(tl!=null&&Math.abs(dt2)<=tb)crit=`<span class="tag t-purple">特控临界（${d?d+"方向":""}${tl}±${tb}）</span>`;
+    if(bl!=null&&isCritScore(cur.total,bl,"pass",exam))crit=`<span class="tag t-orange">本科临界（${d?d+"方向":""}${bl}，浮动${critRangeTxt(exam,"pass")}）</span>`;
+    else if(tl!=null&&isCritScore(cur.total,tl,"exc",exam))crit=`<span class="tag t-purple">特控临界（${d?d+"方向":""}${tl}，浮动${critRangeTxt(exam,"exc")}）</span>`;
     else if(bl!=null&&db>0)crit=`<span class="tag t-green">超本科线 +${fmtN(db,0)}</span>`;
     else if(bl!=null)crit=`<span class="tag t-gray">距本科线 -${fmtN(-db,0)}</span>`;}
   openModal(`学生历次成绩分析 — ${esc(name)}（${esc(cls)}班）`,
@@ -2495,14 +2522,14 @@ jwStudents.after=()=>{
 /* ================= 重点关注名单 ================= */
 /* 临界生分两类概念：本科临界（锚本科线）/ 特控临界（锚特控线）；总分按方向、各科按科目（方向科再分方向） */
 function critGroups(exam,kind){ // kind:"pass"(本科)|"exc"(特控)
-  const band=critBandOf(exam,kind);
+  const rng=critRangeOf(exam,kind);
   const groups=[];
   ["物理","历史"].forEach(d=>{
     const rows=exam.rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
     const line=totalLine(exam,d,kind);
     if(line==null||!rows.length)return;
-    const list=rows.map(r=>({r,v:r.total,delta:r.total-line})).filter(x=>Math.abs(x.delta)<=band).sort((a,b)=>b.v-a.v);
-    if(list.length)groups.push({name:`总分 · ${d}方向`,line,band,list,subjScore:false});
+    const list=rows.map(r=>({r,v:r.total,delta:r.total-line})).filter(x=>x.delta>=rng.lo&&x.delta<=rng.hi).sort((a,b)=>b.v-a.v);
+    if(list.length)groups.push({name:`总分 · ${d}方向`,line,rng,list,subjScore:false});
   });
   exam.subjects.forEach(subj=>{
     const dirs=isDirSubj(subj)?["物理","历史"]:[null];
@@ -2511,8 +2538,8 @@ function critGroups(exam,kind){ // kind:"pass"(本科)|"exc"(特控)
       if(!scored.length)return;
       const line=subjLine(exam,subj,d,kind);
       if(line==null)return;
-      const list=scored.filter(x=>Math.abs(x.v-line)<=band).sort((a,b)=>b.v-a.v);
-      if(list.length)groups.push({name:subj+(d?` · ${d}方向`:""),line,band,list,subjScore:true});
+      const list=scored.filter(x=>x.v-line>=rng.lo&&x.v-line<=rng.hi).sort((a,b)=>b.v-a.v);
+      if(list.length)groups.push({name:subj+(d?` · ${d}方向`:""),line,rng,list,subjScore:true});
     });
   });
   return groups;
@@ -2546,7 +2573,7 @@ function jwWatch(){
   // 临界生：本科/特控两类切换 + 合并为一张表
   const critKind=State.watchCrit||"pass";
   const critLabel=critKind==="pass"?"本科":"特控";
-  const critBand=critBandOf(exam,critKind);
+  const critBand=critRangeTxt(exam,critKind);
   const groups=critGroups(exam,critKind).map(g=>{g.list=g.list.filter(x=>inScope(x.r));return g;}).filter(g=>g.list.length);
   let critRows="";
   groups.forEach((g,gi)=>g.list.forEach((x,i)=>{
@@ -2557,7 +2584,7 @@ function jwWatch(){
       <td class="ctr"><span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"+":"-"}${fmtN(Math.abs(d),0)}</span></td></tr>`;
   }));
   return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
-    <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ±${critBandOf(exam,"pass")} 分 · 特控临界 ±${critBandOf(exam,"exc")} 分 · 距线 <b>+N</b> 线上 / <b>-N</b> 线下</div>
+    <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
       <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优生名单 · ${scopeTxt}（优生线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
         <span class="spacer"></span><button class="btn sm" data-act="copyList" data-kind="top" data-id="${exam.id}">📋 复制</button></h3>
@@ -2574,7 +2601,7 @@ function jwWatch(){
         </tbody></table></div>${declinesTrunc?`<div class="muted" style="margin-top:6px">共 ${declinesTrunc} 人退步，列表仅显示幅度最大的前 50 人（复制按钮可复制全部）</div>`:""}`:`<div class="empty">没有学生退步 🎉</div>`}
       </div>
     </div></div>
-  <div class="card"><h3>🎯 临界生名单 · ${scopeTxt}<span class="sub">锚${critLabel}线 ±${critBand} 分，共 ${groups.reduce((a,g)=>a+g.list.length,0)} 人</span><span class="spacer"></span>
+  <div class="card"><h3>🎯 临界生名单 · ${scopeTxt}<span class="sub">锚${critLabel}线 ${critBand} 分区间，共 ${groups.reduce((a,g)=>a+g.list.length,0)} 人</span><span class="spacer"></span>
     <button class="btn sm${critKind==="pass"?" primary":""}" data-act="watchCritKind" data-id="pass">本科临界</button>
     <button class="btn sm${critKind==="exc"?" primary":""}" data-act="watchCritKind" data-id="exc">特控临界</button>
     <button class="btn sm" data-act="copyCrit" data-kind="${critKind}" data-id="${exam.id}">📋 复制</button></h3>
@@ -2830,10 +2857,11 @@ function jwLines(){
     <div class="field" style="flex:.6"><label>${d}方向 优生线</label><input type="number" id="lnDTotal_${d}_top" placeholder="${ph(totalLine(exam,d,"top"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].top!=null?st.dtotal[d].top:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].top!=null?L.dtotal[d].top:"")}"></div>`).join("")}
   </div>
   <div class="frow" style="margin-top:6px">
-    <div class="field" style="flex:.8"><label>本科临界浮动（±分）</label><input type="number" id="lnCritBen" placeholder="${ph(critBandOf(exam,"pass"))}" value="${isG?(st.critBands.ben!=null?st.critBands.ben:""):(L.critBands&&L.critBands.ben!=null?L.critBands.ben:"")}"></div>
-    <div class="field" style="flex:.8"><label>特控临界浮动（±分）</label><input type="number" id="lnCritTe" placeholder="${ph(critBandOf(exam,"exc"))}" value="${isG?(st.critBands.te!=null?st.critBands.te:""):(L.critBands&&L.critBands.te!=null?L.critBands.te:"")}"></div>
+    <div class="field" style="flex:.8"><label>本科临界浮动（如 +10,-10）</label><input id="lnCritBen" placeholder="如 +10,-10 / -10,0 / 12" value="${isG?(st.critBands.ben!=null?st.critBands.ben:""):(L.critBands&&L.critBands.ben!=null?L.critBands.ben:"")}"></div>
+    <div class="field" style="flex:.8"><label>特控临界浮动（如 +8,-8）</label><input id="lnCritTe" placeholder="如 +8,-8 / -8,0 / 10" value="${isG?(st.critBands.te!=null?st.critBands.te:""):(L.critBands&&L.critBands.te!=null?L.critBands.te:"")}"></div>
     <div class="field" style="flex:2"><label>总分分数段（两方向共用，从高到低，逗号分隔）</label><input id="lnBands" placeholder="${ph(examCfg(exam).bands.join(","))}" value="${isG?st.bands.join(","):(L.bands&&L.bands.length?L.bands.join(","):"")}"></div>
-  </div></details>
+  </div>
+  <div class="muted" style="margin-top:4px;font-size:12px">临界浮动填法：<b>+10,-10</b> = 线上10分~线下10分；<b>-10,0</b> = 线下10分内算临界生；只填一个数（如 12）= 上下对称 ±12。总分线和单科临界共用同一区间。</div></details>
   ${isG?`
   <details class="lnsec"><summary>④ 其他（科目列表、0分视为缺考）</summary>
   <div class="frow" style="margin-top:8px">
@@ -2852,6 +2880,12 @@ ACTIONS.saveLines=async()=>{
   const scope=State.lnScope||"__global";
   const ddirs=subj=>subj==="物理"?["物理"]:subj==="历史"?["历史"]:["物理","历史"];
   const readN=id=>{const el=document.getElementById(id);return el?num(el.value):null;};
+  /* 临界浮动：支持 "10"（±对称）或 "+10,-10"/"-10,0" 区间；非法格式提示并跳过保存（v56） */
+  const readBand=id=>{const el=document.getElementById(id);if(!el)return null;
+    const s=el.value.trim();if(!s)return null;
+    const parts=s.replace(/，/g,",").split(/[,,\s]+/).filter(Boolean).map(Number);
+    if(!parts.length||parts.length>2||parts.some(x=>isNaN(x))){toast("临界浮动格式：如 +10,-10 / -10,0 / 10（单个数=上下对称）");return null;}
+    return parts.length===1?parts[0]:parts.join(",");};
   if(scope==="__global"){
     st.subjects=$("#lnSubjects").value.split(/[,，\s]+/).filter(Boolean);
     st.dpass=st.dpass||{};st.dexc=st.dexc||{};st.pass=st.pass||{};st.exc=st.exc||{};
@@ -2877,7 +2911,7 @@ ACTIONS.saveLines=async()=>{
       if(top!=null)o.top=top;
       if(Object.keys(o).length)st.dtotal[d]=Object.assign({},st.dtotal[d]||{},o);
     });
-    const cb=readN("lnCritBen"),ct=readN("lnCritTe");
+    const cb=readBand("lnCritBen"),ct=readBand("lnCritTe");
     st.critBands=st.critBands||{};
     if(cb!=null)st.critBands.ben=cb;
     if(ct!=null)st.critBands.te=ct;
@@ -2906,7 +2940,7 @@ ACTIONS.saveLines=async()=>{
     const o={ben:readN("lnDTotal_"+d+"_ben"),te:readN("lnDTotal_"+d+"_te"),top:readN("lnDTotal_"+d+"_top")};
     if(o.ben!=null||o.te!=null||o.top!=null)lines.dtotal[d]=o;
   });
-  const cb=readN("lnCritBen"),ct=readN("lnCritTe");
+  const cb=readBand("lnCritBen"),ct=readBand("lnCritTe");
   if(cb!=null)lines.critBands.ben=cb;
   if(ct!=null)lines.critBands.te=ct;
   lines.bands=$("#lnBands").value.split(/[,，\s]+/).map(Number).filter(v=>v>0);
@@ -3086,12 +3120,12 @@ function clsScoreView(){
   const prev=idx>0?withTotalPrev[idx-1]:null;
   const pRankMap=prev?(()=>{const m={};computeExam(prev).ranks.forEach(x=>m[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);return m;})():null;
   const rows=exam.rows.filter(r=>r.cls===viewCls);
-  const critRows=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");});
+  const critRows=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);});
   /* 统计卡数据：上线/临界/前80/进退步/偏科，全部按学生自己的方向线算 */
   const withT=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
   const benList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
-  const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
+  const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
   const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
   const topN=topNOf();
   const topNList=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
@@ -3132,7 +3166,7 @@ function clsScoreView(){
   const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
   const tipC=arr=>clipNames(arr,x=>`${x.name} ${fmtN(x.total,0)}`);
   const tipCrit=(arr,kind)=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,kind);const df=r.total-ln;return `${r.name} ${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
-  const critBenBand=critBandOf(exam,"pass"),critExcBand=critBandOf(exam,"exc");
+  const critBenBand=critRangeTxt(exam,"pass"),critExcBand=critRangeTxt(exam,"exc");
   return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
   ${clsList.length>1?`<div class="bzrbar">
     <div class="bzrgrp"><span>查看班级</span>
@@ -3188,12 +3222,12 @@ function clsScoreView(){
         const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;
         const myDirRank=r._grDir||null;
         const delta=pr&&(myDirRank||gr)?(myDirRank||gr.rank)-pr:null;
-        const isCrit=r.total!=null&&(function(){const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");})();
+        const isCrit=r.total!=null&&(function(){const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);})();
         let stat=null;
         if(r.total!=null){const d=rowDir(r);const lb=totalLine(exam,d,"pass"),lt=totalLine(exam,d,"exc");
           if(lt!=null&&r.total>=lt)stat="exc";
           else if(lb!=null&&r.total>=lb)stat="ben";
-          else if(lb!=null&&Math.abs(r.total-lb)<=critBandOf(exam,"pass"))stat="crit";}
+          else if(lb!=null&&isCritScore(r.total,lb,"pass",exam))stat="crit";}
         const flags=weakMap[r.name+"|"+r.cls]||[];
         return{r,gr,cr,myDirRank,delta,prevRank:pr,flags,isCrit,stat};
       });
@@ -3223,7 +3257,7 @@ function clsScoreView(){
       <td class="ctr">${flags.map(s=>`<span class="tag t-orange">${esc(s)}弱</span>`).join("")}</td></tr>`;}).join("")}
       </tbody></table></div>`;
     })()}
-    <div class="muted" style="margin-top:6px">行左色条与姓名旁徽章：<span class="dot" style="background:#a855f7"></span>紫色=总分上特控线　<span class="dot" style="background:#10b981"></span>绿色=总分上本科线（未上特控）　<span class="dot" style="background:#f97316"></span>橙色=本科临界（线±${critBandOf(exam,"pass")}）；橙色科目 = 偏科预警：该科在班内名次明显落后于总分名次。</div></div>`;
+    <div class="muted" style="margin-top:6px">行左色条与姓名旁徽章：<span class="dot" style="background:#a855f7"></span>紫色=总分上特控线　<span class="dot" style="background:#10b981"></span>绿色=总分上本科线（未上特控）　<span class="dot" style="background:#f97316"></span>橙色=本科临界（浮动${critRangeTxt(exam,"pass")}）；橙色科目 = 偏科预警：该科在班内名次明显落后于总分名次。</div></div>`;
 }
 /* ================= 班级对比区块（v40） ================= */
 const CMP_COLORS=["#2563eb","#dc2626","#16a34a","#ea580c","#7c3aed","#0d9488","#d97706","#0891b2"];
