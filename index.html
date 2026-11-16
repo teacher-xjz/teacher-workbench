@@ -116,9 +116,12 @@ table.tb tr.hl td{background:#fffbeb}
 .statline>span{width:34px;flex:none;font-size:12px;color:var(--text2)}
 .statline>b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.3}
 .statline>i{font-style:normal;font-size:12px;color:var(--text2)}
-/* 图表横向滚动容器：班级多时保证柱宽可读（v52） */
-.chartscroll{overflow-x:auto;overflow-y:hidden;margin-top:8px}
+/* 图表横向滚动容器：班级多时保证柱宽可读（v52）；内含悬停名单气泡（v53） */
+.chartscroll{overflow-x:auto;overflow-y:hidden;margin-top:8px;position:relative}
 .chartscroll>div{min-width:100%}
+.charttip{position:absolute;display:none;background:rgba(15,23,42,.93);color:#fff;padding:7px 10px;border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none;z-index:60;max-width:280px;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.charttip b{font-weight:600}
+.charttip div{margin-top:2px;word-break:break-all;opacity:.92}
 /* 卡片内可悬停的小热区（如 退步/进步 数字） */
 .hk{cursor:help;border-bottom:1px dashed currentColor;line-height:1.2}
 @media(max-width:640px){.statcards2{grid-template-columns:1fr}}
@@ -165,7 +168,8 @@ canvas.chart{width:100%;display:block}
 #toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:200;opacity:0;transition:.3s;pointer-events:none;max-width:86vw}
 #toast.show{opacity:.95}
 .bar-mini{display:inline-block;height:8px;border-radius:4px;background:var(--primary);vertical-align:middle;margin-right:4px}
-.diff-pos{color:var(--red)} .diff-neg{color:var(--green)}
+/* 颜色口径（v53 全站统一）：好事=绿、坏事=红。diff-pos=正数/好转（绿，如高于年级平均、名次进步），diff-neg=负数/变差（红） */
+.diff-pos{color:var(--green)} .diff-neg{color:var(--red)}
 .pager{display:flex;gap:6px;align-items:center;justify-content:center;margin-top:10px;font-size:13px}
 .pager button{padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}
 .pager button.cur{background:var(--primary);color:#fff;border-color:var(--primary)}
@@ -216,7 +220,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v52";
+window.APP_VERSION="v53";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -555,17 +559,21 @@ function chartBarN(cv,labels,series,opt={}){
   for(let i=0;i<=4;i++){const y=padT+ch*i/4;ctx.strokeStyle="#e2e8f0";ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();
     ctx.textAlign="right";ctx.fillText(fmtN(max-max*i/4,0),padL-6,y+4);}
   const n=labels.length,k=series.length,gap=cw/Math.max(1,n),bw=Math.max(4,Math.min(16,gap*0.62/Math.max(1,k)));
+  const rects=[];
   labels.forEach((lb,i)=>{
     const cx=padL+gap*i+gap/2;
     series.forEach((se,j)=>{
       const v=(se.values||[])[i];if(v==null)return;
-      const bh=v/max*ch,x=cx-(k*bw+(k-1)*2)/2+j*(bw+2);
-      ctx.fillStyle=se.color;ctx.beginPath();ctx.roundRect?ctx.roundRect(x,padT+ch-bh,bw,bh,[3,3,0,0]):ctx.rect(x,padT+ch-bh,bw,bh);ctx.fill();
-      if(k<=3){ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,opt.dec==null?1:opt.dec),x+bw/2,padT+ch-bh-4);}
+      const bh=v/max*ch,x=cx-(k*bw+(k-1)*2)/2+j*(bw+2),y=padT+ch-bh;
+      ctx.fillStyle=se.color;ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,bw,bh,[3,3,0,0]):ctx.rect(x,y,bw,bh);ctx.fill();
+      if(k<=3){ctx.fillStyle="#334155";ctx.textAlign="center";ctx.fillText(fmtN(v,opt.dec==null?1:opt.dec),x+bw/2,y-4);}
+      rects.push({x:x,y:Math.max(0,y),w:bw,h:Math.max(bh,2),si:j,li:i});
     });
     ctx.fillStyle="#475569";ctx.textAlign="center";
     ctx.save();ctx.translate(cx,h-padB+8);if(String(lb).length>4){ctx.rotate(-Math.PI/4);ctx.textAlign="right";}ctx.fillText(String(lb),0,0);ctx.restore();
   });
+  /* 返回每根柱子的命中区（CSS 像素坐标），供悬停显示名单等交互使用（v53） */
+  return {rects,labels,n,k};
 }
 function chartStack(cv,labels,series,opt={}){
   const h=opt.h||280,{ctx,w}=setupCanvas(cv,h);
@@ -1961,14 +1969,14 @@ function clsLineStat(exam){
   const map={};
   exam.rows.forEach(r=>{
     const c=String(r.cls==null?"":r.cls).trim();if(!c)return;
-    const o=map[c]||(map[c]={cls:c,n:0,ben:0,benCrit:0,exc:0,excCrit:0});
+    const o=map[c]||(map[c]={cls:c,n:0,ben:0,benCrit:0,exc:0,excCrit:0,benNames:[],excNames:[]});
     const scored=r.total!=null&&!(exam.zeroAsMissing&&r.total===0);
     if(scored)o.n++;
     if(r.total==null)return;
     const d=rowDir(r);
     const bp=totalLine(exam,d,"pass"),ep=totalLine(exam,d,"exc");
-    if(bp!=null){if(r.total>=bp)o.ben++;if(Math.abs(r.total-bp)<=critBandOf(exam,"pass"))o.benCrit++;}
-    if(ep!=null){if(r.total>=ep)o.exc++;if(Math.abs(r.total-ep)<=critBandOf(exam,"exc"))o.excCrit++;}
+    if(bp!=null){if(r.total>=bp){o.ben++;o.benNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(Math.abs(r.total-bp)<=critBandOf(exam,"pass"))o.benCrit++;}
+    if(ep!=null){if(r.total>=ep){o.exc++;o.excNames.push(`${r.name} ${fmtN(r.total,0)}`);}if(Math.abs(r.total-ep)<=critBandOf(exam,"exc"))o.excCrit++;}
   });
   return Object.keys(map).map(k=>map[k]).sort((a,b)=>natKey(a.cls).localeCompare(natKey(b.cls)));
 }
@@ -2055,16 +2063,42 @@ ACTIONS.copySubjTable=id=>{
 jwOverview.after=()=>{
   const exam=currentExam();if(!exam)return;
   const st=settings();const ce=computeExam(exam);
-  /* 各班上线人数分组柱图（v52）：按班级顺序，班级多时容器可横向滚动 */
+  /* 各班上线人数分组柱图（v52）：按班级顺序，班级多时容器可横向滚动；v53 悬停/点按柱子显示本班名单 */
   const cvs=$("#cClsLine"),box=$("#cClsLineBox");
   if(cvs&&box){
     const stat=clsLineStat(exam);
     const wrapW=(box.parentNode&&box.parentNode.clientWidth)||600;
     box.style.width=Math.max(wrapW,stat.length*54)+"px";
-    if(stat.length)chartBarN(cvs,stat.map(s=>s.cls+"班"),[
+    let geo=null;
+    if(stat.length)geo=chartBarN(cvs,stat.map(s=>s.cls+"班"),[
       {name:"本科上线",color:"#10b981",values:stat.map(s=>s.ben)},
       {name:"特控上线",color:"#a855f7",values:stat.map(s=>s.exc)}
     ],{h:260,dec:0});
+    if(geo&&geo.rects&&geo.rects.length){
+      const wrap=box.parentNode;
+      const tip=document.createElement("div");tip.className="charttip";wrap.appendChild(tip);
+      const show=e=>{
+        const r=cvs.getBoundingClientRect();
+        const mx=e.clientX-r.left,my=e.clientY-r.top;
+        const hit=geo.rects.find(b=>mx>=b.x-2&&mx<=b.x+b.w+2&&my>=b.y-4&&my<=b.y+b.h+4);
+        const s=hit?stat[hit.li]:null;
+        if(!hit||!s){tip.style.display="none";return;}
+        const names=hit.si===0?s.benNames:s.excNames;
+        const lab=hit.si===0?"本科上线":"特控上线";
+        const cnt=hit.si===0?s.ben:s.exc;
+        tip.innerHTML=`<b>${escA(s.cls)}班 · ${lab} ${cnt} 人</b><div>${escA(clipNames(names,n=>n))}</div>`;
+        tip.style.display="block";
+        const wr=wrap.getBoundingClientRect();
+        let tx=mx+14,ty=my+14;
+        if(tx+tip.offsetWidth>wr.width-6)tx=Math.max(4,mx-tip.offsetWidth-12);
+        if(ty+tip.offsetHeight>wr.height-4)ty=Math.max(2,my-tip.offsetHeight-12);
+        tip.style.left=tx+"px";tip.style.top=ty+"px";
+      };
+      cvs.addEventListener("mousemove",show);
+      cvs.addEventListener("click",show);
+      cvs.addEventListener("mouseleave",()=>{tip.style.display="none";});
+      cvs._hasTip=true;
+    }
   }
   const cv=$("#cBands");if(!cv)return;
   const bands=examCfg(exam).bands.slice().sort((a,b)=>b-a);
@@ -3074,6 +3108,22 @@ function clsScoreView(){
   const upList=deltaList.filter(x=>x.d>0),downList=deltaList.filter(x=>x.d<0);
   /* 名单文案：退步=名次数字变大（↓），进步=名次数字变小（↑），与全站统一（v52） */
   const dTip=arr=>clipNames(arr,x=>`${x.name} 第${x.prev}→第${x.cur}名`);
+  /* 方向内班级排名（v53）：按该方向学生总分均分在本方向班级内排序；混合班显示两个 */
+  const dirRankTxt=(()=>{
+    const segs=[];
+    ["物理","历史"].forEach(d=>{
+      const list=[];
+      ce.classes.forEach(c=>{
+        const vals=exam.rows.filter(r=>r.cls===c.cls&&rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0)).map(r=>r.total);
+        if(vals.length)list.push({cls:c.cls,av:avg(vals)});
+      });
+      if(list.length<2&&!list.some(x=>x.cls===viewCls))return;
+      list.sort((a,b)=>b.av-a.av);
+      const i=list.findIndex(x=>x.cls===viewCls);
+      if(i>=0)segs.push(`${d[0]}第${i+1}/${list.length}`);
+    });
+    return segs.join("·");
+  })();
   if(!mine||!viewCls)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
     <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}</div></div>`;
   const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
@@ -3095,10 +3145,10 @@ function clsScoreView(){
   ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
-    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
+    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
     ${statCard(prev?`<span class="hk" style="color:#dc2626" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" style="color:#16a34a" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
-    ${statCard(`<small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critRows.length}</span>`,`本科线`,`${clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距本科线±${critBenBand}）：${tipCrit(critRows,"pass")}`,"#10b981")}
-    ${statCard(`<small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critT.length}</span>`,`特控线`,`${clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距特控线±${critExcBand}）：${tipCrit(critT,"exc")}`,"#a855f7")}
+    ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（距线±${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
+    ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（距线±${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
   <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
@@ -3165,7 +3215,7 @@ function clsScoreView(){
       const badge=x.stat?` <span class="tag ${x.stat==="exc"?"t-purple":x.stat==="ben"?"t-green":"t-orange"}">${x.stat==="exc"?"特控":x.stat==="ben"?"本科":"临界"}</span>`:"";
       return `<tr class="${rowCls}"><td><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}" style="border:none;padding:2px 6px"><b>${esc(r.name)}</b></button>${badge}</td>
       <td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${cr||"—"}</td><td class="ctr">${gr?gr.rank:"—"}</td><td class="ctr">${myDirRank||"—"}</td>
-      <td class="ctr">${delta!=null?`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600" title="${escA(dTitle)}">${delta>0?"↓"+delta:delta<0?"↑"+(-delta):"0"}</span>`:prev?"<span class='muted'>新</span>":"—"}</td>
+      <td class="ctr">${delta!=null?(delta===0?`<span class="muted" title="${escA(dTitle)}">0</span>`:`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600" title="${escA(dTitle)}">${delta>0?"↓"+delta:"↑"+(-delta)}</span>`):prev?"<span class='muted'>新</span>":"—"}</td>
       ${exam.subjects.map(s=>`<td class="ctr" style="${flags.includes(s)?"color:var(--orange);font-weight:600":""}">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
       <td class="ctr">${flags.map(s=>`<span class="tag t-orange">${esc(s)}弱</span>`).join("")}</td></tr>`;}).join("")}
       </tbody></table></div>`;
