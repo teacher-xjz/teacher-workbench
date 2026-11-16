@@ -72,9 +72,19 @@ input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary)}
 /* 表格 */
 .twrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:10px}
 .tscr{max-height:420px;overflow-y:auto}
-#critWrap thead th{position:sticky;top:0;background:var(--card);z-index:1;box-shadow:0 1px 0 var(--line)}
-.crit-grp td{background:#f0f7ff;color:#1e40af;font-weight:700;font-size:13px;border-left:3px solid #2563eb;padding:7px 10px;white-space:nowrap}
-.cgrp-meta{color:#64748b;font-weight:500;font-size:12px;margin-left:10px}
+/* v60 临界生科目×方向矩阵 */
+.crit-pill{border:1px solid #bfd7f2;background:#eef5fd;color:#1d4ed8;border-radius:14px;padding:3px 11px;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}
+.crit-pill:hover{background:#dbeafe}
+.crit-pill.open{background:#1d4ed8;color:#fff;border-color:#1d4ed8}
+.crit-pill.zero{background:#f1f5f9;color:#94a3b8;border-color:#e2e8f0}
+.crit-pill.zero.open{background:#e2e8f0;color:#64748b}
+.crit-exprow td{background:#f8fafc;padding:8px 12px}
+.crit-chip{display:inline-flex;align-items:center;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:3px 9px;font-size:12px;margin:3px 8px 3px 0;white-space:nowrap}
+.crit-chip .tag{font-size:11px;padding:1px 7px}
+/* v60 首页天气胶囊 */
+.wx{display:inline-flex;align-items:center;gap:4px;background:#eef5fd;color:#1d4ed8;border-radius:12px;padding:2px 9px;font-size:12px;margin-left:8px;vertical-align:1px;white-space:nowrap}
+.wx .wxico{display:inline-flex;color:#f59e0b}
+.wx .wxhi{color:#64748b}
 .tstripe-exc{box-shadow:inset 4px 0 0 #a855f7}
 .tstripe-ben{box-shadow:inset 4px 0 0 #10b981}
 .tstripe-crit{box-shadow:inset 4px 0 0 #f97316}
@@ -255,7 +265,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v59";
+window.APP_VERSION="v60";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1044,7 +1054,7 @@ function renderHome(){
   const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试安排"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
   return `
   <div class="hero">
-    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}</div></div>
+    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
     <div class="hero-stats">
       <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
       <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
@@ -1096,6 +1106,46 @@ function renderHome(){
     </div>
   </div>`;
 }
+/* ===== 首页天气胶囊（v60）：Open-Meteo 免费 API · 平昌县 · 30 分钟缓存 · 失败静默 ===== */
+const WX_LOC={lat:31.56,lon:107.10,name:"平昌"};
+const WX_DESC={0:"晴",1:"晴",2:"多云",3:"阴",45:"雾",48:"雾",51:"毛毛雨",53:"毛毛雨",55:"毛毛雨",56:"冻雨",57:"冻雨",61:"小雨",63:"中雨",65:"大雨",66:"冻雨",67:"冻雨",71:"小雪",73:"中雪",75:"大雪",77:"米雪",80:"阵雨",81:"阵雨",82:"强阵雨",85:"阵雪",86:"阵雪",95:"雷雨",96:"雷雨",99:"雷雨"};
+function wxIcon(code){
+  const sun='<circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5 5l1.8 1.8M17.2 17.2L19 19M19 5l-1.8 1.8M6.8 17.2L5 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+  const cloud='<path d="M6.8 18.5a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17 8.7a4.3 4.3 0 0 1-.3 8.6z" fill="currentColor"/>';
+  const drops='<path d="M8 19.5l-.9 2M12 19.5l-.9 2M16 19.5l-.9 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+  let body;
+  if(code<=1)body=sun;
+  else if(code===2)body='<circle cx="8.5" cy="7.5" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 2.8v1.6M3.8 7.5h1.6M5 4l1.1 1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M9.5 19.5a3.4 3.4 0 0 1-.4-6.78A4.7 4.7 0 0 1 18.5 11a3.7 3.7 0 0 1-.3 7.4z" fill="currentColor"/>';
+  else if(code===3)body=cloud;
+  else if(code===45||code===48)body='<path d="M4 9h16M6 12.5h13M4.5 16h14M8 19.5h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+  else if(code===71||code===73||code===75||code===77||code===85||code===86)body=cloud+'<circle cx="8" cy="20.5" r="1.1" fill="currentColor"/><circle cx="12" cy="21.5" r="1.1" fill="currentColor"/><circle cx="16" cy="20.5" r="1.1" fill="currentColor"/>';
+  else if(code>=95)body=cloud+'<path d="M12.5 17l-2.2 3.4h2.4l-1.6 3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>';
+  else body=cloud+drops; /* 各类雨 */
+  return `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+}
+function wxHtml(w){
+  const d=WX_DESC[w.code]!=null?WX_DESC[w.code]:"—";
+  return `<span class="wxico">${wxIcon(w.code)}</span>${WX_LOC.name} ${w.temp}°C ${d} <span class="wxhi">↑${w.max}° ↓${w.min}°</span>`;
+}
+async function loadWeather(){
+  const box=document.getElementById("heroWx");if(!box)return;
+  let w=null;
+  try{w=JSON.parse(localStorage.getItem("tbWeather")||"null");}catch(e){}
+  if(w&&w.t){
+    box.innerHTML=wxHtml(w); /* 先用缓存（哪怕过期）占位，网络回来再更新 */
+    if(Date.now()-w.t<30*60*1000)return; /* 30 分钟内不重复请求 */
+  }
+  try{
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${WX_LOC.lat}&longitude=${WX_LOC.lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FShanghai&forecast_days=1`);
+    if(!r.ok)return;
+    const j=await r.json();
+    w={t:Date.now(),temp:Math.round(j.current.temperature_2m),code:j.current.weather_code,max:Math.round(j.daily.temperature_2m_max[0]),min:Math.round(j.daily.temperature_2m_min[0])};
+    try{localStorage.setItem("tbWeather",JSON.stringify(w));}catch(e){}
+    const b2=document.getElementById("heroWx");
+    if(b2)b2.innerHTML=wxHtml(w);
+  }catch(e){/* 断网/被拦：静默，保留缓存或空 */}
+}
+renderHome.after=()=>{try{loadWeather();}catch(e){}};
 function todoItemHtml(t,over){
   return `<div class="todo-item"><input type="checkbox" data-act="todoToggle" data-id="${t.id}" ${t.done?"checked":""}>
     <div class="txt ${t.done?"done":""}">${esc(t.content)}
@@ -1570,10 +1620,12 @@ async function boot(){
       await saveMeta("seededClsSched",true);
     }
   }catch(e){console.error(e);}
-  if(typeof Sync!=="undefined"){try{await Sync.init();}catch(e){console.error(e);}}
+  /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
+     合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
   const d=new Date();
   $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
   render();
+  if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
 }
 boot();
 
@@ -2658,20 +2710,45 @@ function jwWatch(){
     if(allDec.length>50)declinesTrunc=allDec.length;
   }
   const scopeTxt=clsScope==="__all"?"全年级":esc(clsScope)+"班";
-  // 临界生：本科/特控两类切换 + 合并为一张表
+  // 临界生：本科/特控两类切换 + 科目×方向矩阵总览（v60：行=科目，列=物理/历史方向，点人数胶囊展开名单）
   const critKind=State.watchCrit||"pass";
   const critLabel=critKind==="pass"?"本科":"特控";
   const critBand=critRangeTxt(exam,critKind);
   const groups=critGroups(exam,critKind).map(g=>{g.list=g.list.filter(x=>inScope(x.r));return g;}).filter(g=>g.list.length);
-  let critRows="";
+  const bySubj={};
   groups.forEach(g=>{
-    critRows+=`<tr class="crit-grp"><td colspan="4">🎯 ${esc(g.name)}<span class="cgrp-meta">线 ${g.line} · 浮动 ${critBand} · ${g.list.length} 人</span></td></tr>`;
-    g.list.forEach(x=>{
-      const d=x.delta;
-      critRows+=`<tr><td class="ctr">${esc(x.r.cls)}</td><td><b>${esc(x.r.name)}</b></td><td class="ctr">${fmtN(x.v,1)}</td>
-      <td class="ctr"><span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"线上 +":"线下 -"}${fmtN(Math.abs(d),0)}</span></td></tr>`;
-    });
+    const m=/^(.*) · (物理|历史)方向$/.exec(g.name);
+    const subj=m?m[1]:g.name,dir=m?m[2]:null;
+    if(!bySubj[subj])bySubj[subj]={ph:null,hi:null,both:null};
+    if(dir==="物理")bySubj[subj].ph=g;else if(dir==="历史")bySubj[subj].hi=g;else bySubj[subj].both=g;
   });
+  const critOrder=exam.subjects.filter(s=>bySubj[s]);
+  if(bySubj["总分"])critOrder.unshift("总分");
+  const chipOf=g=>g.list.map(x=>{
+    const d=x.delta;
+    return `<span class="crit-chip">${esc(x.r.cls)}班 <b>${esc(x.r.name)}</b> ${fmtN(x.v,1)} <span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"线上 +":"线下 -"}${fmtN(Math.abs(d),0)}</span></span>`;
+  }).join("");
+  const expRow=(key,g,open)=>`<tr class="crit-exprow" id="critExp_${key}" style="${open?"":"display:none"}"><td colspan="3">${g.list.length?chipOf(g):'<span class="muted">无临界生</span>'}</td></tr>`;
+  const pillOf=(g,key,open,subj,dk)=>`<button type="button" class="crit-pill${g.list.length?"":" zero"}${open?" open":""}" data-act="toggleCrit" data-key="${key}" title="${escA(subj+"（"+(dk==="ph"?"物理":"历史")+"方向 · 线"+g.line+" · 浮动"+critBand+"）")}">${g.list.length} 人 · 线${g.line}</button>`;
+  let critBody="";
+  critOrder.forEach((subj,ri)=>{
+    const e=bySubj[subj];
+    const open=ri===0; /* 总分行默认展开 */
+    let cells="",exps="";
+    if(e.both){ /* 该科不分方向（如物理/化学）：一个胶囊横跨两列 */
+      const key=ri+"_bo";
+      cells=`<td class="ctr" colspan="2">${pillOf(e.both,key,open,subj,"bo")}</td>`;
+      exps=expRow(key,e.both,open);
+    }else{
+      [["ph",e.ph,"物理"],["hi",e.hi,"历史"]].forEach(([dk,g,dn])=>{
+        const key=ri+"_"+dk;
+        if(g){cells+=`<td class="ctr">${pillOf(g,key,open,subj,dk)}</td>`;exps+=expRow(key,g,open);}
+        else cells+=`<td class="ctr muted">—</td>`;
+      });
+    }
+    critBody+=`<tr${subj==="总分"?' style="font-weight:600"':""}><td class="ctr">${esc(subj)}</td>${cells}</tr>`+exps;
+  });
+  const critTotal=groups.reduce((a,g)=>a+g.list.length,0);
   return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
     <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
@@ -2690,16 +2767,23 @@ function jwWatch(){
         </tbody></table></div>${declinesTrunc?`<div class="muted" style="margin-top:6px">共 ${declinesTrunc} 人退步，列表仅显示幅度最大的前 50 人（复制按钮可复制全部）</div>`:""}`:`<div class="empty">没有学生退步 🎉</div>`}
       </div>
     </div></div>
-  <div class="card"><h3>🎯 临界生名单 · ${scopeTxt}<span class="sub">锚${critLabel}线 ${critBand} 分区间，共 ${groups.reduce((a,g)=>a+g.list.length,0)} 人</span><span class="spacer"></span>
+  <div class="card"><h3>🎯 临界生名单 · ${scopeTxt}<span class="sub">${critLabel}临界浮动 ${critBand} · 共 ${critTotal} 人 · 点人数看名单</span><span class="spacer"></span>
     <button class="btn sm${critKind==="pass"?" primary":""}" data-act="watchCritKind" data-id="pass">本科临界</button>
     <button class="btn sm${critKind==="exc"?" primary":""}" data-act="watchCritKind" data-id="exc">特控临界</button>
     <button class="btn sm" data-act="copyCrit" data-kind="${critKind}" data-id="${exam.id}">📋 复制</button></h3>
-    ${groups.length?`<div class="twrap tscr" id="critWrap"><table class="tb"><thead><tr><th class="ctr" style="width:64px">班级</th><th>姓名</th><th class="ctr" style="width:76px">分数</th><th class="ctr" style="width:104px">距线</th></tr></thead><tbody>
-    ${critRows}
+    ${critOrder.length?`<div class="twrap" id="critWrap"><table class="tb"><thead><tr><th class="ctr" style="width:110px">科目</th><th class="ctr">物理方向</th><th class="ctr">历史方向</th></tr></thead><tbody>
+    ${critBody}
     </tbody></table></div>`:`<div class="empty">无${critLabel}临界生</div>`}
   </div>`;
 }
 ACTIONS.watchCritKind=(id)=>{State.watchCrit=id;renderKeep();};
+ACTIONS.toggleCrit=(id,el)=>{
+  const t=document.getElementById("critExp_"+el.dataset.key);
+  if(!t)return;
+  const show=t.style.display==="none";
+  t.style.display=show?"":"none";
+  el.classList.toggle("open",show);
+};
 ACTIONS.copyList=(id,el)=>{
   const exam=examById(id);if(!exam)return;
   const ce=computeExam(exam);
@@ -4267,24 +4351,45 @@ const Sync={
   examsDirty:false,_ghPanel:false,_ghSizes:null,
   examsRev(){return +(localStorage.getItem("tbExamsRev")||0)||0;},
   setExamsRev(n){try{localStorage.setItem("tbExamsRev",String(n||0));}catch(e){}},
-  examsChanged(){this.examsDirty=true;this.noteChange();},
+  examsChanged(){this.examsDirty=true;this._setExamsDirtyFlag(true);this.noteChange();},
+  /* ===== v60 启动提速：云端文件指纹缓存（sha 没变 → 整份跳过下载） ===== */
+  _cachedSha(){try{return localStorage.getItem("tbCloudSha")||null;}catch(e){return null;}},
+  _saveSha(v){if(v)this.ghSha=v;try{localStorage.setItem("tbCloudSha",v||"");}catch(e){}},
+  _cachedShaEx(){try{return localStorage.getItem("tbCloudShaEx")||null;}catch(e){return null;}},
+  _saveShaEx(v){if(v)this.ghShaEx=v;try{localStorage.setItem("tbCloudShaEx",v||"");}catch(e){}},
+  _examsDirtyFlag(){try{return localStorage.getItem("tbExamsDirty")==="1";}catch(e){return false;}},
+  _setExamsDirtyFlag(on){try{on?localStorage.setItem("tbExamsDirty","1"):localStorage.removeItem("tbExamsDirty");}catch(e){}},
   async init(){
     this.updateChip();
     await this.ghLoadCfg();
     if(this.ghCfg){
       this.ghConn=true;this.status="sync";this.updateChip();
       try{
-        const got=await this.ghRead();
-        this.ghSha=got.sha;
-        let changed=false;
-        if(got.payload){
-          changed=await this.applyPayload(got.payload,true);
-          this.rev=Math.max(this.rev||0,got.payload.rev||0);
-          await this.persistAll();
+        /* v60 启动提速：先问两个文件的"指纹"（几百字节），与上次一致就整份跳过下载；
+           指纹变了才拉正文合并。页面在 boot() 里已用本机数据先行渲染，这里不阻塞打开。 */
+        const sm=await this._statFile(this.FILENAME).catch(()=>null);
+        const se=await this._statFile(this.EXAMFILE).catch(()=>null);
+        const mainSkip=!!(sm&&sm.sha&&this._cachedSha()&&sm.sha===this._cachedSha());
+        let changed=false,exReplaced=false;
+        if(mainSkip){
+          this._saveSha(sm.sha);
+          this.status="on";this.lastSync=new Date();
+          exReplaced=await this._syncExamsOnInit(null,se);
+        }else{
+          const got=await this.ghRead();
+          this._saveSha(got.sha);
+          if(got.payload){
+            changed=await this.applyPayload(got.payload,true);
+            this.rev=Math.max(this.rev||0,got.payload.rev||0);
+            await this.persistAll();
+          }
+          this.status="on";this.lastSync=new Date();
+          exReplaced=await this._syncExamsOnInit(got.payload,se);
+          if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
         }
-        await this._syncExamsOnInit(got.payload);
-        this.status="on";this.lastSync=new Date();
-        if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
+        if(this._examsDirtyFlag())this.examsDirty=true;
+        if(this.examsDirty)this._ghNote();
+        if(changed||exReplaced){try{render();}catch(e){}}
       }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();if(this._isNetErr(this._ghErr))this._scheduleReconnect(30000);}
       this.updateChip();
     }
@@ -4298,11 +4403,25 @@ const Sync={
       delete State.meta.syncDir;delete State.meta.syncFile;
     }
   },
-  /* 启动时对齐成绩：云端成绩文件较新就用云端的（整份覆盖）；本机较新则标记待上传；都没有则从旧版主文件迁移 */
-  async _syncExamsOnInit(mainPayload){
+  /* 启动时对齐成绩：云端成绩文件较新就用云端的（整份覆盖）；本机较新则标记待上传；都没有则从旧版主文件迁移。
+     v60：先比对指纹缓存，一致则跳过 1.7MB 下载（statEx 为 init 阶段已拿到的元数据，可为 null）。
+     返回 true 表示本机成绩被云端覆盖（页面需要重渲染）。 */
+  async _syncExamsOnInit(mainPayload,statEx){
+    if(statEx===undefined){
+      try{statEx=await this._statFile(this.EXAMFILE);}catch(e){statEx=null;}
+    }
+    if(statEx&&statEx.sha&&this._cachedShaEx()&&statEx.sha===this._cachedShaEx()){
+      this.ghShaEx=statEx.sha; /* 云端成绩自上次同步后没变，本机已对齐，不下载 */
+      if(this._examsDirtyFlag())this.examsDirty=true;
+      return false;
+    }
+    return await this._alignExams(mainPayload);
+  },
+  /* 下载成绩正文并与本机对齐（rev 比较，整份覆盖 / 标脏待传）；返回是否覆盖了本机 */
+  async _alignExams(mainPayload){
     let ge=null;
-    try{ge=await this.ghReadExams();}catch(e){ /* 成绩文件读不到不影响主数据同步 */ }
-    if(ge&&ge.sha)this.ghShaEx=ge.sha;
+    try{ge=await this.ghReadExams();}catch(e){return false;} /* 成绩文件读不到不影响主数据同步 */
+    if(ge&&ge.sha)this._saveShaEx(ge.sha);
     const lr=this.examsRev();
     if(ge&&ge.payload){
       const pr=ge.payload.rev||0;
@@ -4310,20 +4429,22 @@ const Sync={
         State.data.exams=ge.payload.exams||[];
         this.setExamsRev(pr);
         await this.persistAll();
-        return;
+        return true;
       }
-      if(lr>pr){this.examsDirty=true;}
-      return;
+      if(lr>pr){this.examsDirty=true;this._setExamsDirtyFlag(true);}
+      return false;
     }
     /* 云端还没有成绩文件：从旧版主数据里迁移（v50 之前成绩混在主文件里） */
     const legacy=(mainPayload&&mainPayload.data&&mainPayload.data.exams)||null;
-    if(!legacy||!legacy.length)return;
+    if(!legacy||!legacy.length)return false;
     if(!lr){
       State.data.exams=legacy; /* 以最后一次上传的那份为准 */
       this.setExamsRev(0);
       await this.persistAll();
-      this.examsDirty=true;    /* 迁移：写成独立的成绩文件 */
+      this.examsDirty=true;this._setExamsDirtyFlag(true); /* 迁移：写成独立的成绩文件 */
+      return true;
     }
+    return false;
   },
   async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
   ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
@@ -4360,7 +4481,7 @@ const Sync={
   },
   async _reconnect(){
     try{
-      const got=await this.ghRead();this.ghSha=got.sha;
+      const got=await this.ghRead();this._saveSha(got.sha);
       if(got.payload){
         const changed=await this.applyPayload(got.payload,true);
         this.rev=Math.max(this.rev||0,got.payload.rev||0);
@@ -4434,7 +4555,8 @@ const Sync={
   ghRead(){return this._readPayload(this.FILENAME,"teacherBoard","云端数据");},
   ghReadExams(){return this._readPayload(this.EXAMFILE,"teacherBoardExams","云端成绩");},
   async ghWrite(p){
-    this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
+    const ns=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据");
+    if(ns)this._saveSha(ns);
     this.lastSync=new Date();this.status="on";this.remotePending=null;this.updateChip();
     return true;
   },
@@ -4469,7 +4591,7 @@ const Sync={
     toast("连接中…正在访问 GitHub 服务器（国内网络可能需要几秒到几十秒）");
     try{
       const got=await this.ghRead();
-      this.ghSha=got.sha;
+      this._saveSha(got.sha);
       if(!got.payload){
         /* 云端确实是空的（404）才允许上传；本机没有成绩数据时先确认，避免空设备误盖电脑数据 */
         const hasReal=DB.stores.some(s=>s!=="teachers"&&State.data[s]&&State.data[s].length>0);
@@ -4482,7 +4604,8 @@ const Sync={
         }
         this.rev=(this.rev||0)+1;
         const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-        this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
+        const ns=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据");
+        if(ns)this._saveSha(ns);
         this.examsDirty=true;await this._pushExams();
         await this.persistAll();
         toast(hasReal?"云端仓库还是空的，已把本机数据上传上去":"已连接（未上传：本机无成绩数据，请到电脑端上传）");
@@ -4507,7 +4630,7 @@ const Sync={
   ghDisconnect(){
     this.ghConn=false;this.ghSha=null;this.ghShaEx=null;this._ghErr=null;this._ghHist=null;
     clearTimeout(this._gt);clearTimeout(this._rt);clearTimeout(this._rc);
-    try{localStorage.removeItem("tbGhCfg");}catch(e){}
+    try{localStorage.removeItem("tbGhCfg");localStorage.removeItem("tbCloudSha");localStorage.removeItem("tbCloudShaEx");localStorage.removeItem("tbExamsDirty");}catch(e){}
     this.ghCfg=null;
     this.status="off";
     this.updateChip();toast("已断开云端同步（本机数据仍在）");render();
@@ -4535,7 +4658,8 @@ const Sync={
   async _ghDoPush(){
     this.rev=(this.rev||0)+1;
     const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-    this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
+    const ns=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据");
+    if(ns)this._saveSha(ns);
     if(this.examsDirty)await this._pushExams();
     await this.persistAll();
     clearTimeout(this._rt);
@@ -4544,9 +4668,10 @@ const Sync={
   async _pushExams(){
     const rev=this.examsRev()+1;
     const p={app:"teacherBoardExams",device:this.device,rev:rev,savedAt:new Date().toISOString(),exams:this.cleanExams()};
-    this.ghShaEx=await this._writeFile(this.EXAMFILE,p,this.ghShaEx,"成绩数据")||this.ghShaEx;
+    const ns=await this._writeFile(this.EXAMFILE,p,this.ghShaEx,"成绩数据");
+    if(ns)this._saveShaEx(ns);
     this.setExamsRev(rev);
-    this.examsDirty=false;
+    this.examsDirty=false;this._setExamsDirtyFlag(false);
   },
   metaClean(){const m={};for(const k in State.meta)if(k!=="syncDir"&&k!=="syncFile")m[k]=State.meta[k];return m;},
   cleanExams(){return (State.data.exams||[]).map(e=>Object.assign({},e,{rows:(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;})}));},
@@ -4616,7 +4741,7 @@ const Sync={
       try{
         const st=await this._statFile(this.FILENAME);
         if(st&&st.sha&&st.sha!==this.ghSha){
-          const got=await this.ghRead();this.ghSha=got.sha;
+          const got=await this.ghRead();this._saveSha(got.sha);
           const p=got.payload;
           if(p&&p.rev>(this.rev||0)){
             this.remotePending=p;
@@ -4626,7 +4751,7 @@ const Sync={
         }
         const se=await this._statFile(this.EXAMFILE);
         if(se&&se.sha&&se.sha!==this.ghShaEx){
-          const ge=await this.ghReadExams();this.ghShaEx=ge.sha;
+          const ge=await this.ghReadExams();this._saveShaEx(ge.sha);
           const pr=(ge.payload&&ge.payload.rev)||0;
           if(ge.payload&&pr>this.examsRev()){
             State.data.exams=ge.payload.exams||[];
