@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v42";
+window.APP_VERSION="v43";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4617,7 +4617,7 @@ ACTIONS.syncUploadNow=async()=>{
 ACTIONS.syncCheckNow=async()=>{
   await Sync.checkRemote();
   if(Sync.remotePending)await Sync.loadRemote();
-  else toast("云端没有新数据");
+  else toast(Sync.ghConn?"✅ 已是最新：连接云端时已自动拉取全部数据；电脑今后有更新会自动提示":"云端没有新数据");
 };
 ACTIONS.syncDisconnect=()=>{
   if(confirm("断开后数据仍保存在本机浏览器，坚果云文件保持不变。确定断开吗？"))Sync.disconnect();
