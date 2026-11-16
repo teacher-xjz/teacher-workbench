@@ -142,12 +142,42 @@ table.tb tr.hl td{background:#fffbeb}
 .sched th,.sched td{border:1px solid var(--line);padding:0;text-align:center}
 .sched th{background:#f8fafc;padding:6px 4px;font-weight:600}
 .sched td.head{background:#f8fafc;font-weight:600;color:var(--text2);padding:6px;white-space:nowrap}
-.sched td.breakrow{background:#f1f5f9;color:var(--text2);font-size:11px;padding:4px 8px;text-align:center;letter-spacing:2px}
+.sched td.breakrow{background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 8px,#f1f5f9 8px,#f1f5f9 16px);color:#64748b;font-size:11px;padding:3px 8px;text-align:center;letter-spacing:2px}
 .sched td.cell{height:40px;min-width:66px;position:relative}
 .sched td.todaycol{background:#eff6ff}
-.sched td.cell input{width:100%;height:100%;border:none;background:transparent;text-align:center;font-size:12px;outline:none;padding:4px}
-.sched td.cell input:focus{background:#eff6ff}
-.sched td.cell input.isw{color:var(--primary-dark);font-weight:600}
+.sched td.cell input{width:100%;height:100%;border:none;background:transparent;text-align:center;font-size:12.5px;outline:none;padding:4px}
+.sched td.cell input:focus{background:#eff6ff;box-shadow:inset 0 0 0 2px #93c5fd}
+.sched td.cell input.filled{font-weight:600}
+.sched td.cell input.isw{text-decoration:underline}
+.sched th.today{background:#2563eb;color:#fff}
+.todaypill{background:rgba(255,255,255,.25);border-radius:999px;padding:1px 7px;font-size:10px;font-weight:600}
+.sched td.head.now{background:#ecfdf5;box-shadow:inset 3px 0 0 #10b981}
+.nowtag{color:#059669;font-weight:700;font-size:11px;margin-left:2px}
+/* 首页 hero 问候条 + 快捷入口（v58） */
+.hero{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:14px;padding:18px 22px;color:#fff;margin-bottom:12px;box-shadow:0 8px 24px rgba(37,99,235,.22)}
+.hero-greet{font-size:20px;font-weight:700}
+.hero-date{font-size:13px;opacity:.85;margin-top:2px}
+.hero-stats{display:flex;gap:10px;flex-wrap:wrap}
+.hstat{display:flex;flex-direction:column;align-items:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:8px 14px;color:#fff;cursor:pointer;min-width:78px}
+.hstat:hover{background:rgba(255,255,255,.28)}
+.hstat b{font-size:20px;line-height:1.2}
+.hstat span{font-size:11px;opacity:.92}
+.hstat.bad{background:#dc2626;border-color:#fca5a5}
+.quicknav{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-bottom:12px}
+.qnav{display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 6px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);box-shadow:var(--shadow)}
+.qnav:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-1px)}
+.qnav .qi{font-size:22px}
+/* 首页·今天的课：时间轴（v58） */
+.tl{margin-left:8px}
+.tl-item{position:relative;padding:0 0 14px 18px;border-left:2px solid var(--line)}
+.tl-item:last-child{padding-bottom:2px;border-left-color:transparent}
+.tl-dot{position:absolute;left:-6px;top:3px;width:10px;height:10px;border-radius:50%;background:#cbd5e1}
+.tl-item.now{border-left-color:#10b981}
+.tl-item.now .tl-dot{background:#10b981;box-shadow:0 0 0 3px #d1fae5}
+.tl-top{display:flex;gap:8px;align-items:baseline;font-size:14px;flex-wrap:wrap}
+.tl-top .muted{font-size:12px}
+.tl-subj{font-weight:600;margin-top:2px}
+@media(max-width:640px){.hero{padding:14px 16px}.hero-greet{font-size:17px}.hstat{min-width:64px;padding:6px 10px}}
 /* 提醒列表 */
 .ag-item{display:flex;gap:10px;padding:10px 6px;border-bottom:1px solid var(--line);align-items:baseline;font-size:14.5px}
 .ag-item:last-child{border-bottom:none}
@@ -222,7 +252,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v57";
+window.APP_VERSION="v58";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -655,6 +685,22 @@ function schedPeriods(){
   const p=State.meta.periods;
   return (Array.isArray(p)&&p.length)?p:DEF_PERIODS;
 }
+/* 科目配色：常见科目固定色，其余按名称哈希从调色板取（v58 课表美化） */
+const SUBJ_COLORS={"语文":"#2563eb","数学":"#16a34a","英语":"#d97706","物理":"#7c3aed","化学":"#0891b2","生物":"#059669","政治":"#dc2626","历史":"#b45309","地理":"#0d9488","体育":"#ea580c","音乐":"#be185d","美术":"#9333ea","信息":"#0369a1","通用":"#6d28d9","班会":"#475569","自习":"#64748b","早读":"#1d4ed8","语文晚自习":"#2563eb"};
+function subjColor(subj){
+  if(!subj)return "#94a3b8";
+  if(SUBJ_COLORS[subj])return SUBJ_COLORS[subj];
+  const s=String(subj);let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;
+  return CHART_COLORS[h%CHART_COLORS.length];
+}
+/* 当前时刻是否落在 "7:10—7:40" 这类时段内（v58：当前节次高亮） */
+function timeRangeNow(timeStr){
+  const d=new Date(),nm=d.getHours()*60+d.getMinutes();
+  const m=/(\d{1,2}):(\d{2})[—–-](\d{1,2}):(\d{2})/.exec(timeStr||"");
+  if(!m)return false;
+  const a=+m[1]*60+ +m[2],b=+m[3]*60+ +m[4];
+  return nm>=a&&nm<=b;
+}
 function schedEmpty(){
   const g={};SCHED_DAYS.forEach(d=>{g[d]={};schedPeriods().forEach(p=>{if(p.type==="class")g[d][p.k]="";});});return g;
 }
@@ -663,15 +709,22 @@ function schedTable(key,opt={}){
   const periods=schedPeriods();
   const todayIdx=(new Date().getDay()+6)%7; // 0=周一
   const hl=i=>i===todayIdx&&opt.highlight;
-  let html=`<div class="twrap"><table class="sched"><thead><tr><th style="min-width:110px">时段</th>${SCHED_DAYS.map((d,i)=>`<th style="${hl(i)?"background:#dbeafe;color:#1d4ed8":""}">${d}${hl(i)?" ·今天":""}</th>`).join("")}</tr></thead><tbody>`;
+  let html=`<div class="twrap"><table class="sched"><thead><tr><th style="min-width:110px">时段</th>${SCHED_DAYS.map((d,i)=>`<th class="${hl(i)?"today":""}">${d}${hl(i)?' <span class="todaypill">今天</span>':""}</th>`).join("")}</tr></thead><tbody>`;
   periods.forEach(p=>{
+    const nowCls=p.type==="class"&&timeRangeNow(p.time)?" now":"";
     if(p.type==="break"){
-      html+=`<tr><td colspan="${SCHED_DAYS.length+1}" class="breakrow">${esc(p.t)}<span class="muted">　${esc(p.time||"")}</span></td></tr>`;
+      html+=`<tr><td colspan="${SCHED_DAYS.length+1}" class="breakrow">⏸ ${esc(p.t)}<span class="muted">　${esc(p.time||"")}</span></td></tr>`;
       return;
     }
-    html+=`<tr><td class="head">${esc(p.t)}<br><span class="muted" style="font-weight:400">${esc(p.time||"")}</span></td>${SCHED_DAYS.map((d,i)=>`<td class="cell${hl(i)?" todaycol":""}"><input value="${escA((g[d]&&g[d][p.k])||"")}" data-sched="${key}" data-day="${d}" data-pk="${p.k}" class="${opt.markW&&((g[d]&&g[d][p.k])||"").includes("语文")?"isw":""}" placeholder="—"></td>`).join("")}</tr>`;
+    html+=`<tr><td class="head${nowCls}">${esc(p.t)}${nowCls?'<span class="nowtag">● 进行中</span>':""}<br><span class="muted" style="font-weight:400">${esc(p.time||"")}</span></td>${SCHED_DAYS.map((d,i)=>{
+      const val=(g[d]&&g[d][p.k])||"";
+      const sp=val.trim();
+      const sname=sp.split(/\s+/)[0]||"";
+      const c=sp?subjColor(sname):null;
+      return `<td class="cell${hl(i)?" todaycol":""}"><input value="${escA(val)}" data-sched="${key}" data-day="${d}" data-pk="${p.k}" class="${opt.markW&&sp.includes("语文")?"isw":""}${sp?" filled":""}" ${c?`style="border-left:3px solid ${c};background:${c}14;color:${c}"`:""} placeholder="—"></td>`;
+    }).join("")}</tr>`;
   });
-  html+=`</tbody></table></div><div class="muted" style="margin-top:6px">直接填写“科目 教师”（如：语文 谢俊中），自动保存${opt.markW?"；含“语文”的格子自动标蓝":""}${opt.highlight?"；今天列高亮":""}</div>`;
+  html+=`</tbody></table></div><div class="muted" style="margin-top:6px">直接填写“科目 教师”（如：语文 谢俊中），自动保存；<span style="display:inline-block;width:10px;height:10px;background:#2563eb;border-radius:2px;vertical-align:middle"></span> 按科目自动配色${opt.markW?"；含“语文”的格子标蓝加粗":""}${opt.highlight?"；蓝色列=今天，绿色=当前节次":""}</div>`;
   return html;
 }
 document.addEventListener("input",e=>{
@@ -955,6 +1008,19 @@ function collectAgenda(){
   State.data.todos.forEach(t=>{if(!t.done&&t.due)items.push({date:t.due,text:"⏰ 待办截止："+t.content,kind:"待办"});});
   return items.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
 }
+/* 首页·今天的课（时间轴，含"进行中"标记，v58） */
+function homeTodaySched(){
+  const g=State.meta.mySched;if(!g)return {day:WEEK[new Date().getDay()],items:[]};
+  const day=SCHED_DAYS[(new Date().getDay()+6)%7];
+  const items=[];
+  schedPeriods().forEach(p=>{
+    if(p.type!=="class")return;
+    const v=g[day]&&g[day][p.k];
+    if(!v||!v.trim())return;
+    items.push({title:p.t,time:p.time||"",v:v.trim(),now:timeRangeNow(p.time)});
+  });
+  return {day,items};
+}
 function renderHome(){
   const today=todayStr();
   const todos=State.data.todos.filter(t=>!t.done);
@@ -962,14 +1028,28 @@ function renderHome(){
   const todayTodos=todos.filter(t=>t.due===today);
   const agenda=collectAgenda();
   const week7=agenda.filter(a=>{const d=daysFromToday(a.date);return d>=0&&d<=7;}).slice(0,10);
-  const cls=schedToday("mySched");
+  const sched=homeTodaySched();
   const notes=State.data.notes.slice().sort((a,b)=>String(b.time||"").localeCompare(String(a.time||""))).slice(0,5);
   const projAlert=State.data.projects.filter(p=>{
     if(p.status==="已结题")return false;
     const d=Math.min(...[p.midDate,p.endDate].filter(Boolean).map(daysFromToday).filter(x=>x!=null&&x>=0).map(x=>x),999);
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
+  const s=settings();
+  const hh=new Date().getHours();
+  const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
+  const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试安排"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
   return `
+  <div class="hero">
+    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}</div></div>
+    <div class="hero-stats">
+      <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
+      <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
+      <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
+      <button class="hstat" data-go="gr" data-sub="events"><b>${week7.length}</b><span>近7天事项</span></button>
+    </div>
+  </div>
+  <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
     <div class="card"><h3>⏰ 待办事项 <span class="sub">${overdue.length?`<span class="tag t-red">${overdue.length} 项逾期</span>`:""}今天 ${todayTodos.length} 项</span>
       <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="todos">全部待办 →</button></h3>
@@ -977,8 +1057,13 @@ function renderHome(){
       ${todayTodos.map(t=>todoItemHtml(t)).join("")||""}
       ${!overdue.length&&!todayTodos.length?`<div class="empty">今天没有到期事项 ✨</div>`:""}
     </div>
-    <div class="card"><h3>📅 今天的课 <span class="sub">${cls?cls.day:WEEK[new Date().getDay()]}</span></h3>
-      ${cls&&cls.items.length?cls.items.map(i=>`<div class="ag-item"><span class="d">${i.t}</span><span style="${i.v.includes("语文")?"color:var(--primary-dark);font-weight:600":""}">${esc(i.v)}</span></div>`).join(""):`<div class="empty">今天没有课 🎉（去「个人 → 个人课表」填写课表）</div>`}
+    <div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}</span>
+      <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="mysched">个人课表 →</button></h3>
+      ${sched.items.length?`<div class="tl">${sched.items.map(i=>`
+        <div class="tl-item${i.now?" now":""}"><span class="tl-dot"></span>
+          <div class="tl-main"><div class="tl-top"><b>${esc(i.title)}</b><span class="muted">${esc(i.time)}</span>${i.now?'<span class="tag t-green">进行中</span>':""}</div>
+          <div class="tl-subj" style="color:${subjColor(i.v.split(/\s+/)[0])}">${esc(i.v)}</div></div></div>`).join("")}</div>`
+      :`<div class="empty">今天没有课 🎉（去「个人 → 个人课表」填写课表）</div>`}
     </div>
   </div>
   <div class="grid2">
