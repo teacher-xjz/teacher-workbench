@@ -686,10 +686,10 @@ function schedPeriods(){
   return (Array.isArray(p)&&p.length)?p:DEF_PERIODS;
 }
 /* 科目配色：常见科目固定色，其余按名称哈希从调色板取（v58 课表美化） */
-const SUBJ_COLORS={"语文":"#2563eb","数学":"#16a34a","英语":"#d97706","物理":"#7c3aed","化学":"#0891b2","生物":"#059669","政治":"#dc2626","历史":"#b45309","地理":"#0d9488","体育":"#ea580c","音乐":"#be185d","美术":"#9333ea","信息":"#0369a1","通用":"#6d28d9","班会":"#475569","自习":"#64748b","早读":"#1d4ed8","语文晚自习":"#2563eb"};
+const SCHED_SUBJ_MAP={"语文":"#2563eb","数学":"#16a34a","英语":"#d97706","物理":"#7c3aed","化学":"#0891b2","生物":"#059669","政治":"#dc2626","历史":"#b45309","地理":"#0d9488","体育":"#ea580c","音乐":"#be185d","美术":"#9333ea","信息":"#0369a1","通用":"#6d28d9","班会":"#475569","自习":"#64748b","早读":"#1d4ed8","语文晚自习":"#2563eb"};
 function subjColor(subj){
   if(!subj)return "#94a3b8";
-  if(SUBJ_COLORS[subj])return SUBJ_COLORS[subj];
+  if(SCHED_SUBJ_MAP[subj])return SCHED_SUBJ_MAP[subj];
   const s=String(subj);let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;
   return CHART_COLORS[h%CHART_COLORS.length];
 }
