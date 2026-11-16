@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v45";
+window.APP_VERSION="v46";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4045,12 +4045,22 @@ const Sync={
     if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
     if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
     let j;try{j=await r.json();}catch(e){throw new Error("云端响应不是有效 JSON（网络不稳定或被拦截），为保护数据已中止");}
+    /* GitHub contents API：文件超过 1MB 时 content 为空串、encoding 为 "none"，必须改用 raw 方式取原文（v46） */
     const b64=(j.content||"").replace(/\n/g,"");
     let txt;
-    try{
-      const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
-      txt=new TextDecoder("utf-8").decode(bytes);
-    }catch(e){throw new Error("云端数据解码失败（"+((e&&e.message)||e)+"），为保护数据已中止，请截图发我");}
+    if(!b64&&j.encoding==="none"&&(j.size|0)>0){
+      const r2=await fetch(this.ghUrl(),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+      if(!r2.ok)throw new Error("读取云端大文件失败（HTTP "+r2.status+"），为保护数据已中止");
+      txt=await r2.text();
+      if(!txt)throw new Error("云端大文件读取为空（HTTP "+r2.status+"），为保护数据已中止");
+    }else if(!b64&&(j.size|0)>0){
+      throw new Error("云端文件超 1MB 且接口未按预期返回（encoding="+j.encoding+"），为保护数据已中止，请截图发我");
+    }else{
+      try{
+        const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+        txt=new TextDecoder("utf-8").decode(bytes);
+      }catch(e){throw new Error("云端数据解码失败（"+((e&&e.message)||e)+"），为保护数据已中止，请截图发我");}
+    }
     let p=null;
     try{p=JSON.parse(txt);}catch(e){
       throw new Error("云端数据解析失败（读到 "+txt.length+" 字符，开头: "+txt.slice(0,60)+"），为保护数据已中止，请截图发我");
@@ -4335,17 +4345,15 @@ ACTIONS.ghRestore=async sha=>{
   if(!confirm("确定恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本（"+h.message+"）吗？\n\n将用该版本覆盖本机当前数据并上传。当前未上传的改动会丢失，建议先「导出全部数据」备份。"))return;
   Sync.status="sync";Sync.updateChip();
   try{
-    const r=await fetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders(),cache:"no-store"});
+    const r=await fetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
     if(!r.ok)throw new Error("读取历史版本失败（HTTP "+r.status+"）");
-    const j=await r.json();
-    const b64=(j.content||"").replace(/\n/g,"");
-    const bytes=Uint8Array.from(atob(b64),ch=>ch.charCodeAt(0));
-    const p=JSON.parse(new TextDecoder("utf-8").decode(bytes));
+    const txt=await r.text(); /* raw 方式：大于 1MB 的历史版本也能取到原文（v46） */
+    if(!txt)throw new Error("该历史版本内容为空，已中止");
+    const p=JSON.parse(txt);
     if(!p||p.app!=="teacherBoard")throw new Error("该版本内容不是工作台数据");
     await Sync.applyPayload(p,false);
     await Sync.persistAll();
-    Sync.ghSha=j.sha;
-    await Sync._ghDoPush(); // 恢复结果作为新版本上传
+    await Sync._ghDoPush(); // 恢复结果作为新版本上传（sha 冲突时 ghWrite 会自动重取）
     toast("✅ 已恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本并上传");
   }catch(e){Sync.status="err";Sync.updateChip();toast("恢复失败："+((e&&e.message)||e));}
   render();
