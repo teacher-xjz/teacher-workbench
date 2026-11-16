@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v49";
+window.APP_VERSION="v50";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -249,8 +249,8 @@ async function loadData(){
   for(const s of DB.stores)State.data[s]=await DB.all(s);
 }
 async function saveMeta(k,v){State.meta[k]=v;(State.meta.metaTime=State.meta.metaTime||{})[k]=Date.now();await DB.metaSet(k,v);await DB.metaSet("metaTime",State.meta.metaTime);if(typeof Sync!=="undefined")Sync.noteChange();}
-async function putRec(store,obj){obj.id=obj.id||uid();obj._ut=Date.now();await DB.put(store,obj);const arr=State.data[store];const i=arr.findIndex(x=>x.id===obj.id);if(i>=0)arr[i]=obj;else arr.push(obj);if(typeof Sync!=="undefined")Sync.noteChange();}
-async function delRec(store,id){await DB.del(store,id);State.data[store]=State.data[store].filter(x=>x.id!==id);if(typeof Sync!=="undefined")Sync.noteChange();}
+async function putRec(store,obj){obj.id=obj.id||uid();obj._ut=Date.now();await DB.put(store,obj);const arr=State.data[store];const i=arr.findIndex(x=>x.id===obj.id);if(i>=0)arr[i]=obj;else arr.push(obj);if(typeof Sync!=="undefined"){if(store==="exams")Sync.examsChanged();else Sync.noteChange();}}
+async function delRec(store,id){await DB.del(store,id);State.data[store]=State.data[store].filter(x=>x.id!==id);if(typeof Sync!=="undefined"){if(store==="exams")Sync.examsChanged();else Sync.noteChange();}}
 function metaGet(k,def){return State.meta[k]!==undefined&&State.meta[k]!==null?State.meta[k]:def;}
 /* ================= 设置默认值 ================= */
 const DEF_SETTINGS={school:"四川省平昌县第二中学",grade:"高2025级",cls:"15班",clsCode:"15",
@@ -3992,13 +3992,15 @@ document.addEventListener("change",e=>{
   }
 });
 
-/* ================= 云同步层（v45：GitHub 私有仓库 · 唯一自动同步通道） ================= */
-/* 数据主副本在本机 IndexedDB；云端为 GitHub 私有仓库中的「工作台数据.json」。
-   - 手机/电脑通用（纯 HTTP，无需文件夹选择权限，无浏览器兼容性坑）
-   - 每次上传自动留档（提交历史 = 版本快照），可在设置页一键恢复历史版本
+/* ================= 云同步层（v50：GitHub 私有仓库 · 主数据 + 成绩 双文件） ================= */
+/* 数据主副本在本机 IndexedDB；云端为 GitHub 私有仓库中的两个文件：
+     - 「工作台数据.json」待办/笔记/名册/作息/任课/值班等（小，约 400KB，随改随传，按记录合并）
+     - 「成绩数据.json」　考试成绩（大，约 1.7MB，只在导入/删除考试后上传，按"整份覆盖"同步）
+   为什么拆开：成绩占 81% 体积、原件都在手上可重建；拆开后日常同步量降到 1/5，弱网几乎不再失败。
+   删除成绩不再"复活"：成绩按最后上传者整份覆盖。
    - 读取失败/内容异常一律报错中止，绝不误判"云端为空"而覆盖（v44 教训）
-   - 手动导出/导入作为不依赖网络的保底方式
-   - 注意：file:// 方式打开时浏览器禁止联网，请用 https://teacher-xjz.github.io/teacher-workbench/ 访问 */
+   - 超过 1MB 的文件必须用 raw 方式读（v46 教训）
+   - 国内访问 GitHub 时通时断：请求级重试 + 启动自动重连 + 上传失败自动重试（v48/v49） */
 const Sync={
   rev:0,
   device:(()=>{let d=null;try{d=localStorage.getItem("tbDevice");}catch(e){}
@@ -4006,8 +4008,13 @@ const Sync={
     return d;})(),
   status:"off",lastSync:null,remotePending:null,timer:null,_lastErr:null,
   FILENAME:"工作台数据.json",
+  EXAMFILE:"成绩数据.json",
   /* ===== GitHub 私有仓库通道 ===== */
-  ghCfg:null,ghSha:null,ghConn:false,ghChecking:false,_ghErr:null,_gt:null,_ghHist:null,
+  ghCfg:null,ghSha:null,ghShaEx:null,ghConn:false,ghChecking:false,_ghErr:null,_gt:null,_ghHist:null,
+  examsDirty:false,_ghPanel:false,_ghSizes:null,
+  examsRev(){return +(localStorage.getItem("tbExamsRev")||0)||0;},
+  setExamsRev(n){try{localStorage.setItem("tbExamsRev",String(n||0));}catch(e){}},
+  examsChanged(){this.examsDirty=true;this.noteChange();},
   async init(){
     this.updateChip();
     await this.ghLoadCfg();
@@ -4016,13 +4023,15 @@ const Sync={
       try{
         const got=await this.ghRead();
         this.ghSha=got.sha;
+        let changed=false;
         if(got.payload){
-          const changed=await this.applyPayload(got.payload,true);
+          changed=await this.applyPayload(got.payload,true);
           this.rev=Math.max(this.rev||0,got.payload.rev||0);
           await this.persistAll();
-          this.status="on";this.lastSync=new Date();
-          if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
-        }else this.status="on";
+        }
+        await this._syncExamsOnInit(got.payload);
+        this.status="on";this.lastSync=new Date();
+        if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
       }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();if(this._isNetErr(this._ghErr))this._scheduleReconnect(30000);}
       this.updateChip();
     }
@@ -4036,9 +4045,38 @@ const Sync={
       delete State.meta.syncDir;delete State.meta.syncFile;
     }
   },
+  /* 启动时对齐成绩：云端成绩文件较新就用云端的（整份覆盖）；本机较新则标记待上传；都没有则从旧版主文件迁移 */
+  async _syncExamsOnInit(mainPayload){
+    let ge=null;
+    try{ge=await this.ghReadExams();}catch(e){ /* 成绩文件读不到不影响主数据同步 */ }
+    if(ge&&ge.sha)this.ghShaEx=ge.sha;
+    const lr=this.examsRev();
+    if(ge&&ge.payload){
+      const pr=ge.payload.rev||0;
+      if(pr>lr||!lr){
+        State.data.exams=ge.payload.exams||[];
+        this.setExamsRev(pr);
+        await this.persistAll();
+        return;
+      }
+      if(lr>pr){this.examsDirty=true;}
+      return;
+    }
+    /* 云端还没有成绩文件：从旧版主数据里迁移（v50 之前成绩混在主文件里） */
+    const legacy=(mainPayload&&mainPayload.data&&mainPayload.data.exams)||null;
+    if(!legacy||!legacy.length)return;
+    if(!lr){
+      State.data.exams=legacy; /* 以最后一次上传的那份为准 */
+      this.setExamsRev(0);
+      await this.persistAll();
+      this.examsDirty=true;    /* 迁移：写成独立的成绩文件 */
+    }
+  },
   async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
-  ghUrl(){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(c.path||this.FILENAME);},
   ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
+  ghUrlOf(name){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(name);},
+  ghUrl(){return this.ghUrlOf((this.ghCfg&&this.ghCfg.path)||this.FILENAME);},
+  examUrl(){return this.ghUrlOf(this.EXAMFILE);},
   /* 统一带 30 秒超时 + 自动重试一次的 fetch：国内访问 GitHub 间歇性抽风，瞬时抖动当场自愈（v49） */
   async _fetch1(url,opts){
     const ctl=("AbortController" in window)?new AbortController():null;
@@ -4076,23 +4114,33 @@ const Sync={
         await this.persistAll();
         if(changed)this._ghNote();
       }
+      await this._syncExamsOnInit(got.payload);
       this._ghErr=null;this.status="on";this.lastSync=new Date();this.updateChip();
     }catch(e){
       this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();
       if(this._isNetErr(this._ghErr))this._scheduleReconnect(30000);
     }
   },
-  async ghRead(){
-    const r=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
-    if(r.status===404)return{payload:null,sha:null};
+  /* ===== 单文件读写原语 ===== */
+  /* 只取元数据（sha/size），不下载内容：用于每分钟"有没有变化"探测，几乎不耗流量 */
+  async _statFile(name){
+    const r=await this.ghFetch(this.ghUrlOf(name),{headers:this.ghHeaders(),cache:"no-store"});
+    if(r.status===404)return null;
+    if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
+    if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
+    try{const j=await r.json();return{sha:j.sha,size:j.size|0,encoding:j.encoding};}catch(e){throw new Error("云端响应不是有效 JSON（网络不稳定或被拦截），为保护数据已中止");}
+  },
+  /* 读文件全文：>1MB 时 contents API 不给内容，改用 raw（v46） */
+  async _readFile(name){
+    const r=await this.ghFetch(this.ghUrlOf(name),{headers:this.ghHeaders(),cache:"no-store"});
+    if(r.status===404)return null;
     if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
     if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
     let j;try{j=await r.json();}catch(e){throw new Error("云端响应不是有效 JSON（网络不稳定或被拦截），为保护数据已中止");}
-    /* GitHub contents API：文件超过 1MB 时 content 为空串、encoding 为 "none"，必须改用 raw 方式取原文（v46） */
     const b64=(j.content||"").replace(/\n/g,"");
     let txt;
     if(!b64&&j.encoding==="none"&&(j.size|0)>0){
-      const r2=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+      const r2=await this.ghFetch(this.ghUrlOf(name),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
       if(!r2.ok)throw new Error("读取云端大文件失败（HTTP "+r2.status+"），为保护数据已中止");
       txt=await r2.text();
       if(!txt)throw new Error("云端大文件读取为空（HTTP "+r2.status+"），为保护数据已中止");
@@ -4104,35 +4152,59 @@ const Sync={
         txt=new TextDecoder("utf-8").decode(bytes);
       }catch(e){throw new Error("云端数据解码失败（"+((e&&e.message)||e)+"），为保护数据已中止，请截图发我");}
     }
-    let p=null;
-    try{p=JSON.parse(txt);}catch(e){
-      throw new Error("云端数据解析失败（读到 "+txt.length+" 字符，开头: "+txt.slice(0,60)+"），为保护数据已中止，请截图发我");
-    }
-    if(!p||p.app!=="teacherBoard")throw new Error("云端文件内容不是工作台数据（app标识不符），为保护数据已中止");
-    return{payload:p,sha:j.sha};
+    return{text:txt,sha:j.sha,size:j.size|0};
   },
-  async ghWrite(p){
+  async _readPayload(name,appTag,label){
+    const f=await this._readFile(name);
+    if(!f)return{payload:null,sha:null,size:0};
+    let p=null;
+    try{p=JSON.parse(f.text);}catch(e){
+      throw new Error((label||"云端数据")+"解析失败（读到 "+f.text.length+" 字符，开头: "+f.text.slice(0,60)+"），为保护数据已中止，请截图发我");
+    }
+    if(!p||p.app!==appTag)throw new Error((label||"云端文件")+"内容不是工作台数据（app标识不符），为保护数据已中止");
+    return{payload:p,sha:f.sha,size:f.size};
+  },
+  async _writeFile(name,p,sha,label){
     const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p))));
-    const body={message:"工作台数据 rev"+p.rev+"（设备 "+this.device+"）",content:b64};
-    if(this.ghSha)body.sha=this.ghSha;
-    let r=await this.ghFetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+    const body={message:(label||"工作台数据")+" rev"+p.rev+"（设备 "+this.device+"）",content:b64};
+    if(sha)body.sha=sha;
+    let r=await this.ghFetch(this.ghUrlOf(name),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
     if(r.status===409||r.status===422){ // 远端已变：拿最新 sha 重试一次
-      const got=await this.ghRead();this.ghSha=got.sha;
-      body.sha=got.sha;
-      r=await this.ghFetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+      const st=await this._statFile(name);
+      body.sha=st&&st.sha;
+      r=await this.ghFetch(this.ghUrlOf(name),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
     }
     if(!r.ok)throw new Error("写入云端失败（HTTP "+r.status+"）");
-    const j=await r.json();
-    this.ghSha=(j.content&&j.content.sha)||this.ghSha;
+    let j=null;try{j=await r.json();}catch(e){}
+    return (j&&j.content&&j.content.sha)||null;
+  },
+  ghRead(){return this._readPayload(this.FILENAME,"teacherBoard","云端数据");},
+  ghReadExams(){return this._readPayload(this.EXAMFILE,"teacherBoardExams","云端成绩");},
+  async ghWrite(p){
+    this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
     this.lastSync=new Date();this.status="on";this.remotePending=null;this.updateChip();
     return true;
   },
-  async ghHistory(){
+  async ghHistory(name){
     const c=this.ghCfg;
-    const r=await this.ghFetch("https://api.github.com/repos/"+c.owner+"/"+c.repo+"/commits?path="+encodeURIComponent(c.path||this.FILENAME)+"&per_page=20",{headers:this.ghHeaders()});
+    const file=name||this.FILENAME;
+    const r=await this.ghFetch("https://api.github.com/repos/"+c.owner+"/"+c.repo+"/commits?path="+encodeURIComponent(file)+"&per_page=30",{headers:this.ghHeaders()});
     if(!r.ok)throw new Error("读取历史失败（HTTP "+r.status+"）");
     const arr=await r.json();
-    return arr.map(x=>({sha:x.sha,date:new Date(x.commit.author.date),message:x.commit.message}));
+    return arr.map(x=>({sha:x.sha,date:new Date(x.commit.author.date),message:x.commit.message,file:file}));
+  },
+  async ghRepoInfo(){
+    const c=this.ghCfg;
+    const r=await this.ghFetch("https://api.github.com/repos/"+c.owner+"/"+c.repo,{headers:this.ghHeaders()});
+    if(!r.ok)return null;
+    try{const j=await r.json();return{sizeKB:j.size|0,pushedAt:j.pushed_at};}catch(e){return null;}
+  },
+  async ghFileSizes(){
+    const out={main:0,exams:0,repo:0};
+    try{const a=await this._statFile(this.FILENAME);out.main=a?a.size:0;}catch(e){}
+    try{const b=await this._statFile(this.EXAMFILE);out.exams=b?b.size:0;}catch(e){}
+    try{const r=await this.ghRepoInfo();out.repo=r?r.sizeKB:0;}catch(e){}
+    return out;
   },
   async connectGh(silent){
     const repo=(($("#ghRepo")&&$("#ghRepo").value.trim())||"teacher-workbench-data");
@@ -4157,14 +4229,16 @@ const Sync={
         }
         this.rev=(this.rev||0)+1;
         const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-        await this.ghWrite(p);
+        this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
+        this.examsDirty=true;await this._pushExams();
         await this.persistAll();
         toast(hasReal?"云端仓库还是空的，已把本机数据上传上去":"已连接（未上传：本机无成绩数据，请到电脑端上传）");
       }else{
         const changed=await this.applyPayload(got.payload,true);
         this.rev=Math.max(this.rev||0,got.payload.rev||0);
         await this.persistAll();
-        if(changed)await this._ghNote(); // 本机有较新改动 → 合并后上传
+        await this._syncExamsOnInit(got.payload);
+        if(changed||this.examsDirty)await this._ghNote(); // 本机有较新改动 → 合并后上传
         toast(changed?"已合并云端数据（本机较新改动即将上传）":"已连接：本机与云端一致");
       }
       this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
@@ -4178,7 +4252,7 @@ const Sync={
     }
   },
   ghDisconnect(){
-    this.ghConn=false;this.ghSha=null;this._ghErr=null;this._ghHist=null;
+    this.ghConn=false;this.ghSha=null;this.ghShaEx=null;this._ghErr=null;this._ghHist=null;
     clearTimeout(this._gt);clearTimeout(this._rt);clearTimeout(this._rc);
     try{localStorage.removeItem("tbGhCfg");}catch(e){}
     this.ghCfg=null;
@@ -4208,22 +4282,41 @@ const Sync={
   async _ghDoPush(){
     this.rev=(this.rev||0)+1;
     const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
-    await this.ghWrite(p);
+    this.ghSha=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据")||this.ghSha;
+    if(this.examsDirty)await this._pushExams();
     await this.persistAll();
     clearTimeout(this._rt);
     this.status="on";this.lastSync=new Date();this.updateChip();
   },
+  async _pushExams(){
+    const rev=this.examsRev()+1;
+    const p={app:"teacherBoardExams",device:this.device,rev:rev,savedAt:new Date().toISOString(),exams:this.cleanExams()};
+    this.ghShaEx=await this._writeFile(this.EXAMFILE,p,this.ghShaEx,"成绩数据")||this.ghShaEx;
+    this.setExamsRev(rev);
+    this.examsDirty=false;
+  },
   metaClean(){const m={};for(const k in State.meta)if(k!=="syncDir"&&k!=="syncFile")m[k]=State.meta[k];return m;},
+  cleanExams(){return (State.data.exams||[]).map(e=>Object.assign({},e,{rows:(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;})}));},
+  /* 主数据上传内容：全部 store 但**不含 exams**（成绩单独一个文件） */
   cleanData(){
     const data={};
-    for(const s of DB.stores)data[s]=State.data[s];
-    data.exams=State.data.exams.map(e=>Object.assign({},e,{rows:(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;})}));
+    for(const s of DB.stores){if(s==="exams")continue;data[s]=State.data[s];}
     return data;
+  },
+  /* 整份导出（含成绩）——手动备份/搬家用单文件 */
+  cleanExport(){
+    const d=this.cleanData();
+    d.exams=this.cleanExams();
+    return d;
   },
   async applyPayload(p,merge){
     if(!merge){
       State.meta=p.meta||{};
-      for(const s of DB.stores)State.data[s]=(p.data&&p.data[s])||[];
+      for(const s of DB.stores){
+        if(s==="exams")continue;
+        State.data[s]=(p.data&&p.data[s])||[];
+      }
+      if(p.data&&p.data.exams)State.data.exams=p.data.exams;
       this.rev=p.rev||0;
       return false;
     }
@@ -4240,6 +4333,7 @@ const Sync={
     m.metaTime=mt;
     State.meta=m;
     for(const s of DB.stores){
+      if(s==="exams")continue; /* 成绩走独立文件，不参与并集合并 */
       const local=State.data[s]||[],remote=(p.data&&p.data[s])||[];
       if(!local.length){if(remote.length)changed=true;State.data[s]=remote;continue;}
       const byId={};remote.forEach(r=>byId[r.id]=r);
@@ -4251,6 +4345,10 @@ const Sync={
       });
       State.data[s]=out;
     }
+    /* 旧格式（成绩混在主文件里）或手动导入：文件里带成绩时以文件为准 */
+    if(p.data&&p.data.exams&&p.data.exams.length){
+      State.data.exams=p.data.exams;this.examsDirty=true;changed=true;
+    }
     this.rev=p.rev||0;
     return changed;
   },
@@ -4258,20 +4356,38 @@ const Sync={
     if(!this.ghConn)return;
     this._ghNote();
   },
+  /* 每分钟探测：只取元数据，sha 变了才下载（几乎不耗流量） */
   async checkRemote(){
     if(this.ghConn&&!this.ghChecking){
       this.ghChecking=true;
       try{
-        const got=await this.ghRead();
-        this.ghSha=got.sha;
-        const p=got.payload;
-        if(p&&p.rev>(this.rev||0)){
-          this.remotePending=p;
-          this.updateChip("⚠️ 其他设备已更新，点此加载");
-          if(this.status==="sync"||this.status==="off")this.status="on";
-        }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){
-          this.remotePending=null;this.updateChip();
+        const st=await this._statFile(this.FILENAME);
+        if(st&&st.sha&&st.sha!==this.ghSha){
+          const got=await this.ghRead();this.ghSha=got.sha;
+          const p=got.payload;
+          if(p&&p.rev>(this.rev||0)){
+            this.remotePending=p;
+            this.updateChip("⚠️ 其他设备已更新，点此加载");
+            if(this.status==="sync"||this.status==="off")this.status="on";
+          }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){this.remotePending=null;this.updateChip();}
         }
+        const se=await this._statFile(this.EXAMFILE);
+        if(se&&se.sha&&se.sha!==this.ghShaEx){
+          const ge=await this.ghReadExams();this.ghShaEx=ge.sha;
+          const pr=(ge.payload&&ge.payload.rev)||0;
+          if(ge.payload&&pr>this.examsRev()){
+            State.data.exams=ge.payload.exams||[];
+            this.setExamsRev(pr);
+            await this.persistAll();
+            toast("🔄 云端成绩已更新");
+            const r=State.route||"";
+            if(r==="jw"||r==="jw2"||r==="bzr")render();
+          }
+        }else if(!se&&(State.data.exams||[]).length){
+          this.examsDirty=true; /* 云端还没有成绩文件，本机有 → 待上传 */
+        }
+        if(this.status==="err"){this.status="on";this._ghErr=null;}
+        this.updateChip();
       }catch(e){this._ghErr=(e&&e.message)||String(e);if(this.status!=="sync")this.status="err";this.updateChip();}
       finally{this.ghChecking=false;}
     }
@@ -4280,8 +4396,9 @@ const Sync={
     if(!this.remotePending)return;
     const changed=await this.applyPayload(this.remotePending,true);
     this.remotePending=null;
+    try{await this._syncExamsOnInit(null);}catch(e){}
     this.updateChip();toast(changed?"已合并云端最新数据（并上传本地较新改动）":"已加载云端最新数据");render();
-    if(changed)this.noteChange();
+    if(changed||this.examsDirty)this.noteChange();
   },
   async persistAll(){
     for(const s of DB.stores){
@@ -4300,10 +4417,10 @@ const Sync={
     const[m1,m2]=map[this.status]||["☁️",""];
     el.innerHTML=`<span style="cursor:pointer;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;white-space:nowrap" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
   },
-  /* 手动导出/导入：不依赖任何网络的保底通道 */
+  /* 手动导出/导入：不依赖任何网络的保底通道（导出含成绩，单文件） */
   manualExport(){
     this.rev=(this.rev||0)+1;
-    const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
+    const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanExport()};
     const d=new Date(),z=n=>String(n).padStart(2,"0");
     const name="工作台数据_导出_"+z(d.getMonth()+1)+z(d.getDate())+"_"+z(d.getHours())+z(d.getMinutes())+".json";
     download(name,JSON.stringify(p),"application/json");
@@ -4331,12 +4448,12 @@ const Sync={
   settingsCard(){return this.ghCard();},
   ghCard(){
     const c=this.ghCfg;
-    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步异常</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/失效（重新生成）；网络访问 GitHub 不稳定（换网络重试；不影响本机数据）。</div>`:"";
+    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步异常</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/失效（重新生成）；网络访问 GitHub 不稳定（会自动重试；不影响本机数据）。</div>`:"";
     if(!c||!this.ghConn){
       return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
       ${location.protocol==="file:"?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是本地文件方式打开（地址栏 file:// 开头）</b>：浏览器禁止本地文件联网，无法使用云端同步。请用网址 <b>https://teacher-xjz.github.io/teacher-workbench/</b> 打开本工作台并收藏书签；本地文件仅作离线备份。</div>`:""}
       ${errBox}
-      <div class="notice blue"><b>原理：</b>数据上传到你 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（外人不可见）；电脑和手机都直接读写云端这一份，双向自动同步。每次上传自动留档，历史版本可一键恢复。<br>
+      <div class="notice blue"><b>原理：</b>数据上传到你 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（外人不可见）；电脑和手机都直接读写云端，双向自动同步。云端分两个文件：<b>工作台数据.json</b>（待办/笔记/名册等，小，随改随传）和<b>成绩数据.json</b>（考试成绩，大，导入/删除后才传，整份覆盖）。<br>
       <b>怎么用：</b>① 粘贴 GitHub 访问令牌（ghp_ 开头）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接。<br>
       <b>安全：</b>令牌只保存在本设备浏览器里，不出现在网页代码中；仓库私有，只有持令牌的人能访问。</div>
       <div class="frow">
@@ -4346,24 +4463,50 @@ const Sync={
       <button class="btn primary" data-act="ghConnect">🔗 连接云端</button>
       ${this._manualCard()}</div>`;
     }
+    const sz=this._ghSizes;
+    const fmt=n=>(!n?"—":(n>=1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB"));
     return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
-    <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有仓库）　·　数据版本 <b>${this.rev}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
+    <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有）　·　数据版本 <b>${this.rev}</b>　·　成绩版本 <b>${this.examsRev()}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">云端占用：主数据 <b>${fmt(sz&&sz.main)}</b>　·　成绩 <b>${fmt(sz&&sz.exams)}</b>${sz&&sz.repo?`　·　仓库合计 <b>${(sz.repo/1024).toFixed(1)} MB</b>`:""}${sz?"":`（点「🗂 云端备份管理」查看）`}</div>
     ${errBox}
-    <div class="notice" style="border-left:4px solid #2563eb;background:#eff6ff"><b>🗂 管理云端备份文件</b>（GitHub 网页版，点击直接跳转）<br>
-    <a href="https://github.com/${escA(c.owner)}/${escA(c.repo)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600">➜ 打开仓库页面（浏览/下载/删除云端备份文件）</a><br>
-    <a href="https://github.com/${escA(c.owner)}/${escA(c.repo)}/commits/main?path=${encodeURIComponent(this.FILENAME)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600">➜ 查看全部上传历史（每次同步的留档）</a><br>
-    <span class="muted" style="font-size:12px">注意：名为「${esc(this.FILENAME)}」的文件是工作台的全部数据，请勿在网页上删除或改名；页面上需要登录你的 GitHub 账号。</span></div>
-    <div class="flex">
+    <div class="flex" style="margin-top:6px">
       <button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>
       <button class="btn" data-act="syncCheckNow">🔄 立即检查云端更新</button>
-      <button class="btn" data-act="ghLoadHistory">🕘 云端历史版本</button>
+      <button class="btn" data-act="ghBackupPanel">🗂 云端备份管理</button>
       <button class="btn danger" data-act="ghDisconnect">断开同步</button>
     </div>
-    ${this._ghHist?`<details open class="lnsec" style="margin-top:8px"><summary>🕘 历史版本（最近 ${this._ghHist.length} 次上传，可一键恢复）</summary>
-    <div style="font-size:12px;line-height:2;margin-top:6px">${this._ghHist.map(h=>`<div>🕒 ${esc(h.date.toLocaleString("zh-CN"))}　${esc(h.message)}　<button class="btn sm" data-act="ghRestore" data-id="${escA(h.sha)}">恢复此版本</button></div>`).join("")}</div>
-    <div class="muted" style="margin-top:4px">恢复 = 用该版本覆盖本机数据并上传。建议恢复前先「导出全部数据」备份当前状态。</div></details>`:""}
-    <div class="muted" style="margin-top:6px;font-size:12px">改动后约 1 秒自动上传；其他设备有更新时，页面顶部 ☁️ 胶囊会提示「其他设备已更新」，点击即合并。</div>
+    ${this._ghPanel?this._panelHtml():""}
+    <div class="muted" style="margin-top:6px;font-size:12px">改动后约 1 秒自动上传（成绩只在导入/删除后才传）；其他设备有更新时，页面顶部 ☁️ 胶囊会提示「其他设备已更新」，点击即合并。</div>
     ${this._manualCard()}</div>`;
+  },
+  _panelHtml(){
+    const hist=this._ghHist||[];
+    const fmt=n=>(!n?"—":(n>=1048576?(n/1048576).toFixed(2)+" MB":Math.max(1,(n/1024)).toFixed(1)+" KB"));
+    const sz=this._ghSizes;
+    return `<div class="lnsec" style="margin-top:8px;border-left:4px solid #2563eb;background:#f8fafc;padding:8px 10px">
+      <div style="font-weight:600;margin-bottom:4px">🗂 云端备份管理<span class="muted" style="font-weight:400;font-size:12px">（全部在站内完成，无需打开 github.com）</span></div>
+      ${sz?`<div style="font-size:12.5px;margin-bottom:6px">主数据文件：<b>${fmt(sz.main)}</b>　·　成绩文件：<b>${fmt(sz.exams)}</b>${sz.repo?`　·　仓库合计：<b>${(sz.repo/1024).toFixed(1)} MB</b>`:""}</div>`:""}
+      <div class="flex" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <button class="btn sm" data-act="ghLoadHistory">🕘 读取主数据历史</button>
+        <button class="btn sm" data-act="ghLoadHistoryEx">🎯 读取成绩历史</button>
+        <button class="btn sm" data-act="ghRefreshSizes">📏 刷新占用</button>
+      </div>
+      ${hist.length?`<div style="font-size:12px;line-height:1.9;max-height:260px;overflow:auto">
+        ${hist.map(h=>`<div>🕒 ${esc(h.date.toLocaleString("zh-CN"))}　${esc(h.message)}　
+          <button class="btn sm" data-act="ghDownload" data-id="${escA(h.sha)}" data-file="${escA(h.file||this.FILENAME)}">⬇ 下载</button>
+          <button class="btn sm" data-act="ghRestore" data-id="${escA(h.sha)}">♻ 恢复</button></div>`).join("")}
+      </div>
+      <div class="muted" style="margin-top:4px;font-size:11.5px">「下载」把该版本存成文件到你的电脑/手机；「恢复」用它覆盖本机并重新上传。建议恢复前先下载当前版本备份。</div>`
+      :`<div class="muted" style="font-size:12px">点上面两个按钮查看最近 30 次上传留档。</div>`}
+      <div style="border-top:1px dashed #cbd5e1;margin-top:8px;padding-top:8px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🧹 大扫除（谨慎）</div>
+        <div class="flex" style="gap:6px;flex-wrap:wrap">
+          <button class="btn sm" data-act="ghForcePush" style="border-color:#dc2626;color:#dc2626">🧹 以本机为准重建云端</button>
+          <button class="btn sm" data-act="ghForcePull" style="border-color:#dc2626;color:#dc2626">⤓ 以云端为准重置本机</button>
+        </div>
+        <div class="muted" style="margin-top:4px;font-size:11.5px">「以本机为准」把本机数据整份覆盖云端（云端变成与你屏幕上一模一样，用于清理多余数据）；「以云端为准」反过来，放弃本机、全盘接受云端（换设备时用）。两者都会二次确认。</div>
+      </div>
+    </div>`;
   },
   _manualCard(){
     return `<div class="notice" style="border-left:4px solid #16a34a;background:#f0fdf4;margin-top:10px"><b>📥 手动传文件（保底方式，不依赖网络）</b><br>某台设备暂时连不上 GitHub 时，用导出/导入手动搬家：数据按记录自动合并，两边的新改动都不会丢。<br>
@@ -4393,27 +4536,109 @@ ACTIONS.ghUploadNow=async()=>{
   }catch(e){toast("上传失败："+((e&&e.message)||e));}
   render();
 };
+ACTIONS.ghBackupPanel=async()=>{
+  Sync._ghPanel=!Sync._ghPanel;
+  if(Sync._ghPanel){
+    try{Sync._ghSizes=await Sync.ghFileSizes();}catch(e){}
+  }
+  render();
+};
+ACTIONS.ghRefreshSizes=async()=>{
+  try{Sync._ghSizes=await Sync.ghFileSizes();toast("已刷新云端占用");}
+  catch(e){toast("读取失败："+((e&&e.message)||e));}
+  render();
+};
 ACTIONS.ghLoadHistory=async()=>{
-  try{Sync._ghHist=await Sync.ghHistory();toast("已读取最近 "+Sync._ghHist.length+" 次上传记录");}
+  try{Sync._ghHist=await Sync.ghHistory(Sync.FILENAME);toast("已读取最近 "+Sync._ghHist.length+" 次主数据上传记录");}
   catch(e){toast("读取历史失败："+((e&&e.message)||e));}
   render();
 };
+ACTIONS.ghLoadHistoryEx=async()=>{
+  try{Sync._ghHist=await Sync.ghHistory(Sync.EXAMFILE);toast("已读取最近 "+Sync._ghHist.length+" 次成绩上传记录");}
+  catch(e){toast("读取成绩历史失败："+((e&&e.message)||e));}
+  render();
+};
+/* 下载某个历史版本到你设备（不覆盖本机数据） */
+ACTIONS.ghDownload=async(sha,file)=>{
+  const name=file||Sync.FILENAME;
+  try{
+    const r=await Sync.ghFetch(Sync.ghUrlOf(name)+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const txt=await r.text();
+    if(!txt)throw new Error("该版本内容为空");
+    const d=new Date(),z=n=>String(n).padStart(2,"0");
+    const base=name.replace(/\.json$/,"");
+    download(base+"_"+z(d.getMonth()+1)+z(d.getDate())+"_"+sha.slice(0,7)+".json",txt,"application/json");
+    toast("✅ 已下载该版本（可用「导入数据文件」查看或恢复）");
+  }catch(e){toast("下载失败："+((e&&e.message)||e));}
+};
 ACTIONS.ghRestore=async sha=>{
   const h=(Sync._ghHist||[]).find(x=>x.sha===sha);if(!h)return;
-  if(!confirm("确定恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本（"+h.message+"）吗？\n\n将用该版本覆盖本机当前数据并上传。当前未上传的改动会丢失，建议先「导出全部数据」备份。"))return;
+  if(!confirm("确定恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本（"+h.message+"）吗？\n\n将用该版本覆盖本机当前数据并上传。当前未上传的改动会丢失，建议先「📤 导出数据文件」备份。"))return;
   Sync.status="sync";Sync.updateChip();
   try{
-    const r=await Sync.ghFetch(Sync.ghUrl()+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+    const r=await Sync.ghFetch(Sync.ghUrlOf(h.file||Sync.FILENAME)+"?ref="+encodeURIComponent(sha),{headers:Sync.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
     if(!r.ok)throw new Error("读取历史版本失败（HTTP "+r.status+"）");
     const txt=await r.text(); /* raw 方式：大于 1MB 的历史版本也能取到原文（v46） */
     if(!txt)throw new Error("该历史版本内容为空，已中止");
     const p=JSON.parse(txt);
-    if(!p||p.app!=="teacherBoard")throw new Error("该版本内容不是工作台数据");
-    await Sync.applyPayload(p,false);
-    await Sync.persistAll();
-    await Sync._ghDoPush(); // 恢复结果作为新版本上传（sha 冲突时 ghWrite 会自动重取）
-    toast("✅ 已恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本并上传");
+    const isEx=(h.file===Sync.EXAMFILE)||p.app==="teacherBoardExams";
+    if(isEx){
+      if(!(p.exams instanceof Array))throw new Error("该成绩版本内容异常");
+      State.data.exams=p.exams;
+      await Sync.persistAll();
+      Sync.examsDirty=true;
+      await Sync._pushExams();
+      toast("✅ 已恢复成绩到 "+h.date.toLocaleString("zh-CN")+" 的版本并上传");
+    }else{
+      if(!p||p.app!=="teacherBoard")throw new Error("该版本内容不是工作台数据");
+      await Sync.applyPayload(p,false);
+      await Sync.persistAll();
+      await Sync._ghDoPush();
+      toast("✅ 已恢复到 "+h.date.toLocaleString("zh-CN")+" 的版本并上传");
+    }
   }catch(e){Sync.status="err";Sync.updateChip();toast("恢复失败："+((e&&e.message)||e));}
+  render();
+};
+/* 🧹 以本机为准重建云端：无视版本号，整份覆盖（清理数据用） */
+ACTIONS.ghForcePush=async()=>{
+  if(!Sync.ghConn){toast("未连接云端同步");return;}
+  if(!confirm("【危险操作】将以【本机当前数据】整份覆盖云端，云端的旧数据（含成绩）全部作废。\n\n适用于：本机已把多余数据删干净，要让云端跟你一致。\n\n建议先点「📤 导出数据文件」留一份备份。确定继续吗？"))return;
+  if(!confirm("再确认一次：云端数据将被本机覆盖，无法撤销（历史版本仍可找回）。确定执行？"))return;
+  Sync.status="sync";Sync.updateChip("覆盖云端中…");
+  try{
+    const got=await Sync.ghRead();Sync.ghSha=got.sha;
+    const cloudRev=(got.payload&&got.payload.rev)||0;
+    Sync.rev=Math.max(cloudRev,Sync.rev||0)+1;
+    const p={app:"teacherBoard",device:Sync.device,rev:Sync.rev,savedAt:new Date().toISOString(),meta:Sync.metaClean(),data:Sync.cleanData()};
+    Sync.ghSha=await Sync._writeFile(Sync.FILENAME,p,Sync.ghSha,"工作台数据")||Sync.ghSha;
+    Sync.examsDirty=true;await Sync._pushExams();
+    await Sync.persistAll();
+    Sync.status="on";Sync.lastSync=new Date();Sync._ghErr=null;Sync.updateChip();
+    toast("✅ 云端已重建为本机数据（数据 v"+Sync.rev+"、成绩 v"+Sync.examsRev()+"）");
+  }catch(e){Sync.status="err";Sync.updateChip();toast("重建失败："+((e&&e.message)||e));}
+  render();
+};
+/* ⤓ 以云端为准重置本机：放弃本机，全盘接受云端（换设备/装错数据时用） */
+ACTIONS.ghForcePull=async()=>{
+  if(!Sync.ghConn){toast("未连接云端同步");return;}
+  if(!confirm("【危险操作】将丢弃【本机所有数据】，改为云端那一份。\n\n适用于：本机装错了数据、或换新设备想完全跟云端一致。\n\n若本机有未上传的改动，请先「📤 导出数据文件」。确定继续吗？"))return;
+  if(!confirm("再确认一次：本机数据将被云端覆盖，无法撤销。确定执行？"))return;
+  Sync.status="sync";Sync.updateChip("从云端重置中…");
+  try{
+    const got=await Sync.ghRead();
+    if(!got.payload)throw new Error("云端没有数据文件，已中止");
+    Sync.ghSha=got.sha;
+    await Sync.applyPayload(got.payload,false);
+    const ge=await Sync.ghReadExams();
+    Sync.ghShaEx=ge.sha;
+    State.data.exams=(ge.payload&&ge.payload.exams)||[];
+    Sync.setExamsRev((ge.payload&&ge.payload.rev)||0);
+    await Sync.persistAll();
+    Sync.examsDirty=false;
+    Sync.status="on";Sync.lastSync=new Date();Sync._ghErr=null;Sync.updateChip();
+    toast("✅ 已用云端数据重置本机（成绩 "+(State.data.exams||[]).length+" 次考试）");
+  }catch(e){Sync.status="err";Sync.updateChip();toast("重置失败："+((e&&e.message)||e));}
   render();
 };
 ACTIONS.syncExport=()=>Sync.manualExport();
