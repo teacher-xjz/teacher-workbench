@@ -273,7 +273,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v63";
+window.APP_VERSION="v64";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -744,7 +744,7 @@ function schedTable(key,opt={}){
       const sp=val.trim();
       const sname=sp.split(/\s+/)[0]||"";
       const c=sp?subjColor(sname):null;
-      return `<td class="cell${hl(i)?" todaycol":""}"><input value="${escA(val)}" data-sched="${key}" data-day="${d}" data-pk="${p.k}" class="${opt.markW&&sp.includes("语文")?"isw":""}${sp?" filled":""}" ${c?`style="border-left:3px solid ${c};background:${c}14;color:${c}"`:""} placeholder="—"></td>`;
+      return `<td class="cell${hl(i)?" todaycol":""}"><input autocomplete="off" spellcheck="false" value="${escA(val)}" data-sched="${key}" data-day="${d}" data-pk="${p.k}" class="${opt.markW&&sp.includes("语文")?"isw":""}${sp?" filled":""}" ${c?`style="border-left:3px solid ${c};background:${c}14;color:${c}"`:""} placeholder="—"></td>`;
     }).join("")}</tr>`;
   });
   html+=`</tbody></table></div><div class="muted" style="margin-top:6px">直接填写“科目 教师”（如：语文 谢俊中），自动保存；<span style="display:inline-block;width:10px;height:10px;background:#2563eb;border-radius:2px;vertical-align:middle"></span> 按科目自动配色${opt.markW?"；含“语文”的格子标蓝加粗":""}${opt.highlight?"；蓝色列=今天，绿色=当前节次":""}</div>`;
@@ -1066,6 +1066,32 @@ function homeCdCalc(items){
     items.forEach(it=>{const pr=parse(it.time);if(pr&&pr[1]<=nxt.r[0])base=Math.max(base,pr[1]);});
     return{color:cdColorWait(gap),pct:(nm-base)/Math.max(1,nxt.r[0]-base),
       label:`距下节课 · ${esc(subj)}`,count:gap<1?"马上开始":`${gap} 分钟`,sub:`${cdHM(nxt.r[0])} 上课 · ${esc(nxt.it.title||"")}`};
+  }
+  /* 今天课上完了 → 往后找未来 7 天内第一个有课的日子（v64） */
+  const grid=State.meta.mySched;
+  if(grid){
+    let lastEnd=0;items.forEach(it=>{const pr=parse(it.time);if(pr)lastEnd=Math.max(lastEnd,pr[1]);});
+    if(!lastEnd)lastEnd=18*60;
+    for(let off=1;off<=7;off++){
+      const nd=new Date();nd.setDate(nd.getDate()+off);
+      const dayName=SCHED_DAYS[(nd.getDay()+6)%7];
+      const list=[];
+      schedPeriods().forEach(p=>{
+        if(p.type!=="class")return;
+        const v=grid[dayName]&&grid[dayName][p.k];
+        if(v&&v.trim()){const r=parse(p.time);if(r)list.push({title:p.t,v:v.trim(),r});}
+      });
+      const first=list.sort((a,b)=>a.r[0]-b.r[0])[0];
+      if(first){
+        const dayLabel=off===1?"明天":"周"+"日一二三四五六"[nd.getDay()];
+        const gap=(off-1)*1440+first.r[0]-nm;
+        const count=gap>=1440?`${dayLabel} ${cdHM(first.r[0])}`:gap>=60?`${Math.floor(gap/60)} 小时 ${gap%60} 分钟`:`${gap} 分钟`;
+        const total=(off-1)*1440+first.r[0]-lastEnd;
+        return{color:cdColorWait(Math.max(gap,60)),pct:Math.min(.95,Math.max(.04,(nm-lastEnd)/Math.max(1,total))),
+          label:`距下节课 · ${esc(first.v.split(/\s+/)[0])}`,
+          count,sub:`${dayLabel} ${cdHM(first.r[0])} 上课 · ${esc(first.title||"")}`};
+      }
+    }
   }
   return null;
 }
