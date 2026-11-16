@@ -119,7 +119,7 @@ table.tb tr.hl td{background:#fffbeb}
 /* 图表横向滚动容器：班级多时保证柱宽可读（v52）；内含悬停名单气泡（v53） */
 .chartscroll{overflow-x:auto;overflow-y:hidden;margin-top:8px;position:relative}
 .chartscroll>div{min-width:100%}
-.charttip{position:absolute;display:none;background:rgba(15,23,42,.93);color:#fff;padding:7px 10px;border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none;z-index:60;max-width:280px;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.charttip{position:absolute;display:none;background:rgba(15,23,42,.93);color:#fff;padding:6px 9px;border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none;z-index:60;max-width:250px;width:max-content;box-shadow:0 6px 20px rgba(0,0,0,.3)}
 .charttip b{font-weight:600}
 .charttip div{margin-top:2px;word-break:break-all;opacity:.92}
 /* 卡片内可悬停的小热区（如 退步/进步 数字） */
@@ -220,7 +220,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v53";
+window.APP_VERSION="v54";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2086,7 +2086,10 @@ jwOverview.after=()=>{
         const names=hit.si===0?s.benNames:s.excNames;
         const lab=hit.si===0?"本科上线":"特控上线";
         const cnt=hit.si===0?s.ben:s.exc;
-        tip.innerHTML=`<b>${escA(s.cls)}班 · ${lab} ${cnt} 人</b><div>${escA(clipNames(names,n=>n))}</div>`;
+        /* 名单只展示前 6 人，气泡随内容自适应宽窄，避免过长挡住图表（v54）；完整名单见「重点关注」 */
+        const shown=names.slice(0,6).join("、");
+        const tail=names.length>6?`……等共${names.length}人`:"";
+        tip.innerHTML=`<b>${escA(s.cls)}班 · ${lab} ${cnt} 人</b><div>${escA((shown||tail)?shown+tail:"无")}</div>`;
         tip.style.display="block";
         const wr=wrap.getBoundingClientRect();
         let tx=mx+14,ty=my+14;
