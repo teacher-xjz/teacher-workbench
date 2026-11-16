@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v40";
+window.APP_VERSION="v41";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1947,6 +1947,14 @@ function jwOverview(){
     let idx=bands.findIndex(b=>t>=b);if(idx<0)idx=bands.length;
     bandVals[idx]++;});
   const tot=totalStats(exam,exam.rows);
+  /* 年级口径 上线/临界 名单（参照班主任样式，v41） */
+  const withT=exam.rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const benList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
+  const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
+  const benCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"pass");});
+  const excCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
+  const tipName=arr=>clipNames(arr,r=>`${r.name}（${r.cls}班）${fmtN(r.total,0)}`);
+  const tipCritG=arr=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,"pass");const df=r.total-ln;return `${r.name}（${r.cls}班）${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
   return `<div class="card"><h3>📊 年级总览<span class="sub">${esc(exam.name)}</span><span class="spacer"></span>${examSelector()}</h3>
   <div class="statcards">
     <div class="stat"><div class="v">${exam.rows.length}</div><div class="k">学生总数</div></div>
@@ -1954,7 +1962,10 @@ function jwOverview(){
     <div class="stat"><div class="v">${withTotal}</div><div class="k">有总分学生</div></div>
     <div class="stat"><div class="v">${fmtN(tot&&tot.avg)}<small> 分</small></div><div class="k">年级总分均分</div></div>
     <div class="stat"><div class="v">${fmtN(tot&&tot.max)}</div><div class="k">最高总分</div></div>
+    <div class="stat" title="本科上线：${escA(tipName(benList))}　·　临界（距本科线±${critBandOf(exam,"pass")}）：${escA(tipCritG(benCrit))}"><div class="v"><small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${benCrit.length}</span></div><div class="k"><span class="dot" style="background:#10b981"></span>本科线 · 全年级</div></div>
+    <div class="stat" title="特控上线：${escA(tipName(excList))}　·　临界（距特控线±${critBandOf(exam,"exc")}）：${escA(tipCritG(excCrit))}"><div class="v"><small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${excCrit.length}</span></div><div class="k"><span class="dot" style="background:#a855f7"></span>特控线 · 全年级</div></div>
   </div>
+  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算；鼠标悬浮到 本科线/特控线 卡片可查看名单（最多前15人，超出显示"等共N人"）。</div>
   <details open class="lnsec" style="margin-top:14px"><summary>📶 总分分数段分布（${bandNames.join(" / ")}）（可收起）</summary>
   <canvas class="chart" id="cBands" style="margin-top:8px"></canvas></details></div>
   ${Object.keys(ce.dirs||{}).length?`<div class="card"><h3>🧭 分方向统计（物理方向 / 历史方向）<span class="sub">本科率、特控率、优生率按各自方向的线计算</span></h3>
@@ -2958,6 +2969,7 @@ ACTIONS.lnApplyPaste=()=>{
 };
 document.addEventListener("change",e=>{if(e.target.id==="lnScope"){State.lnScope=e.target.value;renderKeep();}});
 /* ================= 班主任 · 班级成绩分析 ================= */
+function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
 function clsScoreView(){
   const exam=ensureExam();
   if(!exam)return `<div class="card"><h3>📊 班级成绩分析</h3>${examSelector()}</div>`;
@@ -2982,7 +2994,8 @@ function clsScoreView(){
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
   const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return ln!=null&&Math.abs(r.total-ln)<=critBandOf(exam,"exc");});
   const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
-  const top80List=ce.ranks.filter(x=>x.rank!=null&&x.rank<=80&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
+  const topN=topNOf();
+  const topNList=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
   const weakMap={};
   rows.forEach(r=>{const cr=r._cr;if(!cr||!mine.n)return;const weak=[];
     exam.subjects.forEach(s=>{
@@ -3007,6 +3020,8 @@ function clsScoreView(){
   ${clsList.length>1?`<div class="flex" style="flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px">
     <label class="muted" style="font-size:12px">查看班级：</label>
     <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select>
+    <label class="muted" style="font-size:12px;margin-left:10px">优生线前N：</label>
+    <select id="bzrTopN" style="width:80px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select>
     <label class="muted" style="font-size:12px;margin-left:10px">对比班级（点选可多选）：</label>
     ${clsList.filter(c=>c!==viewCls).map(c=>`<button class="btn sm${cmpCls.includes(c)?" primary":""}" data-act="bzrCmpToggle" data-id="${escA(c)}">${esc(c)}班</button>`).join("")}
     ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空对比</button>`:""}
@@ -3014,13 +3029,13 @@ function clsScoreView(){
   ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
-    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+`<small>前80占${top80List.length}人</small>`,"总分均分",clipNames(top80List,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
+    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
     ${statCard(prev?`↑${upList.length} <small>退步</small> ↓${downList.length} <small>进步</small>`:"—","较上次（方向排名）",prev?`退步：${clipNames(upList,x=>`${x.name} ↑${x.d}`)}；进步：${clipNames(downList,x=>`${x.name} ↓${-x.d}`)}`:"",null)}
     ${statCard(`<small style="color:#10b981">上线</small><span style="color:var(--text)">${benList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critRows.length}</span>`,`本科线`,`${clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距本科线±${critBenBand}）：${tipCrit(critRows,"pass")}`,"#10b981")}
     ${statCard(`<small style="color:#a855f7">上线</small><span style="color:var(--text)">${excList.length}</span> · <small style="color:#f97316">临界</small><span style="color:var(--text)">${critT.length}</span>`,`特控线`,`${clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`)}；临界（距特控线±${critExcBand}）：${tipCrit(critT,"exc")}`,"#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前80名单）/ 较上次 / 本科线 / 特控线 / 偏科预警 卡片上可查看名单（最多前15人，超出显示"等共N人"）。</div>
+  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 较上次 / 本科线 / 特控线 / 偏科预警 卡片上可查看名单（最多前15人，超出显示"等共N人"）。</div>
   ${cmpCls.length?bzrCompareSection(exam,ce,viewCls,cmpCls,myCls):""}
   <details open class="lnsec" style="margin-top:10px"><summary>📊 各科对比：班级均分 vs 年级均分（可收起）</summary>
   <canvas class="chart" id="cClsSubj"></canvas>${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
@@ -3093,6 +3108,7 @@ function clsScoreView(){
 const CMP_COLORS=["#2563eb","#dc2626","#16a34a","#ea580c","#7c3aed","#0d9488","#d97706","#0891b2"];
 function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
   const gradeClsRank=classTotalRank(exam);
+  const topN=topNOf();
   const clsArr=[viewCls,...cmpCls];
   const stat=cls=>{
     const rowsC=exam.rows.filter(r=>r.cls===cls);
@@ -3100,16 +3116,16 @@ function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
     const ben=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;}).length;
     const exc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;}).length;
     const info=ce.classes.find(c=>c.cls===cls);
-    const top80=ce.ranks.filter(x=>x.rank!=null&&x.rank<=80&&x.row.cls===cls).length;
+    const topNn=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===cls).length;
     const n=info?info.n:rowsC.length;
     return{cls,n,avg:info&&info.total?info.total.avg:null,rank:gradeClsRank[cls]||null,ncls:ce.classes.length,ben,exc,
-      benRate:n?ben/n*100:null,excRate:n?exc/n*100:null,top80};
+      benRate:n?ben/n*100:null,excRate:n?exc/n*100:null,topNn};
   };
   const sts=clsArr.map(stat);
   const row=(label,fn)=>`<tr><td><b>${label}</b></td>${sts.map(s=>`<td class="ctr">${fn(s)}</td>`).join("")}</tr>`;
   return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(viewCls)}班 vs ${cmpCls.map(c=>esc(c)+"班").join("、")}（可收起）</summary>
   <div class="statcards" style="grid-template-columns:repeat(${Math.min(4,sts.length)},1fr);margin-top:6px">
-    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前80占${s.top80}人</div></div>`).join("")}
+    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前${topN}占${s.topNn}人</div></div>`).join("")}
   </div>
   <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(s.cls)}班${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
     ${row("班级人数",s=>fmtN(s.n,0))}
@@ -3117,7 +3133,7 @@ function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
     ${row("年级排名",s=>s.rank?`第${s.rank}/${s.ncls}名`:"—")}
     ${row("本科上线",s=>`${s.ben}人（${fmtN(s.benRate)}%）`)}
     ${row("特控上线",s=>`${s.exc}人（${fmtN(s.excRate)}%）`)}
-    ${row("年级前80占席",s=>`${s.top80}人`)}
+    ${row("年级前"+topN+"占席",s=>`${s.topNn}人`)}
   </tbody></table></div>
   <div style="margin-top:12px"><canvas class="chart" id="cClsCmp"></canvas>${legendHtml(sts.map((s,i)=>({c:CMP_COLORS[i%CMP_COLORS.length],n:s.cls+"班"})))}</div>
   <details class="lnsec" style="margin-top:8px"><summary>📋 单科均分逐班对照（展开查看）</summary>
@@ -3151,6 +3167,9 @@ clsScoreView.after=()=>{
   /* 班级切换下拉 */
   const sel=$("#bzrViewCls");
   if(sel)sel.onchange=()=>{State.bzrScoreCls=sel.value;State.bzrScoreCmp=(State.bzrScoreCmp||[]).filter(c=>c!==sel.value);render();};
+  /* 优生线前N选择 */
+  const selN=$("#bzrTopN");
+  if(selN)selN.onchange=()=>{try{localStorage.setItem("tbTopN",selN.value);}catch(e){}render();};
   const cv=$("#cClsSubj");
   if(cv)chartBar2(cv,exam.subjects,
     exam.subjects.map(s=>mine.bySubj[s]&&mine.bySubj[s].avg),
@@ -3985,9 +4004,124 @@ const Sync={
   status:"off",lastSync:null,checking:false,remotePending:null,timer:null,
   _persistFail:null,_lastErr:null,_memLost:false,
   FILENAME:"工作台数据.json",
+  /* ===== GitHub 云同步通道（手机/电脑通用，v41） =====
+     背景：坚果云 WebDAV 不返回 CORS 头，浏览器（含手机）无法直连；
+     改用 GitHub 私有仓库 Contents API（支持浏览器跨域），数据存自己的私有仓库，令牌只存本机浏览器。 */
+  ghCfg:null,ghSha:null,ghConn:false,ghChecking:false,_ghErr:null,_gt:null,
+  async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
+  ghUrl(){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(c.path||this.FILENAME);},
+  ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
+  async ghRead(){
+    const r=await fetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
+    if(r.status===404)return{payload:null,sha:null};
+    if(r.status===401||r.status===403)throw new Error("令牌无效或无权限（HTTP "+r.status+"），请检查 GitHub 访问令牌");
+    if(!r.ok)throw new Error("读取云端失败（HTTP "+r.status+"）");
+    const j=await r.json();
+    const b64=(j.content||"").replace(/\n/g,"");
+    let txt;try{txt=decodeURIComponent(escape(atob(b64)));}catch(e){txt=atob(b64);}
+    let p=null;try{p=JSON.parse(txt);}catch(e){}
+    return{payload:(p&&p.app==="teacherBoard")?p:null,sha:j.sha};
+  },
+  async ghWrite(p){
+    const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p))));
+    const body={message:"工作台数据 rev"+p.rev+"（设备 "+this.device+"）",content:b64};
+    if(this.ghSha)body.sha=this.ghSha;
+    let r=await fetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+    if(r.status===409||r.status===422){ // 远端已变：拿最新 sha 重试一次
+      const got=await this.ghRead();this.ghSha=got.sha;
+      body.sha=got.sha;
+      r=await fetch(this.ghUrl(),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+    }
+    if(!r.ok)throw new Error("写入云端失败（HTTP "+r.status+"）");
+    const j=await r.json();
+    this.ghSha=(j.content&&j.content.sha)||this.ghSha;
+    this.lastSync=new Date();this.status="on";this.remotePending=null;this.updateChip();
+    return true;
+  },
+  async connectGh(silent){
+    const repo=(($("#ghRepo")&&$("#ghRepo").value.trim())||"teacher-workbench-data");
+    const token=(($("#ghToken")&&$("#ghToken").value.trim())||"");
+    if(!token){toast("请先粘贴 GitHub 访问令牌");return;}
+    this.ghCfg={owner:"teacher-xjz",repo,path:this.FILENAME,token};
+    try{
+      const got=await this.ghRead();
+      this.ghSha=got.sha;
+      if(!got.payload){
+        this.rev=(this.rev||0)+1;
+        const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
+        await this.ghWrite(p);
+        await this.persistAll();
+        toast("云端仓库还是空的，已把本机数据上传上去");
+      }else{
+        const changed=await this.applyPayload(got.payload,true);
+        this.rev=Math.max(this.rev||0,got.payload.rev||0);
+        await this.persistAll();
+        if(changed)await this._ghNote(); // 本机有较新改动 → 合并后上传
+        toast(changed?"已合并云端数据（本机较新改动即将上传）":"已连接：本机与云端一致");
+      }
+      this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
+      try{localStorage.setItem("tbGhCfg",JSON.stringify(this.ghCfg));}catch(e){}
+      this.updateChip();
+      if(!silent)render();
+    }catch(e){
+      this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();
+      toast("连接失败："+this._ghErr);
+      if(!silent)render();
+    }
+  },
+  ghDisconnect(){
+    this.ghConn=false;this.ghSha=null;this._ghErr=null;
+    try{localStorage.removeItem("tbGhCfg");}catch(e){}
+    this.ghCfg=null;
+    if(!this.file)this.status="off";
+    this.updateChip();toast("已断开 GitHub 云同步");render();
+  },
+  async _ghNote(){
+    this.status="sync";this.updateChip();
+    clearTimeout(this._gt);
+    this._gt=setTimeout(async()=>{
+      try{
+        const got=await this.ghRead();this.ghSha=got.sha;
+        if(got.payload&&got.payload.rev>(this.rev||0)){
+          this.remotePending=got.payload;this.status="on";this.updateChip("⚠️ 其他设备已更新，点此加载");return;
+        }
+        await this._ghDoPush();
+      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();}
+    },1200);
+  },
+  async _ghDoPush(){
+    this.rev=(this.rev||0)+1;
+    const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
+    await this.ghWrite(p);
+    await this.persistAll();
+    this.status="on";this.lastSync=new Date();this.updateChip();
+  },
   async init(){
     this.updateChip();
-    if(!this.avail)return;
+    await this.ghLoadCfg();
+    if(this.ghCfg){
+      this.ghConn=true;this.status="sync";this.updateChip();
+      try{
+        const got=await this.ghRead();
+        this.ghSha=got.sha;
+        if(got.payload){
+          const changed=await this.applyPayload(got.payload,true);
+          this.rev=Math.max(this.rev||0,got.payload.rev||0);
+          await this.persistAll();
+          this.status="on";this.lastSync=new Date();
+          if(changed)this._ghNote();
+        }else this.status="on";
+      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";}
+      this.updateChip();
+    }
+    if(!this.avail){
+      if(this.ghConn){ // 手机等无文件夹 API 环境：仅注册云端检查定时器
+        document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.checkRemote();});
+        window.addEventListener("focus",()=>this.checkRemote());
+        this.timer=setInterval(()=>{if(!document.hidden)this.checkRemote();},60000);
+      }
+      return;
+    }
     const h=State.meta.syncDir,hf=State.meta.syncFile;
     if(hf&&!h){
       /* 单文件模式：恢复记忆的文件句柄 */
@@ -4226,6 +4360,7 @@ const Sync={
   },
   _t:null,
   noteChange(){
+    if(this.ghConn)this._ghNote();
     if(!this.file)return;
     this.status="sync";this.updateChip();
     clearTimeout(this._t);
@@ -4245,6 +4380,22 @@ const Sync={
     },800);
   },
   async checkRemote(){
+    if(this.ghConn&&!this.ghChecking){
+      this.ghChecking=true;
+      try{
+        const got=await this.ghRead();
+        this.ghSha=got.sha;
+        const p=got.payload;
+        if(p&&p.rev>(this.rev||0)){
+          this.remotePending=p;
+          this.updateChip("⚠️ 其他设备已更新，点此加载");
+          if(this.status==="sync"||this.status==="off")this.status="on";
+        }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){
+          this.remotePending=null;this.updateChip();
+        }
+      }catch(e){this._ghErr=(e&&e.message)||String(e);if(this.status!=="sync")this.status="err";this.updateChip();}
+      finally{this.ghChecking=false;}
+    }
     if(!this.file||this.checking)return;
     this.checking=true;
     try{
@@ -4278,7 +4429,7 @@ const Sync={
   },
   updateChip(msg){
     const el=document.getElementById("cloudChip");if(!el)return;
-    if(!this.avail){el.innerHTML="";return;}
+    if(!this.avail&&!this.ghConn){el.innerHTML="";return;}
     const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
     const map={off:["🔗","连接同步"],auth:["🔗","待授权 · 点击授权"],on:["☁️","已同步"+(this.lastSync?" "+hm(this.lastSync):""),""],sync:["☁️","同步中…"],err:["⚠️","同步异常 · 点击重试"]};
     const[m1,m2]=map[this.status]||["☁️",""];
@@ -4353,8 +4504,9 @@ const Sync={
     };
     inp.click();
   },
-  settingsCard(){
-    if(!this.avail)return `<div class="card"><h3>☁️ 坚果云文件同步</h3><div class="notice">当前浏览器不支持文件同步（需要电脑版 Chrome 或 Edge 打开本页面）。数据仍保存在本机浏览器中，可用下方备份导出/导入功能。</div></div>`;
+  settingsCard(){return this._folderCard()+this.ghCard();},
+  _folderCard(){
+    if(!this.avail)return `<div class="card"><h3>☁️ 坚果云文件夹同步（电脑）</h3><div class="notice">当前浏览器不支持文件夹选择（手机浏览器均如此）。电脑上请用 Chrome/Edge 打开本页连接坚果云文件夹；<b>手机请用下方「📱 GitHub 云同步」</b>。</div></div>`;
     const fi=this._fileInfo;
     const kb=v=>v>1048576?(v/1048576).toFixed(1)+" MB":Math.round(v/1024)+" KB";
     const isFile=(location.protocol==="file:");
@@ -4394,8 +4546,37 @@ const Sync={
       <span class="muted">最近同步：${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"} · 数据版本 ${this.rev}</span>`:""}
     </div></div>`;
   },
+  ghCard(){
+    const c=this.ghCfg;
+    if(!c)return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用，免装坚果云</span></h3>
+    <div class="notice blue"><b>原理：</b>数据上传到你自己 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（已创建好，外人不可见）；手机和电脑都直接读写云端这一份，双向自动同步。<br>
+    <b>怎么用：</b>① 下方粘贴你的 GitHub 访问令牌（就是之前注册 GitHub 时给我的那个 ghp_ 开头令牌；也可到 github.com → Settings → Developer settings → Fine-grained tokens 新建一个仅授权 teacher-workbench-data 仓库、Contents 可读写的令牌）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接，即可看到全部数据。<br>
+    <b>安全：</b>令牌只保存在本设备的浏览器里，不出现在网页代码中；仓库是私有的，只有持令牌的人能访问。</div>
+    <div class="frow">
+      <div class="field" style="flex:.5"><label>仓库名（默认已填好）</label><input id="ghRepo" value="teacher-workbench-data"></div>
+      <div class="field" style="flex:1"><label>GitHub 访问令牌（ghp_ 开头）</label><input id="ghToken" type="password" placeholder="粘贴 ghp_... 令牌" autocomplete="off"></div>
+    </div>
+    <button class="btn primary" data-act="ghConnect">🔗 连接云端（GitHub 私有仓库）</button></div>`;
+    return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用</span></h3>
+    <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有仓库）　·　数据版本 <b>${this.rev}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
+    ${this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步错误</b>：${esc(this._ghErr)}<br>常见原因：令牌失效/过期（重新生成一个再连接）；网络无法访问 GitHub（手机需能正常上网）。</div>`:""}
+    <div class="flex">
+      <button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>
+      <button class="btn" data-act="syncCheckNow">🔄 立即检查云端更新</button>
+      <button class="btn danger" data-act="ghDisconnect">断开云端同步</button>
+    </div>
+    <div class="muted" style="margin-top:6px;font-size:12px">改动后约 1 秒自动上传；其他设备有更新时，页面顶部 ☁️ 胶囊会提示「其他设备已更新」，点击即可加载合并。手机上打开网址后登录同一令牌即可查看全部数据。</div></div>`;
+  },
 };
 ACTIONS.syncConnectFile=()=>Sync.connectFileMode();
+ACTIONS.ghConnect=()=>Sync.connectGh();
+ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步云端，本机数据不受影响。确定断开吗？"))Sync.ghDisconnect();};
+ACTIONS.ghUploadNow=async()=>{
+  if(!Sync.ghConn){toast("未连接 GitHub 云同步");return;}
+  Sync.status="sync";Sync.updateChip();
+  try{await Sync._ghDoPush();toast("✅ 已上传到 GitHub 私有仓库");}catch(e){toast("上传失败："+((e&&e.message)||e));}
+  render();
+};
 ACTIONS.syncExport=()=>Sync.manualExport();
 ACTIONS.syncImport=()=>Sync.manualImport();
 ACTIONS.diagTest=(id)=>Sync._diagTest(id);
