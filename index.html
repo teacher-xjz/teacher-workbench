@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v48";
+window.APP_VERSION="v49";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4023,7 +4023,7 @@ const Sync={
           this.status="on";this.lastSync=new Date();
           if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
         }else this.status="on";
-      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";}
+      }catch(e){this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();if(this._isNetErr(this._ghErr))this._scheduleReconnect(30000);}
       this.updateChip();
     }
     document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.checkRemote();});
@@ -4039,8 +4039,8 @@ const Sync={
   async ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
   ghUrl(){const c=this.ghCfg;return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+encodeURIComponent(c.path||this.FILENAME);},
   ghHeaders(extra){const c=this.ghCfg;return Object.assign({"Accept":"application/vnd.github+json","Authorization":"Bearer "+c.token},extra||{});},
-  /* 统一带 30 秒超时的 fetch：避免手机上点「连接云端」后长时间无任何反馈（v47） */
-  async ghFetch(url,opts){
+  /* 统一带 30 秒超时 + 自动重试一次的 fetch：国内访问 GitHub 间歇性抽风，瞬时抖动当场自愈（v49） */
+  async _fetch1(url,opts){
     const ctl=("AbortController" in window)?new AbortController():null;
     const t=ctl?setTimeout(()=>ctl.abort(),30000):null;
     try{return await fetch(url,Object.assign({},opts||{},ctl?{signal:ctl.signal}:{}));}
@@ -4051,7 +4051,37 @@ const Sync={
     }
     finally{if(t)clearTimeout(t);}
   },
+  async ghFetch(url,opts){
+    try{return await this._fetch1(url,opts);}
+    catch(e){
+      if(this._isNetErr(e&&e.message||e)){
+        await new Promise(r=>setTimeout(r,3000));
+        return await this._fetch1(url,opts);
+      }
+      throw e;
+    }
+  },
   _isNetErr(s){return /超时|无法访问|Failed to fetch|NetworkError|Load failed|fetch/i.test(String(s||""));},
+  /* 启动时/断网后自动重连：每 30 秒重试直到成功，不再需要手动点检查（v49） */
+  _scheduleReconnect(ms){
+    clearTimeout(this._rc);
+    this._rc=setTimeout(()=>{if(!this.ghConn)return;if(document.hidden)this._scheduleReconnect(15000);else this._reconnect();},ms||30000);
+  },
+  async _reconnect(){
+    try{
+      const got=await this.ghRead();this.ghSha=got.sha;
+      if(got.payload){
+        const changed=await this.applyPayload(got.payload,true);
+        this.rev=Math.max(this.rev||0,got.payload.rev||0);
+        await this.persistAll();
+        if(changed)this._ghNote();
+      }
+      this._ghErr=null;this.status="on";this.lastSync=new Date();this.updateChip();
+    }catch(e){
+      this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();
+      if(this._isNetErr(this._ghErr))this._scheduleReconnect(30000);
+    }
+  },
   async ghRead(){
     const r=await this.ghFetch(this.ghUrl(),{headers:this.ghHeaders(),cache:"no-store"});
     if(r.status===404)return{payload:null,sha:null};
@@ -4149,7 +4179,7 @@ const Sync={
   },
   ghDisconnect(){
     this.ghConn=false;this.ghSha=null;this._ghErr=null;this._ghHist=null;
-    clearTimeout(this._gt);clearTimeout(this._rt);
+    clearTimeout(this._gt);clearTimeout(this._rt);clearTimeout(this._rc);
     try{localStorage.removeItem("tbGhCfg");}catch(e){}
     this.ghCfg=null;
     this.status="off";
