@@ -193,7 +193,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v41";
+window.APP_VERSION="v42";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4040,7 +4040,8 @@ const Sync={
   },
   async connectGh(silent){
     const repo=(($("#ghRepo")&&$("#ghRepo").value.trim())||"teacher-workbench-data");
-    const token=(($("#ghToken")&&$("#ghToken").value.trim())||"");
+    /* 清除复制粘贴可能带入的隐藏字符（零宽字符/全角空格/BOM/首尾空白），避免"明明粘对了却401" */
+    const token=((($("#ghToken")&&$("#ghToken").value)||"")).replace(/[\s\u3000\u200b-\u200d\ufeff]/g,"");
     if(!token){toast("请先粘贴 GitHub 访问令牌");return;}
     this.ghCfg={owner:"teacher-xjz",repo,path:this.FILENAME,token};
     try{
@@ -4548,15 +4549,19 @@ const Sync={
   },
   ghCard(){
     const c=this.ghCfg;
-    if(!c)return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用，免装坚果云</span></h3>
-    <div class="notice blue"><b>原理：</b>数据上传到你自己 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（已创建好，外人不可见）；手机和电脑都直接读写云端这一份，双向自动同步。<br>
-    <b>怎么用：</b>① 下方粘贴你的 GitHub 访问令牌（就是之前注册 GitHub 时给我的那个 ghp_ 开头令牌；也可到 github.com → Settings → Developer settings → Fine-grained tokens 新建一个仅授权 teacher-workbench-data 仓库、Contents 可读写的令牌）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接，即可看到全部数据。<br>
-    <b>安全：</b>令牌只保存在本设备的浏览器里，不出现在网页代码中；仓库是私有的，只有持令牌的人能访问。</div>
-    <div class="frow">
-      <div class="field" style="flex:.5"><label>仓库名（默认已填好）</label><input id="ghRepo" value="teacher-workbench-data"></div>
-      <div class="field" style="flex:1"><label>GitHub 访问令牌（ghp_ 开头）</label><input id="ghToken" type="password" placeholder="粘贴 ghp_... 令牌" autocomplete="off"></div>
-    </div>
-    <button class="btn primary" data-act="ghConnect">🔗 连接云端（GitHub 私有仓库）</button></div>`;
+    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 连接失败</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/粘了旧令牌（请从对话里重新完整复制）；令牌失效（去 GitHub 重新生成）；网络无法访问 GitHub。</div>`:"";
+    if(!c||!this.ghConn){
+      return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用，免装坚果云</span></h3>
+      ${errBox}
+      <div class="notice blue"><b>原理：</b>数据上传到你自己 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（已创建好，外人不可见）；手机和电脑都直接读写云端这一份，双向自动同步。<br>
+      <b>怎么用：</b>① 下方粘贴你的 GitHub 访问令牌（就是之前注册 GitHub 时给我的那个 ghp_ 开头令牌；也可到 github.com → Settings → Developer settings → Fine-grained tokens 新建一个仅授权 teacher-workbench-data 仓库、Contents 可读写的令牌）；② 点「连接云端」；③ 手机浏览器打开 https://teacher-xjz.github.io/teacher-workbench/ → 设置 → 同样粘贴令牌连接，即可看到全部数据。<br>
+      <b>安全：</b>令牌只保存在本设备的浏览器里，不出现在网页代码中；仓库是私有的，只有持令牌的人能访问。</div>
+      <div class="frow">
+        <div class="field" style="flex:.5"><label>仓库名（默认已填好）</label><input id="ghRepo" value="${escA(c?c.repo:"teacher-workbench-data")}"></div>
+        <div class="field" style="flex:1"><label>GitHub 访问令牌（ghp_ 开头）</label><input id="ghToken" type="password" placeholder="粘贴 ghp_... 令牌" autocomplete="off">　<button class="btn sm" data-act="ghTogglePwd">👁 显示/隐藏</button></div>
+      </div>
+      <button class="btn primary" data-act="ghConnect">🔗 连接云端（GitHub 私有仓库）</button></div>`;
+    }
     return `<div class="card"><h3>📱 手机同步 · GitHub 云端<span class="sub">手机/电脑通用</span></h3>
     <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有仓库）　·　数据版本 <b>${this.rev}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
     ${this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步错误</b>：${esc(this._ghErr)}<br>常见原因：令牌失效/过期（重新生成一个再连接）；网络无法访问 GitHub（手机需能正常上网）。</div>`:""}
@@ -4570,6 +4575,7 @@ const Sync={
 };
 ACTIONS.syncConnectFile=()=>Sync.connectFileMode();
 ACTIONS.ghConnect=()=>Sync.connectGh();
+ACTIONS.ghTogglePwd=()=>{const el=$("#ghToken");if(el)el.type=el.type==="password"?"text":"password";};
 ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步云端，本机数据不受影响。确定断开吗？"))Sync.ghDisconnect();};
 ACTIONS.ghUploadNow=async()=>{
   if(!Sync.ghConn){toast("未连接 GitHub 云同步");return;}
