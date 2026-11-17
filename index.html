@@ -4564,7 +4564,12 @@ function buildReport(exam,cls){
   /* 教学建议：规则模板 + 实际数值（不引入任何外部数字） */
   const advice=[];
   const dAvg=clsAvg!=null&&gradeAvg!=null?clsAvg-gradeAvg:null;
-  if(clsAvg!=null)advice.push(`总分均分 ${fmtN(clsAvg)} 分${gradeAvg!=null?`，年级均分 ${fmtN(gradeAvg)} 分，${dAvg>=0?`高出 ${fmtN(dAvg)}`:`低 ${fmtN(Math.abs(dAvg))}`} 分`:""}${clsRank?`，本班在 ${nCls} 个班中排第 ${clsRank} 名`:"")}。`);
+  if(clsAvg!=null){
+    let s1="总分均分 "+fmtN(clsAvg)+" 分";
+    if(gradeAvg!=null)s1+="，年级均分 "+fmtN(gradeAvg)+" 分，"+(dAvg>=0?"高出 "+fmtN(dAvg):"低 "+fmtN(Math.abs(dAvg)))+" 分";
+    if(clsRank)s1+="，本班在 "+nCls+" 个班中排第 "+clsRank+" 名";
+    advice.push(s1+"。");
+  }
   if(clsRank&&nCls>1)advice.push(clsRank<=Math.ceil(nCls/3)
     ?`班均分位于年级前列（${clsRank}/${nCls}），可安排经验分享或承担学科帮扶。`
     :clsRank>nCls-Math.ceil(nCls/3)
