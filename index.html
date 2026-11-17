@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v80";
+window.APP_VERSION="v81";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -452,14 +452,21 @@ function settings(){const s=Object.assign({},DEF_SETTINGS,State.meta.settings||{
   return s;}
 /* ================= 路由与导航 ================= */
 const ACTIONS={};
-const NAVS=[
-  {id:"home",icon:"🏠",label:"首页"},
-  {id:"bzr",icon:"🏫",label:"班主任"},
-  {id:"jks",icon:"📝",label:"教科室"},
-  {id:"jw",icon:"📊",label:"教务"},
-  {id:"gr",icon:"👤",label:"个人"},
-  {id:"set",icon:"⚙️",label:"设置"},
-];
+/* v81 模块化：NAVS/路由不再写死，由各模块文件通过 AppModule() 注册（按 order 排序）。
+   新功能 = 源码下新建 <目录>/<功能>.js + 文件末尾 AppModule({...}) + build.py 清单加一行 */
+const NAVS=[];
+const App={routes:{},mods:{}};
+function AppModule(m){
+  App.mods[m.id]=m;
+  if(m.actions)Object.assign(ACTIONS,m.actions);
+  if(m.render){
+    App.routes[m.id]=m.render;
+    if(m.icon&&m.label){
+      NAVS.push({id:m.id,icon:m.icon,label:m.label,order:m.order??900});
+      NAVS.sort((a,b)=>a.order-b.order);
+    }
+  }
+}
 /* ================= 设置密码锁（设备本地，防误操作软锁） ================= */
 let _memLock=null,_memUnlock=false;
 const Lock={
@@ -514,7 +521,7 @@ function goSub(sub){State.sub[State.route]=sub;render();}
 function render(keepScroll){
   const nav=$("#navInner");
   nav.innerHTML=NAVS.map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${n.icon}</span>${n.label}</div>`).join("");
-  const v={home:renderHome,bzr:renderBzr,jks:renderJks,jw:renderJw,gr:renderGr,set:renderSet}[State.route];
+  const v=App.routes[State.route];
   $("#main").innerHTML=(typeof heroBar==="function"?heroBar():"")+(v?v():"");
   const av=v&&v.after?v.after:null;
   window._lastAfter=av||null;
@@ -1070,120 +1077,7 @@ const CRUDCFG={
       {label:"路径",k:"path",f:r=>`<span style="white-space:normal;display:inline-block;max-width:180px" class="muted">${esc(r.path||"—")}</span>`}]},
 };
 function stTag(s){const m={"撰写中":"t-orange","待审核":"t-blue","已申报":"t-blue","申报中":"t-blue","已立项":"t-green","中期检查":"t-purple","待结题":"t-orange","已完成":"t-green","已获奖":"t-green","已结题":"t-green","未获奖":"t-gray"};return `<span class="tag ${m[s]||"t-gray"}">${esc(s||"—")}</span>`;}
-/* ================= 学生名册 Excel 导入 ================= */
-const ROSTER_KNOWN={"姓名":"name","性别":"sex","班级":"cls","学号":"sid","学籍号":"sid","考号":"kid",
-  "父亲":"father","母亲":"mother","本人联系电话":"phone","本人电话":"phone","联系电话":"@parent",
-  "父亲电话":"fatherPhone","母亲电话":"motherPhone","父亲联系电话":"fatherPhone","母亲联系电话":"motherPhone",
-  "通校/住校生":"boarding","通校住校":"boarding","住宿情况":"boarding","住宿":"boarding","备注":"note","序号":"idx"};
-const ROSTER_OPTS=[["ignore","忽略"],["name","姓名 *"],["sex","性别"],["cls","班级"],["sid","学号"],["kid","考号"],
-  ["father","父亲姓名"],["fatherPhone","父亲电话"],["mother","母亲姓名"],["motherPhone","母亲电话"],
-  ["phone","本人电话"],["boarding","住宿情况"],["note","备注"],["idx","序号"]];
-let RImp=null;
-function fixSci(v){const s=String(v==null?"":v).trim();if(/^\d+(\.\d+)?E\+\d+$/i.test(s)){const n=Number(s);if(!isNaN(n))return n.toFixed(0);}return s;}
-ACTIONS.rosterImport=()=>{
-  RImp=null;
-  openModal("导入学生名册 · 第1步：选择文件",`
-    <div class="notice blue">支持联系簿等常见格式：自动跳过大标题定位表头；两个同名的“联系电话”列会按位置自动区分为父亲/母亲电话（下一步可核对修改）。导入按“姓名+班级”去重：已存在的学生更新信息，新的追加，不会重复。</div>
-    <div class="frow"><div class="field"><label>名册文件（.xlsx / .xls / .csv）</label><input type="file" id="rosFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
-    <div id="rosLog" class="muted"></div>`,
-    `<button class="btn" data-act="closeModal">取消</button>`);
-  $("#rosFile").onchange=async ev=>{
-    const f=ev.target.files[0];if(!f)return;
-    $("#rosLog").textContent="正在解析…";
-    try{
-      let grid;
-      if(/\.csv|\.txt$/i.test(f.name)){
-        const txt=await f.text();
-        const lines=txt.replace(/\ufeff/g,"").split(/\r?\n/).filter(l=>l.trim());
-        const delim=lines[0].includes("\t")?"\t":",";
-        grid=lines.map(l=>l.split(delim).map(c=>c.replace(/^"(.*)"$/s,"$1").replace(/""/g,'"').trim()));
-      }else{
-        const buf=await f.arrayBuffer();
-        const wb=XLSX.read(buf,{type:"array"});
-        if(wb.SheetNames.length===1)grid=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:null});
-        else{
-          openModal("选择工作表",`<div class="field"><label>文件包含 ${wb.SheetNames.length} 个工作表</label><select id="rosSheet">${wb.SheetNames.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>`,
-          `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="rosSheetOk">下一步</button>`);
-          $("#rosSheetOk").onclick=()=>{RImp={grid:XLSX.utils.sheet_to_json(wb.Sheets[$("#rosSheet").value],{header:1,raw:true,defval:null})};buildRosterMapping();};
-          return;
-        }
-      }
-      RImp={grid};buildRosterMapping();
-    }catch(err){$("#rosLog").innerHTML=`<span style="color:var(--red)">解析失败：${esc(err.message||err)}</span>`;}
-  };
-};
-function buildRosterMapping(){
-  const grid=RImp.grid;
-  const hi=detectHeaderLoose(grid);
-  const header=(grid[hi]||[]).map(normHeader);
-  RImp={...RImp,hi,header};
-  const map=header.map(h=>(!h||!ROSTER_KNOWN[h])?"ignore":ROSTER_KNOWN[h]);
-  // 同名"联系电话"按位置区分：看左侧最近的"父亲/母亲"列
-  header.forEach((h,ci)=>{
-    if(map[ci]!=="@parent")return;
-    for(let j=ci-1;j>=0;j--){
-      if(!header[j])continue;
-      if(header[j].includes("父")){map[ci]="fatherPhone";break;}
-      if(header[j].includes("母")){map[ci]="motherPhone";break;}
-    }
-    if(map[ci]==="@parent")map[ci]="ignore";
-  });
-  RImp.map=map;
-  renderRosterMapping();
-}
-function renderRosterMapping(){
-  const grid=RImp.grid;
-  let cnt=0;
-  for(let i=RImp.hi+1;i<grid.length;i++){
-    const row=grid[i]||[];let name="";
-    RImp.map.forEach((t,ci)=>{if(t==="name")name=String(row[ci]==null?"":row[ci]).trim();});
-    if(name)cnt++;
-  }
-  const body=`
-  <div class="notice blue">已定位表头（第 ${RImp.hi+1} 行），识别到约 <b>${cnt}</b> 名学生。请核对列用途（两个“联系电话”列已按位置自动区分），可下拉修改。</div>
-  <div class="twrap" style="max-height:320px;overflow-y:auto"><table class="tb"><thead><tr><th>列</th><th>表头</th><th>示例</th><th>用途</th></tr></thead><tbody>
-  ${RImp.header.map((h,ci)=>{
-    const s1=grid[RImp.hi+1]&&grid[RImp.hi+1][ci];
-    return `<tr><td>${ci+1}</td><td>${esc(h||"(空)")}</td><td class="muted">${esc(String(s1==null?"":s1)).slice(0,16)}</td>
-    <td><select data-rmap="${ci}">${ROSTER_OPTS.map(([v,l])=>`<option value="${v}"${RImp.map[ci]===v?" selected":""}>${l}</option>`).join("")}</select></td></tr>`;
-  }).join("")}
-  </tbody></table></div>`;
-  openModal("导入学生名册 · 第2步：核对列映射",body,
-    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="rosDo">开始导入</button>`);
-  $$("#modalBox [data-rmap]").forEach(sel=>sel.onchange=()=>{RImp.map[Number(sel.dataset.rmap)]=sel.value;});
-  $("#rosDo").onclick=doRosterImport;
-}
-async function doRosterImport(){
-  const st=settings();
-  let added=0,updated=0;
-  for(let i=RImp.hi+1;i<RImp.grid.length;i++){
-    const row=RImp.grid[i]||[];
-    const rec={s:{}};
-    RImp.map.forEach((t,ci)=>{
-      let v=row[ci]==null?"":String(row[ci]).trim();
-      if(t==="ignore"||t==="idx"||v==="")return;
-      if(["sid","kid","phone","fatherPhone","motherPhone"].includes(t))v=fixSci(v).replace(/\s+/g,"");
-      rec[t]=v;
-    });
-    if(!rec.name)continue;
-    if(!rec.cls&&st.clsCode)rec.cls=st.clsCode;
-    const key=rec.name+"|"+(rec.cls||"");
-    let ex=State.data.students.find(s=>s.name+"|"+(s.cls||"")===key)||State.data.students.find(s=>s.name===rec.name&&(!s.cls||!rec.cls));
-    if(ex){
-      let changed=false;
-      for(const k of["sex","cls","sid","kid","boarding","phone","father","fatherPhone","mother","motherPhone","note"]){
-        if(rec[k]&&String(ex[k]||"")!==rec[k]){ex[k]=rec[k];changed=true;}
-      }
-      if(changed){await putRec("students",ex);updated++;}
-    }else{
-      rec.id=uid();await putRec("students",rec);added++;
-    }
-  }
-  closeModal();
-  if(added+updated===0)toast("没有识别到新数据（可能已全部导入过）");
-  else toast(`导入完成：新增 ${added} 名，更新 ${updated} 名`);
-  render();
-}
+
 /* ================= 首页 ================= */
 function collectAgenda(){
   const items=[];
@@ -1419,6 +1313,125 @@ ACTIONS.qcNote=async()=>{
   await putRec("notes",{text:v,tags:"",time:nowLocal()});
   $("#qcText").value="";toast("已存入随手记");render();
 };
+
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"home",icon:"🏠",label:"首页",order:1,render:renderHome});
+
+/* ================= 学生名册 Excel 导入 ================= */
+const ROSTER_KNOWN={"姓名":"name","性别":"sex","班级":"cls","学号":"sid","学籍号":"sid","考号":"kid",
+  "父亲":"father","母亲":"mother","本人联系电话":"phone","本人电话":"phone","联系电话":"@parent",
+  "父亲电话":"fatherPhone","母亲电话":"motherPhone","父亲联系电话":"fatherPhone","母亲联系电话":"motherPhone",
+  "通校/住校生":"boarding","通校住校":"boarding","住宿情况":"boarding","住宿":"boarding","备注":"note","序号":"idx"};
+const ROSTER_OPTS=[["ignore","忽略"],["name","姓名 *"],["sex","性别"],["cls","班级"],["sid","学号"],["kid","考号"],
+  ["father","父亲姓名"],["fatherPhone","父亲电话"],["mother","母亲姓名"],["motherPhone","母亲电话"],
+  ["phone","本人电话"],["boarding","住宿情况"],["note","备注"],["idx","序号"]];
+let RImp=null;
+function fixSci(v){const s=String(v==null?"":v).trim();if(/^\d+(\.\d+)?E\+\d+$/i.test(s)){const n=Number(s);if(!isNaN(n))return n.toFixed(0);}return s;}
+ACTIONS.rosterImport=()=>{
+  RImp=null;
+  openModal("导入学生名册 · 第1步：选择文件",`
+    <div class="notice blue">支持联系簿等常见格式：自动跳过大标题定位表头；两个同名的“联系电话”列会按位置自动区分为父亲/母亲电话（下一步可核对修改）。导入按“姓名+班级”去重：已存在的学生更新信息，新的追加，不会重复。</div>
+    <div class="frow"><div class="field"><label>名册文件（.xlsx / .xls / .csv）</label><input type="file" id="rosFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
+    <div id="rosLog" class="muted"></div>`,
+    `<button class="btn" data-act="closeModal">取消</button>`);
+  $("#rosFile").onchange=async ev=>{
+    const f=ev.target.files[0];if(!f)return;
+    $("#rosLog").textContent="正在解析…";
+    try{
+      let grid;
+      if(/\.csv|\.txt$/i.test(f.name)){
+        const txt=await f.text();
+        const lines=txt.replace(/\ufeff/g,"").split(/\r?\n/).filter(l=>l.trim());
+        const delim=lines[0].includes("\t")?"\t":",";
+        grid=lines.map(l=>l.split(delim).map(c=>c.replace(/^"(.*)"$/s,"$1").replace(/""/g,'"').trim()));
+      }else{
+        const buf=await f.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        if(wb.SheetNames.length===1)grid=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:null});
+        else{
+          openModal("选择工作表",`<div class="field"><label>文件包含 ${wb.SheetNames.length} 个工作表</label><select id="rosSheet">${wb.SheetNames.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>`,
+          `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="rosSheetOk">下一步</button>`);
+          $("#rosSheetOk").onclick=()=>{RImp={grid:XLSX.utils.sheet_to_json(wb.Sheets[$("#rosSheet").value],{header:1,raw:true,defval:null})};buildRosterMapping();};
+          return;
+        }
+      }
+      RImp={grid};buildRosterMapping();
+    }catch(err){$("#rosLog").innerHTML=`<span style="color:var(--red)">解析失败：${esc(err.message||err)}</span>`;}
+  };
+};
+function buildRosterMapping(){
+  const grid=RImp.grid;
+  const hi=detectHeaderLoose(grid);
+  const header=(grid[hi]||[]).map(normHeader);
+  RImp={...RImp,hi,header};
+  const map=header.map(h=>(!h||!ROSTER_KNOWN[h])?"ignore":ROSTER_KNOWN[h]);
+  // 同名"联系电话"按位置区分：看左侧最近的"父亲/母亲"列
+  header.forEach((h,ci)=>{
+    if(map[ci]!=="@parent")return;
+    for(let j=ci-1;j>=0;j--){
+      if(!header[j])continue;
+      if(header[j].includes("父")){map[ci]="fatherPhone";break;}
+      if(header[j].includes("母")){map[ci]="motherPhone";break;}
+    }
+    if(map[ci]==="@parent")map[ci]="ignore";
+  });
+  RImp.map=map;
+  renderRosterMapping();
+}
+function renderRosterMapping(){
+  const grid=RImp.grid;
+  let cnt=0;
+  for(let i=RImp.hi+1;i<grid.length;i++){
+    const row=grid[i]||[];let name="";
+    RImp.map.forEach((t,ci)=>{if(t==="name")name=String(row[ci]==null?"":row[ci]).trim();});
+    if(name)cnt++;
+  }
+  const body=`
+  <div class="notice blue">已定位表头（第 ${RImp.hi+1} 行），识别到约 <b>${cnt}</b> 名学生。请核对列用途（两个“联系电话”列已按位置自动区分），可下拉修改。</div>
+  <div class="twrap" style="max-height:320px;overflow-y:auto"><table class="tb"><thead><tr><th>列</th><th>表头</th><th>示例</th><th>用途</th></tr></thead><tbody>
+  ${RImp.header.map((h,ci)=>{
+    const s1=grid[RImp.hi+1]&&grid[RImp.hi+1][ci];
+    return `<tr><td>${ci+1}</td><td>${esc(h||"(空)")}</td><td class="muted">${esc(String(s1==null?"":s1)).slice(0,16)}</td>
+    <td><select data-rmap="${ci}">${ROSTER_OPTS.map(([v,l])=>`<option value="${v}"${RImp.map[ci]===v?" selected":""}>${l}</option>`).join("")}</select></td></tr>`;
+  }).join("")}
+  </tbody></table></div>`;
+  openModal("导入学生名册 · 第2步：核对列映射",body,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="rosDo">开始导入</button>`);
+  $$("#modalBox [data-rmap]").forEach(sel=>sel.onchange=()=>{RImp.map[Number(sel.dataset.rmap)]=sel.value;});
+  $("#rosDo").onclick=doRosterImport;
+}
+async function doRosterImport(){
+  const st=settings();
+  let added=0,updated=0;
+  for(let i=RImp.hi+1;i<RImp.grid.length;i++){
+    const row=RImp.grid[i]||[];
+    const rec={s:{}};
+    RImp.map.forEach((t,ci)=>{
+      let v=row[ci]==null?"":String(row[ci]).trim();
+      if(t==="ignore"||t==="idx"||v==="")return;
+      if(["sid","kid","phone","fatherPhone","motherPhone"].includes(t))v=fixSci(v).replace(/\s+/g,"");
+      rec[t]=v;
+    });
+    if(!rec.name)continue;
+    if(!rec.cls&&st.clsCode)rec.cls=st.clsCode;
+    const key=rec.name+"|"+(rec.cls||"");
+    let ex=State.data.students.find(s=>s.name+"|"+(s.cls||"")===key)||State.data.students.find(s=>s.name===rec.name&&(!s.cls||!rec.cls));
+    if(ex){
+      let changed=false;
+      for(const k of["sex","cls","sid","kid","boarding","phone","father","fatherPhone","mother","motherPhone","note"]){
+        if(rec[k]&&String(ex[k]||"")!==rec[k]){ex[k]=rec[k];changed=true;}
+      }
+      if(changed){await putRec("students",ex);updated++;}
+    }else{
+      rec.id=uid();await putRec("students",rec);added++;
+    }
+  }
+  closeModal();
+  if(added+updated===0)toast("没有识别到新数据（可能已全部导入过）");
+  else toast(`导入完成：新增 ${added} 名，更新 ${updated} 名`);
+  render();
+}
+
 /* ================= 班主任 ================= */
 const BZR_TABS=[["sched","班级课表"],["students","学生名册"],["duties","班委与值日"],["activities","班会与活动"],["contacts","家长联系"],["score","班级成绩分析"],["report","分析报告"]];
 function renderBzr(){
@@ -1435,6 +1448,392 @@ function renderBzr(){
   renderBzr.after=(sub==="score")?clsScoreView.after:(sub==="report"&&typeof bzrReportView!=="undefined"?bzrReportView.after:null);
   return `<div class="subtabs">${BZR_TABS.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
 }
+
+/* ================= 课表 Excel 导入 / 个人课表同步 ================= */
+function normDayTok(t){return String(t==null?"":t).replace(/\s+/g,"").replace(/星期|礼拜/g,"周");}
+function schedCellText(v){return String(v==null?"":v).replace(/\r?\n/g," ").replace(/\s+/g," ").trim();}
+function parseSchedGrid(grid){
+  const periods=schedPeriods().filter(p=>p.type==="class");
+  const days=SCHED_DAYS;
+  let hRow=-1,dayCol=null;
+  for(let i=0;i<Math.min(grid.length,15);i++){
+    const row=(grid[i]||[]).map(c=>normDayTok(c));
+    const m={};let hit=0;
+    days.forEach((d,di)=>{for(let c=0;c<row.length;c++){const t=row[c];if(t&&(t===d||t.startsWith(d))){m[di]=c;hit++;break;}}});
+    if(hit>=5){hRow=i;dayCol=m;break;}
+  }
+  if(hRow<0){dayCol={};days.forEach((d,di)=>dayCol[di]=di+1);} // 无表头：假设第1列时段、第2列起为周一~周日
+  const res={map:schedEmpty(),filled:0,rows:0,unmatched:[],teachers:{},header:hRow>=0};
+  let seq=0;
+  for(let i=hRow>=0?hRow+1:0;i<grid.length;i++){
+    const row=grid[i]||[];
+    const first=schedCellText(row[0]);
+    if(hRow>=0&&!first)continue;
+    let per=null;
+    if(first){
+      const f=first.replace(/\s+/g,"");
+      per=periods.find(p=>{const t=p.t.replace(/\s+/g,"");
+        if(t===f)return true;
+        if(t.includes(f)&&f.length>=2)return true;
+        return t.split(/[、，,]/).some(seg=>seg&&f.includes(seg));
+      });
+      if(!per){const f2=f.replace(/上午|下午|晚|节/g,"");if(f2)per=periods.find(p=>p.t.replace(/上午|下午/g,"").includes(f2));}
+    }
+    if(!per&&hRow<0){per=periods[seq++];if(!per)break;}
+    if(!per){if(first)res.unmatched.push(first);continue;}
+    res.rows++;
+    days.forEach((d,di)=>{
+      const c=dayCol[di];if(c==null)return;
+      const v=schedCellText(row[c]);
+      if(!v)return;
+      res.map[d][per.k]=v;res.filled++;
+      const parts=v.split(" ").filter(Boolean);
+      if(parts.length>=2){const t=parts[parts.length-1];if(/^[\u4e00-\u9fa5·]{2,4}$/.test(t))res.teachers[t]=(res.teachers[t]||0)+1;}
+    });
+  }
+  return res;
+}
+function schedExtractMine(who){
+  const src=State.meta.classSched||schedEmpty();
+  const dst=schedEmpty();let n=0;
+  SCHED_DAYS.forEach(d=>{
+    schedPeriods().forEach(p=>{
+      if(p.type!=="class")return;
+      const v=src[d]&&src[d][p.k]||"";
+      if(who?v.includes(who):v){dst[d][p.k]=v;n++;}
+    });
+  });
+  return{dst,n};
+}
+ACTIONS.schedImport=()=>{
+  openModal("导入 Excel 课表",`
+    <div class="notice blue">支持 <b>.xlsx / .xls / .csv</b>：表头行包含「周一 ~ 周日」（"星期一"也可以），第一列为时段名称；格子里填「科目 教师」（如：语文 谢俊中）。<br>导入后自动写入<b>班级课表</b>，并按下方所选教师提取到<b>个人课表</b>（只保留自己的课）。</div>
+    <div class="frow"><div class="field"><label>课表文件</label><input type="file" id="schFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
+    <div id="schPrev" class="muted"></div>`,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="schDo" disabled>导入并同步</button>`);
+  let parsed=null;
+  $("#schFile").onchange=async ev=>{
+    const f=ev.target.files[0];if(!f)return;
+    $("#schPrev").textContent="正在解析…";
+    try{
+      let grids=[];
+      if(/\.csv|\.txt$/i.test(f.name)){
+        const txt=await f.text();
+        const lines=txt.replace(/\ufeff/g,"").split(/\r?\n/).filter(l=>l.trim());
+        const delim=lines[0].includes("\t")?"\t":(lines[0].split(";").length>lines[0].split(",").length?";":",");
+        grids=[lines.map(l=>l.split(delim).map(c=>c.replace(/^"(.*)"$/s,"$1").replace(/""/g,'"').trim()))];
+      }else{
+        const buf=await f.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        if(!wb.SheetNames.length)throw new Error("空工作簿");
+        grids=wb.SheetNames.map(n=>XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:null}));
+      }
+      let pick=grids[0],best=-1;
+      grids.forEach(g=>{let hit=0;
+        for(let i=0;i<Math.min(g.length,15);i++){
+          const row=(g[i]||[]).map(c=>normDayTok(c));
+          hit=Math.max(hit,SCHED_DAYS.filter(d=>row.some(c=>c&&(c===d||c.startsWith(d)))).length);
+        }
+        if(hit>best){best=hit;pick=g;}
+      });
+      parsed=parseSchedGrid(pick);
+      if(!parsed.filled)throw new Error("未识别到任何课表格子：请确认表头含「周一~周日」且第一列为时段");
+      const names=Object.keys(parsed.teachers).sort((a,b)=>parsed.teachers[b]-parsed.teachers[a]);
+      const myName=(settings().myName||"").trim();
+      const opts=(myName&&!names.includes(myName)?[myName]:[]).concat(names);
+      $("#schPrev").innerHTML=`
+        <div class="notice blue">识别到 <b>${parsed.rows}</b> 个上课时段 × 7 天，共 <b>${parsed.filled}</b> 格有课${parsed.header?"":"（未找到星期表头，已按「第1列时段、第2~8列=周一~周日」解析，请核对预览）"}。</div>
+        ${parsed.unmatched.length?`<div class="muted" style="color:var(--orange)">未识别的时段行（已跳过）：${escA(parsed.unmatched.slice(0,8).join("、"))}${parsed.unmatched.length>8?"…":""}</div>`:""}
+        <div class="frow" style="margin-top:8px"><div class="field"><label>提取谁课到个人课表</label><select id="schWho" class="searchbox">${opts.length?opts.map(n=>`<option${n===myName?" selected":""}>${escA(n)}</option>`).join(""):"<option value=\"\">（未识别到教师姓名）</option>"}</select></div></div>
+        <div class="muted">${myName?"":`提示：在「设置 → 基本信息」填写"我的姓名"后，以后导入会默认提取你自己的课。`}</div>`;
+      $("#schDo").disabled=false;
+    }catch(err){$("#schPrev").innerHTML=`<span style="color:var(--red)">解析失败：${escA(err.message||String(err))}</span>`;}
+  };
+  $("#schDo").onclick=async()=>{
+    if(!parsed)return;
+    const who=$("#schWho")?$("#schWho").value:"";
+    State.meta.classSched=parsed.map;
+    await saveMeta("classSched",State.meta.classSched);
+    const ex=schedExtractMine(who);
+    State.meta.mySched=ex.dst;
+    await saveMeta("mySched",ex.dst);
+    closeModal();render();
+    toast(`班级课表已导入（${parsed.filled} 格）`+(who?`，个人课表已同步「${who}」的 ${ex.n} 节课`:"，个人课表已同步（未筛选教师）"));
+  };
+};
+ACTIONS.schedSyncMine=async()=>{
+  const who=(settings().myName||"").trim();
+  if(!who){toast("请先在「设置 → 基本信息」填写「我的姓名」，再同步个人课表");go("set");return;}
+  const ex=schedExtractMine(who);
+  State.meta.mySched=ex.dst;
+  await saveMeta("mySched",ex.dst);
+  toast(ex.n?`已从班级课表提取「${who}」的 ${ex.n} 节课`:`班级课表中没有含「${who}」的课，个人课表已清空`);
+  render();
+};
+
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"bzr",icon:"🏫",label:"班主任",order:2,render:renderBzr});
+
+/* ================= 班主任 · 班级成绩分析 ================= */
+function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
+function clsScoreView(){
+  const exam=ensureExam();
+  if(!exam)return `<div class="card"><h3>📊 班级成绩分析</h3>${examSelector()}</div>`;
+  const st=settings();
+  const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
+  const ce=computeExam(exam);
+  const gradeClsRank=classTotalRank(exam);
+  /* 查看班级：默认自己班，可切换到本考试任意班级；对比班级多选（v40） */
+  const clsList=ce.classes.map(c=>c.cls);
+  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
+  const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
+  const cmpAvail=clsList.filter(c=>c!==viewCls&&!cmpCls.includes(c)); /* 还没加入对比的班（下拉可选） */
+  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;
+  const withTotalPrev=examsSorted();
+  const idx=withTotalPrev.findIndex(e=>e.id===exam.id);
+  const prev=idx>0?withTotalPrev[idx-1]:null;
+  const pRankMap=prev?(()=>{const m={};computeExam(prev).ranks.forEach(x=>m[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);return m;})():null;
+  const rows=exam.rows.filter(r=>r.cls===viewCls);
+  const critRows=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);});
+  /* 统计卡数据：上线/临界/前80/进退步/偏科，全部按学生自己的方向线算 */
+  const withT=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const benList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
+  const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
+  const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
+  const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
+  const topN=topNOf();
+  const topNList=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
+  const weakMap={};
+  rows.forEach(r=>{const cr=r._cr;if(!cr||!mine.n)return;const weak=[];
+    exam.subjects.forEach(s=>{
+      const v=validScore(exam,r,s);if(v==null)return;
+      const mates=rows.map(x=>({x,v:validScore(exam,x,s)})).filter(o=>o.v!=null).sort((a,b)=>b.v-a.v);
+      const sr=mates.findIndex(o=>o.x===r)+1;
+      const pctile=(1-(sr-1)/mates.length)*100;
+      const tPctile=(1-(cr-1)/mine.n)*100;
+      if(tPctile-pctile>25)weak.push(s);});
+    if(weak.length)weakMap[r.name+"|"+r.cls]=weak;});
+  const weakList=Object.keys(weakMap).map(k=>({name:k.split("|")[0],weak:weakMap[k].join("/")}));
+  const deltaList=prev?rows.map(r=>{const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;const cur=r._grDir||null;
+    if(pr==null||cur==null)return null;return{name:r.name,cls:r.cls,prev:pr,cur:cur,d:cur-pr};}).filter(Boolean):[];
+  const upList=deltaList.filter(x=>x.d>0),downList=deltaList.filter(x=>x.d<0);
+  /* 名单文案：退步=名次数字变大（↓），进步=名次数字变小（↑），与全站统一（v52） */
+  const dTip=arr=>clipNames(arr,x=>`${x.name} 第${x.prev}→第${x.cur}名`);
+  /* 方向内班级排名（v53）：按该方向学生总分均分在本方向班级内排序；混合班显示两个 */
+  const dirRankTxt=(()=>{
+    const segs=[];
+    ["物理","历史"].forEach(d=>{
+      const list=[];
+      ce.classes.forEach(c=>{
+        const vals=exam.rows.filter(r=>r.cls===c.cls&&rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0)).map(r=>r.total);
+        if(vals.length)list.push({cls:c.cls,av:avg(vals)});
+      });
+      if(list.length<2&&!list.some(x=>x.cls===viewCls))return;
+      list.sort((a,b)=>b.av-a.av);
+      const i=list.findIndex(x=>x.cls===viewCls);
+      if(i>=0)segs.push(`${d[0]}第${i+1}/${list.length}`);
+    });
+    return segs.join("·");
+  })();
+  if(!mine||!viewCls)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
+    <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}</div></div>`;
+  const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
+  const tipC=arr=>clipNames(arr,x=>`${x.name} ${fmtN(x.total,0)}`);
+  const tipCrit=(arr,kind)=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,kind);const df=r.total-ln;return `${r.name} ${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
+  const critBenBand=critRangeTxt(exam,"pass"),critExcBand=critRangeTxt(exam,"exc");
+  return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
+  ${clsList.length>1?`<div class="bzrbar">
+    <div class="bzrgrp"><span>查看班级</span>
+      <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select></div>
+    <div class="bzrgrp"><span>优秀线前 N</span>
+      <select id="bzrTopN" style="width:88px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select></div>
+    <div class="bzrgrp bzrcmp"><span>对比班级</span>
+      ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
+      ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(c)}班</option>`).join("")}</select>`:""}
+      ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空</button>`:""}
+    </div>
+  </div>
+  ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
+  <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
+    ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
+    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
+    ${statCard(prev?`<span class="hk" style="color:#dc2626" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" style="color:#16a34a" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
+    ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（浮动${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
+    ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（浮动${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
+    ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
+  </div>
+  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
+  ${cmpCls.length?bzrCompareSection(exam,ce,viewCls,cmpCls,myCls):""}
+  <details open class="lnsec" style="margin-top:10px"><summary>📊 各科对比：班级均分 vs 年级均分（可收起）</summary>
+  <canvas class="chart" id="cClsSubj"></canvas>${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
+  ${(()=>{ // 各科对比表：列头可排序（默认科目序）
+    const sk6=State.sortKey6||"s",sd6=State.sortDir6!=null?State.sortDir6:1;
+    const cmpRows=exam.subjects.map(s=>{const m=mine.bySubj[s],g2=ce.grade.bySubj[s];if(!m)return null;
+      const all=ce.classes.filter(c=>c.bySubj[s]&&c.bySubj[s].avg!=null).sort((a,b)=>b.bySubj[s].avg-a.bySubj[s].avg);
+      const rank=all.findIndex(c=>c.cls===viewCls)+1;
+      return{s,avg:m.avg,gavg:g2&&g2.avg,d:g2&&g2.avg!=null?m.avg-g2.avg:null,pass:m.pass,exc:m.exc,py:m.passYes,ey:m.excYes,pn:m.n,rank,ncls:all.length};}).filter(Boolean);
+    cmpRows.sort((a,b)=>{
+      if(sk6==="s")return natKey(a.s).localeCompare(natKey(b.s))*sd6;
+      const va=a[sk6],vb=b[sk6];
+      if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
+      return (va-vb)*sd6;});
+    return `<div class="twrap" style="margin-top:12px"><table class="tb"><thead><tr><th class="ctr sortable" data-sk="s" data-skgroup="cmp">科目</th><th class="ctr sortable" data-sk="avg" data-skgroup="cmp">本班均分</th><th class="ctr sortable" data-sk="gavg" data-skgroup="cmp">年级均分</th><th class="ctr sortable" data-sk="d" data-skgroup="cmp">差值</th><th class="ctr sortable" data-sk="pass" data-skgroup="cmp">本科率</th><th class="ctr sortable" data-sk="exc" data-skgroup="cmp">特控率</th><th class="ctr sortable" data-sk="rank" data-skgroup="cmp">本班排名（${ce.classes.length}班中）</th></tr></thead><tbody>
+    ${cmpRows.map(x=>`<tr><td><b>${esc(x.s)}</b></td><td class="ctr"><b>${fmtN(x.avg)}</b></td><td class="ctr">${fmtN(x.gavg)}</td>
+    <td class="ctr ${x.d!=null?(x.d>=0?"diff-pos":"diff-neg"):""}">${x.d!=null?(x.d>=0?"+":"")+fmtN(x.d):"—"}</td>
+    <td class="ctr">${rateStr(x.pass,x.py,x.pn)}</td><td class="ctr">${rateStr(x.exc,x.ey,x.pn)}</td>
+    <td class="ctr">${x.rank?`<span class="tag ${x.rank<=Math.ceil(x.ncls/3)?"t-green":x.rank>x.ncls-Math.ceil(x.ncls/3)?"t-red":"t-gray"}">第${x.rank}名</span>`:"—"}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  })()}</details>
+  <details open class="lnsec" style="margin-top:8px"><summary>📶 总分分数段分布（本班，可收起）</summary>
+  <canvas class="chart" id="cClsBands"></canvas></details>
+  </div>
+  <div class="card"><h3>👤 本班学生成绩单<span class="sub">${prev?"↓红=较上次方向排名退步 · ↑绿=进步（鼠标移到数字上看上次→本次名次）":"（导入更多考试后可显示排名变化）"} · 点击姓名看历次曲线 · 点列头可排序</span></h3>
+    ${(()=>{ // 学生成绩单：列头可排序（默认总分降序）
+      const sk5=State.sortKey5||"total",sd5=State.sortDir5!=null?State.sortDir5:-1;
+      const stuRows=rows.map(r=>{
+        const gr=ce.ranks.find(x=>x.row===r);
+        const cr=r._cr;
+        const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;
+        const myDirRank=r._grDir||null;
+        const delta=pr&&(myDirRank||gr)?(myDirRank||gr.rank)-pr:null;
+        const isCrit=r.total!=null&&(function(){const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);})();
+        let stat=null;
+        if(r.total!=null){const d=rowDir(r);const lb=totalLine(exam,d,"pass"),lt=totalLine(exam,d,"exc");
+          if(lt!=null&&r.total>=lt)stat="exc";
+          else if(lb!=null&&r.total>=lb)stat="ben";
+          else if(lb!=null&&isCritScore(r.total,lb,"pass",exam))stat="crit";}
+        const flags=weakMap[r.name+"|"+r.cls]||[];
+        return{r,gr,cr,myDirRank,delta,prevRank:pr,flags,isCrit,stat};
+      });
+      stuRows.sort((a,b)=>{
+        if(sk5==="name")return natKey(a.r.name).localeCompare(natKey(b.r.name))*sd5;
+        let va=null,vb=null;
+        if(sk5.startsWith("subj:")){const s=sk5.slice(5);va=validScore(exam,a.r,s);vb=validScore(exam,b.r,s);}
+        else if(sk5==="total"){va=a.r.total;vb=b.r.total;}
+        else if(sk5==="cr"){va=a.cr;vb=b.cr;}
+        else if(sk5==="gr"){va=a.gr&&a.gr.rank;vb=b.gr&&b.gr.rank;}
+        else if(sk5==="dir"){va=a.myDirRank;vb=b.myDirRank;}
+        else if(sk5==="delta"){va=a.delta;vb=b.delta;}
+        if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
+        return (va-vb)*sd5;
+      });
+      const S=(k,label)=>`<th class="ctr sortable" data-sk="${k}" data-skgroup="stu">${label}</th>`;
+      return `<div class="twrap tscr"><table class="tb"><thead><tr>${S("name","姓名")}${S("total","总分")}<th class="ctr">方向</th>${S("cr","班级排名")}${S("gr","年级排名")}${S("dir","方向排名")}${S("delta","较上次")}${exam.subjects.map(s=>S("subj:"+escA(s),esc(s))).join("")}<th class="ctr">标记</th></tr></thead><tbody>
+      ${stuRows.map(x=>{const r=x.r,gr=x.gr,cr=x.cr,delta=x.delta,flags=x.flags,myDirRank=x.myDirRank,prevRank=x.prevRank;
+      const rowCls=x.stat==="exc"?"tstripe-exc":x.stat==="ben"?"tstripe-ben":x.stat==="crit"?"tstripe-crit":"";
+      const curRk=myDirRank||(gr&&gr.rank);
+      const dTitle=delta!=null&&prevRank!=null?`上次第${prevRank}名 → 本次第${curRk}名，${delta>0?"退步":"进步"}${Math.abs(delta)}名`:(delta===0?"两次名次相同":"");
+      const badge=x.stat?` <span class="tag ${x.stat==="exc"?"t-purple":x.stat==="ben"?"t-green":"t-orange"}">${x.stat==="exc"?"特控":x.stat==="ben"?"本科":"临界"}</span>`:"";
+      return `<tr class="${rowCls}"><td><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}" style="border:none;padding:2px 6px"><b>${esc(r.name)}</b></button>${badge}</td>
+      <td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${cr||"—"}</td><td class="ctr">${gr?gr.rank:"—"}</td><td class="ctr">${myDirRank||"—"}</td>
+      <td class="ctr">${delta!=null?(delta===0?`<span class="muted" title="${escA(dTitle)}">0</span>`:`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600" title="${escA(dTitle)}">${delta>0?"↓"+delta:"↑"+(-delta)}</span>`):prev?"<span class='muted'>新</span>":"—"}</td>
+      ${exam.subjects.map(s=>`<td class="ctr" style="${flags.includes(s)?"color:var(--orange);font-weight:600":""}">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
+      <td class="ctr">${flags.map(s=>`<span class="tag t-orange">${esc(s)}弱</span>`).join("")}</td></tr>`;}).join("")}
+      </tbody></table></div>`;
+    })()}
+    <div class="muted" style="margin-top:6px">行左色条与姓名旁徽章：<span class="dot" style="background:#a855f7"></span>紫色=总分上特控线　<span class="dot" style="background:#10b981"></span>绿色=总分上本科线（未上特控）　<span class="dot" style="background:#f97316"></span>橙色=本科临界（浮动${critRangeTxt(exam,"pass")}）；橙色科目 = 偏科预警：该科在班内名次明显落后于总分名次。</div></div>`;
+}
+/* ================= 班级对比区块（v40） ================= */
+const CMP_COLORS=["#2563eb","#dc2626","#16a34a","#ea580c","#7c3aed","#0d9488","#d97706","#0891b2"];
+function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
+  const gradeClsRank=classTotalRank(exam);
+  const topN=topNOf();
+  const clsArr=[viewCls,...cmpCls];
+  const stat=cls=>{
+    const rowsC=exam.rows.filter(r=>r.cls===cls);
+    const withT=rowsC.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+    const ben=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;}).length;
+    const exc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;}).length;
+    const info=ce.classes.find(c=>c.cls===cls);
+    const topNn=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===cls).length;
+    const n=info?info.n:rowsC.length;
+    return{cls,n,avg:info&&info.total?info.total.avg:null,rank:gradeClsRank[cls]||null,ncls:ce.classes.length,ben,exc,
+      benRate:n?ben/n*100:null,excRate:n?exc/n*100:null,topNn};
+  };
+  const sts=clsArr.map(stat);
+  const row=(label,fn)=>`<tr><td><b>${label}</b></td>${sts.map(s=>`<td class="ctr">${fn(s)}</td>`).join("")}</tr>`;
+  return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(viewCls)}班 vs ${cmpCls.map(c=>esc(c)+"班").join("、")}（可收起）</summary>
+  <div class="statcards" style="grid-template-columns:repeat(${Math.min(4,sts.length)},1fr);margin-top:6px">
+    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前${topN}占${s.topNn}人</div></div>`).join("")}
+  </div>
+  <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(s.cls)}班${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
+    ${row("班级人数",s=>fmtN(s.n,0))}
+    ${row("总分均分",s=>`<b>${fmtN(s.avg)}</b>`)}
+    ${row("年级排名",s=>s.rank?`第${s.rank}/${s.ncls}名`:"—")}
+    ${row("本科上线",s=>`${s.ben}人（${fmtN(s.benRate)}%）`)}
+    ${row("特控上线",s=>`${s.exc}人（${fmtN(s.excRate)}%）`)}
+    ${row("年级前"+topN+"占席",s=>`${s.topNn}人`)}
+  </tbody></table></div>
+  <div style="margin-top:12px"><canvas class="chart" id="cClsCmp"></canvas>${legendHtml(sts.map((s,i)=>({c:CMP_COLORS[i%CMP_COLORS.length],n:s.cls+"班"})))}</div>
+  <details class="lnsec" style="margin-top:8px"><summary>📋 单科均分逐班对照（展开查看）</summary>
+  <div class="twrap" style="margin-top:6px"><table class="tb"><thead><tr><th class="ctr">科目</th>${sts.map(s=>`<th class="ctr">${esc(s.cls)}班</th>`).join("")}<th class="ctr">年级均分</th></tr></thead><tbody>
+    ${exam.subjects.map(sub=>{
+      const vals=sts.map(s=>{const b=ce.classes.find(c=>c.cls===s.cls);const m=b&&b.bySubj&&b.bySubj[sub];return m&&m.avg!=null?m.avg:null;});
+      const gv=ce.grade&&ce.grade.bySubj&&ce.grade.bySubj[sub]?ce.grade.bySubj[sub].avg:null;
+      const valid=vals.filter(v=>v!=null);
+      const best=valid.length?Math.max(...valid):null;
+      return `<tr><td><b>${esc(sub)}</b></td>${vals.map(v=>`<td class="ctr"${v!=null&&best!=null&&v===best&&valid.length>1?' style="color:#16a34a;font-weight:700"':""}>${fmtN(v)}</td>`).join("")}<td class="ctr muted">${fmtN(gv)}</td></tr>`;}).join("")}
+  </tbody></table></div>
+  <div class="muted" style="margin-top:4px;font-size:12px">绿色加粗 = 该科均分最高的班级。</div></details>
+</details>`;
+}
+ACTIONS.bzrCmpToggle=id=>{
+  if(!id)return;
+  State.bzrScoreCmp=State.bzrScoreCmp||[];
+  const i=State.bzrScoreCmp.indexOf(id);
+  if(i>=0)State.bzrScoreCmp.splice(i,1);else State.bzrScoreCmp.push(id);
+  render();
+};
+ACTIONS.bzrCmpClear=()=>{State.bzrScoreCmp=[];render();};
+ACTIONS.bzrCmpAdd=id=>{
+  if(!id)return;
+  State.bzrScoreCmp=State.bzrScoreCmp||[];
+  if(!State.bzrScoreCmp.includes(id))State.bzrScoreCmp.push(id);
+  render();
+};
+clsScoreView.after=()=>{
+  const exam=currentExam();if(!exam)return;
+  const st=settings();
+  const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
+  const ce=computeExam(exam);
+  const clsList=ce.classes.map(c=>c.cls);
+  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
+  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;if(!mine)return;
+  /* 班级切换下拉 */
+  const sel=$("#bzrViewCls");
+  if(sel)sel.onchange=()=>{State.bzrScoreCls=sel.value;State.bzrScoreCmp=(State.bzrScoreCmp||[]).filter(c=>c!==sel.value);render();};
+  /* 优秀线前N选择 */
+  const selN=$("#bzrTopN");
+  if(selN)selN.onchange=()=>{try{localStorage.setItem("tbTopN",selN.value);}catch(e){}render();};
+  /* 添加对比班级（下拉选即添加） */
+  const selC=$("#bzrCmpAdd");
+  if(selC)selC.onchange=()=>{if(selC.value)ACTIONS.bzrCmpAdd(selC.value);};
+  const cv=$("#cClsSubj");
+  if(cv)chartBar2(cv,exam.subjects,
+    exam.subjects.map(s=>mine.bySubj[s]&&mine.bySubj[s].avg),
+    exam.subjects.map(s=>{const g=ce.grade.bySubj[s];return g&&g.avg;}),
+    {h:230});
+  const cvB=$("#cClsBands");
+  if(cvB){
+    const bands=examCfg(exam).bands.slice().sort((a,b)=>b-a);
+    const names=bands.map(b=>b+"+");names.push((bands[bands.length-1]||0)+"以下");
+    const rowsC=exam.rows.filter(r=>r.cls===viewCls&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+    const vals=names.map((nm,i)=>{const lo=i===names.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
+      return rowsC.filter(r=>r.total>=lo&&r.total<hi).length;}); /* v66 修正：末段漏人（原写法 r.total<0） */
+    chartBar(cvB,names,vals,{h:200,color:"#0ea5e9",dec:0});
+  }
+  /* 班级对比：各科均分多系列柱图 */
+  const cvC=$("#cClsCmp");
+  if(cvC){
+    const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
+    const clsArr=[viewCls,...cmpCls];
+    chartBarN(cvC,exam.subjects,clsArr.map((c,i)=>{
+      const b=ce.classes.find(x=>x.cls===c);
+      return{color:CMP_COLORS[i%CMP_COLORS.length],values:exam.subjects.map(s=>{const m=b&&b.bySubj&&b.bySubj[s];return m&&m.avg!=null?m.avg:null;})};
+    }),{h:260});
+  }
+};
+
 /* ================= 教科室 ================= */
 const JKS_TABS=[["docs","文稿任务看板"],["archive","文稿归档"],["files","文件归类"],["projects","课题台账"],["myproj","我的课题"],["ach","教学成果"],["jy","教研活动"]];
 function renderJks(){
@@ -1572,127 +1971,10 @@ ACTIONS.taskToggle=async(id)=>{
   t.done=!t.done;await putRec("projTasks",t);render();
 };
 ACTIONS.markMine=()=>{};
-/* ================= 课表 Excel 导入 / 个人课表同步 ================= */
-function normDayTok(t){return String(t==null?"":t).replace(/\s+/g,"").replace(/星期|礼拜/g,"周");}
-function schedCellText(v){return String(v==null?"":v).replace(/\r?\n/g," ").replace(/\s+/g," ").trim();}
-function parseSchedGrid(grid){
-  const periods=schedPeriods().filter(p=>p.type==="class");
-  const days=SCHED_DAYS;
-  let hRow=-1,dayCol=null;
-  for(let i=0;i<Math.min(grid.length,15);i++){
-    const row=(grid[i]||[]).map(c=>normDayTok(c));
-    const m={};let hit=0;
-    days.forEach((d,di)=>{for(let c=0;c<row.length;c++){const t=row[c];if(t&&(t===d||t.startsWith(d))){m[di]=c;hit++;break;}}});
-    if(hit>=5){hRow=i;dayCol=m;break;}
-  }
-  if(hRow<0){dayCol={};days.forEach((d,di)=>dayCol[di]=di+1);} // 无表头：假设第1列时段、第2列起为周一~周日
-  const res={map:schedEmpty(),filled:0,rows:0,unmatched:[],teachers:{},header:hRow>=0};
-  let seq=0;
-  for(let i=hRow>=0?hRow+1:0;i<grid.length;i++){
-    const row=grid[i]||[];
-    const first=schedCellText(row[0]);
-    if(hRow>=0&&!first)continue;
-    let per=null;
-    if(first){
-      const f=first.replace(/\s+/g,"");
-      per=periods.find(p=>{const t=p.t.replace(/\s+/g,"");
-        if(t===f)return true;
-        if(t.includes(f)&&f.length>=2)return true;
-        return t.split(/[、，,]/).some(seg=>seg&&f.includes(seg));
-      });
-      if(!per){const f2=f.replace(/上午|下午|晚|节/g,"");if(f2)per=periods.find(p=>p.t.replace(/上午|下午/g,"").includes(f2));}
-    }
-    if(!per&&hRow<0){per=periods[seq++];if(!per)break;}
-    if(!per){if(first)res.unmatched.push(first);continue;}
-    res.rows++;
-    days.forEach((d,di)=>{
-      const c=dayCol[di];if(c==null)return;
-      const v=schedCellText(row[c]);
-      if(!v)return;
-      res.map[d][per.k]=v;res.filled++;
-      const parts=v.split(" ").filter(Boolean);
-      if(parts.length>=2){const t=parts[parts.length-1];if(/^[\u4e00-\u9fa5·]{2,4}$/.test(t))res.teachers[t]=(res.teachers[t]||0)+1;}
-    });
-  }
-  return res;
-}
-function schedExtractMine(who){
-  const src=State.meta.classSched||schedEmpty();
-  const dst=schedEmpty();let n=0;
-  SCHED_DAYS.forEach(d=>{
-    schedPeriods().forEach(p=>{
-      if(p.type!=="class")return;
-      const v=src[d]&&src[d][p.k]||"";
-      if(who?v.includes(who):v){dst[d][p.k]=v;n++;}
-    });
-  });
-  return{dst,n};
-}
-ACTIONS.schedImport=()=>{
-  openModal("导入 Excel 课表",`
-    <div class="notice blue">支持 <b>.xlsx / .xls / .csv</b>：表头行包含「周一 ~ 周日」（"星期一"也可以），第一列为时段名称；格子里填「科目 教师」（如：语文 谢俊中）。<br>导入后自动写入<b>班级课表</b>，并按下方所选教师提取到<b>个人课表</b>（只保留自己的课）。</div>
-    <div class="frow"><div class="field"><label>课表文件</label><input type="file" id="schFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
-    <div id="schPrev" class="muted"></div>`,
-    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="schDo" disabled>导入并同步</button>`);
-  let parsed=null;
-  $("#schFile").onchange=async ev=>{
-    const f=ev.target.files[0];if(!f)return;
-    $("#schPrev").textContent="正在解析…";
-    try{
-      let grids=[];
-      if(/\.csv|\.txt$/i.test(f.name)){
-        const txt=await f.text();
-        const lines=txt.replace(/\ufeff/g,"").split(/\r?\n/).filter(l=>l.trim());
-        const delim=lines[0].includes("\t")?"\t":(lines[0].split(";").length>lines[0].split(",").length?";":",");
-        grids=[lines.map(l=>l.split(delim).map(c=>c.replace(/^"(.*)"$/s,"$1").replace(/""/g,'"').trim()))];
-      }else{
-        const buf=await f.arrayBuffer();
-        const wb=XLSX.read(buf,{type:"array"});
-        if(!wb.SheetNames.length)throw new Error("空工作簿");
-        grids=wb.SheetNames.map(n=>XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:null}));
-      }
-      let pick=grids[0],best=-1;
-      grids.forEach(g=>{let hit=0;
-        for(let i=0;i<Math.min(g.length,15);i++){
-          const row=(g[i]||[]).map(c=>normDayTok(c));
-          hit=Math.max(hit,SCHED_DAYS.filter(d=>row.some(c=>c&&(c===d||c.startsWith(d)))).length);
-        }
-        if(hit>best){best=hit;pick=g;}
-      });
-      parsed=parseSchedGrid(pick);
-      if(!parsed.filled)throw new Error("未识别到任何课表格子：请确认表头含「周一~周日」且第一列为时段");
-      const names=Object.keys(parsed.teachers).sort((a,b)=>parsed.teachers[b]-parsed.teachers[a]);
-      const myName=(settings().myName||"").trim();
-      const opts=(myName&&!names.includes(myName)?[myName]:[]).concat(names);
-      $("#schPrev").innerHTML=`
-        <div class="notice blue">识别到 <b>${parsed.rows}</b> 个上课时段 × 7 天，共 <b>${parsed.filled}</b> 格有课${parsed.header?"":"（未找到星期表头，已按「第1列时段、第2~8列=周一~周日」解析，请核对预览）"}。</div>
-        ${parsed.unmatched.length?`<div class="muted" style="color:var(--orange)">未识别的时段行（已跳过）：${escA(parsed.unmatched.slice(0,8).join("、"))}${parsed.unmatched.length>8?"…":""}</div>`:""}
-        <div class="frow" style="margin-top:8px"><div class="field"><label>提取谁课到个人课表</label><select id="schWho" class="searchbox">${opts.length?opts.map(n=>`<option${n===myName?" selected":""}>${escA(n)}</option>`).join(""):"<option value=\"\">（未识别到教师姓名）</option>"}</select></div></div>
-        <div class="muted">${myName?"":`提示：在「设置 → 基本信息」填写"我的姓名"后，以后导入会默认提取你自己的课。`}</div>`;
-      $("#schDo").disabled=false;
-    }catch(err){$("#schPrev").innerHTML=`<span style="color:var(--red)">解析失败：${escA(err.message||String(err))}</span>`;}
-  };
-  $("#schDo").onclick=async()=>{
-    if(!parsed)return;
-    const who=$("#schWho")?$("#schWho").value:"";
-    State.meta.classSched=parsed.map;
-    await saveMeta("classSched",State.meta.classSched);
-    const ex=schedExtractMine(who);
-    State.meta.mySched=ex.dst;
-    await saveMeta("mySched",ex.dst);
-    closeModal();render();
-    toast(`班级课表已导入（${parsed.filled} 格）`+(who?`，个人课表已同步「${who}」的 ${ex.n} 节课`:"，个人课表已同步（未筛选教师）"));
-  };
-};
-ACTIONS.schedSyncMine=async()=>{
-  const who=(settings().myName||"").trim();
-  if(!who){toast("请先在「设置 → 基本信息」填写「我的姓名」，再同步个人课表");go("set");return;}
-  const ex=schedExtractMine(who);
-  State.meta.mySched=ex.dst;
-  await saveMeta("mySched",ex.dst);
-  toast(ex.n?`已从班级课表提取「${who}」的 ${ex.n} 节课`:`班级课表中没有含「${who}」的课，个人课表已清空`);
-  render();
-};
+
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"jks",icon:"📝",label:"教科室",order:3,render:renderJks});
+
 /* ================= 个人事务 ================= */
 const GR_TABS=[["mysched","个人课表"],["todos","待办事项"],["notes","随手记"],["events","日程"]];
 function renderGr(){
@@ -1740,6 +2022,10 @@ function notesView(){
       <button class="btn sm danger" data-act="crudDel" data-store="notes" data-id="${n.id}">删除</button></div></div>`).join("")
     :`<div class="empty"><div class="big">🗒</div>还没有随手记</div>`}</div>`;
 }
+
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"gr",icon:"👤",label:"个人",order:5,render:renderGr});
+
 /* ================= 设置（v80 页签化：全局设置统一收口） ================= */
 const SET_TABS=[
   ["basic","🏫 基本信息"],
@@ -1882,28 +2168,9 @@ ACTIONS.resetPeriods=async()=>{
   delete State.meta.periods;await DB.metaSet("periods",null);
   toast("已恢复默认作息");render();
 };
-/* ================= 初始化 ================= */
-async function boot(){
-  try{await loadData();}catch(e){console.error(e);}
-  // 种子数据：任课教师对照表 + 15班班级课表（首次启动自动填入）
-  try{
-    if(!State.meta.seededTeachers&&State.data.teachers.length===0){
-      for(const[c,s,t]of TEACHER_SEED)await putRec("teachers",{id:uid(),cls:c,subject:s,teacher:t,note:""});
-      await saveMeta("seededTeachers",true);
-    }
-    if(!State.meta.seededClsSched&&!State.meta.classSched){
-      await saveMeta("classSched",JSON.parse(JSON.stringify(CLS_SCHED_SEED)));
-      await saveMeta("seededClsSched",true);
-    }
-  }catch(e){console.error(e);}
-  /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
-     合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
-  const d=new Date();
-  $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
-  render();
-  if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
-}
-boot();
+
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"set",icon:"⚙️",label:"设置",order:6,render:renderSet});
 
 /* ================= 教务模块 ================= */
 /* 两级导航：大标签分组 → 子页签；选中组由当前子页自动反推（深链/其他模块跳转无需关心组） */
@@ -3639,265 +3906,7 @@ ACTIONS.lnApplyPaste=()=>{
   if(n)toast(`已填入 ${n} 项到表单${skip?`，${skip} 项无处可填已跳过`:String()}，请核对后点保存`);
   else toast("没有可填入的项（科目或方向对不上）");
 };
-/* ================= 班主任 · 班级成绩分析 ================= */
-function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
-function clsScoreView(){
-  const exam=ensureExam();
-  if(!exam)return `<div class="card"><h3>📊 班级成绩分析</h3>${examSelector()}</div>`;
-  const st=settings();
-  const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
-  const ce=computeExam(exam);
-  const gradeClsRank=classTotalRank(exam);
-  /* 查看班级：默认自己班，可切换到本考试任意班级；对比班级多选（v40） */
-  const clsList=ce.classes.map(c=>c.cls);
-  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
-  const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
-  const cmpAvail=clsList.filter(c=>c!==viewCls&&!cmpCls.includes(c)); /* 还没加入对比的班（下拉可选） */
-  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;
-  const withTotalPrev=examsSorted();
-  const idx=withTotalPrev.findIndex(e=>e.id===exam.id);
-  const prev=idx>0?withTotalPrev[idx-1]:null;
-  const pRankMap=prev?(()=>{const m={};computeExam(prev).ranks.forEach(x=>m[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);return m;})():null;
-  const rows=exam.rows.filter(r=>r.cls===viewCls);
-  const critRows=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);});
-  /* 统计卡数据：上线/临界/前80/进退步/偏科，全部按学生自己的方向线算 */
-  const withT=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
-  const benList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
-  const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
-  const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
-  const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
-  const topN=topNOf();
-  const topNList=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===viewCls).map(x=>({name:x.row.name,total:x.row.total,rank:x.rank}));
-  const weakMap={};
-  rows.forEach(r=>{const cr=r._cr;if(!cr||!mine.n)return;const weak=[];
-    exam.subjects.forEach(s=>{
-      const v=validScore(exam,r,s);if(v==null)return;
-      const mates=rows.map(x=>({x,v:validScore(exam,x,s)})).filter(o=>o.v!=null).sort((a,b)=>b.v-a.v);
-      const sr=mates.findIndex(o=>o.x===r)+1;
-      const pctile=(1-(sr-1)/mates.length)*100;
-      const tPctile=(1-(cr-1)/mine.n)*100;
-      if(tPctile-pctile>25)weak.push(s);});
-    if(weak.length)weakMap[r.name+"|"+r.cls]=weak;});
-  const weakList=Object.keys(weakMap).map(k=>({name:k.split("|")[0],weak:weakMap[k].join("/")}));
-  const deltaList=prev?rows.map(r=>{const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;const cur=r._grDir||null;
-    if(pr==null||cur==null)return null;return{name:r.name,cls:r.cls,prev:pr,cur:cur,d:cur-pr};}).filter(Boolean):[];
-  const upList=deltaList.filter(x=>x.d>0),downList=deltaList.filter(x=>x.d<0);
-  /* 名单文案：退步=名次数字变大（↓），进步=名次数字变小（↑），与全站统一（v52） */
-  const dTip=arr=>clipNames(arr,x=>`${x.name} 第${x.prev}→第${x.cur}名`);
-  /* 方向内班级排名（v53）：按该方向学生总分均分在本方向班级内排序；混合班显示两个 */
-  const dirRankTxt=(()=>{
-    const segs=[];
-    ["物理","历史"].forEach(d=>{
-      const list=[];
-      ce.classes.forEach(c=>{
-        const vals=exam.rows.filter(r=>r.cls===c.cls&&rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0)).map(r=>r.total);
-        if(vals.length)list.push({cls:c.cls,av:avg(vals)});
-      });
-      if(list.length<2&&!list.some(x=>x.cls===viewCls))return;
-      list.sort((a,b)=>b.av-a.av);
-      const i=list.findIndex(x=>x.cls===viewCls);
-      if(i>=0)segs.push(`${d[0]}第${i+1}/${list.length}`);
-    });
-    return segs.join("·");
-  })();
-  if(!mine||!viewCls)return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
-    <div class="notice">在成绩数据中没有找到班级代码「${esc(st.clsCode||st.cls)}」。请到「设置 → 基本信息」修改"班级代码"（成绩表中班级列的写法，如 15 或 15班）。本次数据中的班级有：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}</div></div>`;
-  const statCard=(v,k,title,dot)=>`<div class="stat"${title?` title="${escA(title)}"`:""}><div class="v">${v}</div><div class="k">${dot?`<span class="dot" style="background:${dot}"></span>`:""}${k}</div></div>`;
-  const tipC=arr=>clipNames(arr,x=>`${x.name} ${fmtN(x.total,0)}`);
-  const tipCrit=(arr,kind)=>clipNames(arr,r=>{const d=rowDir(r);const ln=totalLine(exam,d,kind);const df=r.total-ln;return `${r.name} ${fmtN(r.total,0)}（${df>=0?"超+":"距-"}${fmtN(Math.abs(df),0)}）`;});
-  const critBenBand=critRangeTxt(exam,"pass"),critExcBand=critRangeTxt(exam,"exc");
-  return `<div class="card"><h3>📊 班级成绩分析 · ${esc(exam.name)}<span class="spacer"></span>${examSelector()}</h3>
-  ${clsList.length>1?`<div class="bzrbar">
-    <div class="bzrgrp"><span>查看班级</span>
-      <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select></div>
-    <div class="bzrgrp"><span>优秀线前 N</span>
-      <select id="bzrTopN" style="width:88px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select></div>
-    <div class="bzrgrp bzrcmp"><span>对比班级</span>
-      ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
-      ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(c)}班</option>`).join("")}</select>`:""}
-      ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空</button>`:""}
-    </div>
-  </div>
-  ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
-  <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
-    ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
-    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+`<small>前${topN}占${topNList.length}人</small>`,"总分均分",clipNames(topNList,x=>`${x.name} ${fmtN(x.total,0)}（第${x.rank}名）`),"#2563eb")}
-    ${statCard(prev?`<span class="hk" style="color:#dc2626" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" style="color:#16a34a" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
-    ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（浮动${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
-    ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（浮动${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
-    ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
-  </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
-  ${cmpCls.length?bzrCompareSection(exam,ce,viewCls,cmpCls,myCls):""}
-  <details open class="lnsec" style="margin-top:10px"><summary>📊 各科对比：班级均分 vs 年级均分（可收起）</summary>
-  <canvas class="chart" id="cClsSubj"></canvas>${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
-  ${(()=>{ // 各科对比表：列头可排序（默认科目序）
-    const sk6=State.sortKey6||"s",sd6=State.sortDir6!=null?State.sortDir6:1;
-    const cmpRows=exam.subjects.map(s=>{const m=mine.bySubj[s],g2=ce.grade.bySubj[s];if(!m)return null;
-      const all=ce.classes.filter(c=>c.bySubj[s]&&c.bySubj[s].avg!=null).sort((a,b)=>b.bySubj[s].avg-a.bySubj[s].avg);
-      const rank=all.findIndex(c=>c.cls===viewCls)+1;
-      return{s,avg:m.avg,gavg:g2&&g2.avg,d:g2&&g2.avg!=null?m.avg-g2.avg:null,pass:m.pass,exc:m.exc,py:m.passYes,ey:m.excYes,pn:m.n,rank,ncls:all.length};}).filter(Boolean);
-    cmpRows.sort((a,b)=>{
-      if(sk6==="s")return natKey(a.s).localeCompare(natKey(b.s))*sd6;
-      const va=a[sk6],vb=b[sk6];
-      if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
-      return (va-vb)*sd6;});
-    return `<div class="twrap" style="margin-top:12px"><table class="tb"><thead><tr><th class="ctr sortable" data-sk="s" data-skgroup="cmp">科目</th><th class="ctr sortable" data-sk="avg" data-skgroup="cmp">本班均分</th><th class="ctr sortable" data-sk="gavg" data-skgroup="cmp">年级均分</th><th class="ctr sortable" data-sk="d" data-skgroup="cmp">差值</th><th class="ctr sortable" data-sk="pass" data-skgroup="cmp">本科率</th><th class="ctr sortable" data-sk="exc" data-skgroup="cmp">特控率</th><th class="ctr sortable" data-sk="rank" data-skgroup="cmp">本班排名（${ce.classes.length}班中）</th></tr></thead><tbody>
-    ${cmpRows.map(x=>`<tr><td><b>${esc(x.s)}</b></td><td class="ctr"><b>${fmtN(x.avg)}</b></td><td class="ctr">${fmtN(x.gavg)}</td>
-    <td class="ctr ${x.d!=null?(x.d>=0?"diff-pos":"diff-neg"):""}">${x.d!=null?(x.d>=0?"+":"")+fmtN(x.d):"—"}</td>
-    <td class="ctr">${rateStr(x.pass,x.py,x.pn)}</td><td class="ctr">${rateStr(x.exc,x.ey,x.pn)}</td>
-    <td class="ctr">${x.rank?`<span class="tag ${x.rank<=Math.ceil(x.ncls/3)?"t-green":x.rank>x.ncls-Math.ceil(x.ncls/3)?"t-red":"t-gray"}">第${x.rank}名</span>`:"—"}</td></tr>`).join("")}
-    </tbody></table></div>`;
-  })()}</details>
-  <details open class="lnsec" style="margin-top:8px"><summary>📶 总分分数段分布（本班，可收起）</summary>
-  <canvas class="chart" id="cClsBands"></canvas></details>
-  </div>
-  <div class="card"><h3>👤 本班学生成绩单<span class="sub">${prev?"↓红=较上次方向排名退步 · ↑绿=进步（鼠标移到数字上看上次→本次名次）":"（导入更多考试后可显示排名变化）"} · 点击姓名看历次曲线 · 点列头可排序</span></h3>
-    ${(()=>{ // 学生成绩单：列头可排序（默认总分降序）
-      const sk5=State.sortKey5||"total",sd5=State.sortDir5!=null?State.sortDir5:-1;
-      const stuRows=rows.map(r=>{
-        const gr=ce.ranks.find(x=>x.row===r);
-        const cr=r._cr;
-        const pr=pRankMap?pRankMap[r.name+"|"+r.cls]:null;
-        const myDirRank=r._grDir||null;
-        const delta=pr&&(myDirRank||gr)?(myDirRank||gr.rank)-pr:null;
-        const isCrit=r.total!=null&&(function(){const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);})();
-        let stat=null;
-        if(r.total!=null){const d=rowDir(r);const lb=totalLine(exam,d,"pass"),lt=totalLine(exam,d,"exc");
-          if(lt!=null&&r.total>=lt)stat="exc";
-          else if(lb!=null&&r.total>=lb)stat="ben";
-          else if(lb!=null&&isCritScore(r.total,lb,"pass",exam))stat="crit";}
-        const flags=weakMap[r.name+"|"+r.cls]||[];
-        return{r,gr,cr,myDirRank,delta,prevRank:pr,flags,isCrit,stat};
-      });
-      stuRows.sort((a,b)=>{
-        if(sk5==="name")return natKey(a.r.name).localeCompare(natKey(b.r.name))*sd5;
-        let va=null,vb=null;
-        if(sk5.startsWith("subj:")){const s=sk5.slice(5);va=validScore(exam,a.r,s);vb=validScore(exam,b.r,s);}
-        else if(sk5==="total"){va=a.r.total;vb=b.r.total;}
-        else if(sk5==="cr"){va=a.cr;vb=b.cr;}
-        else if(sk5==="gr"){va=a.gr&&a.gr.rank;vb=b.gr&&b.gr.rank;}
-        else if(sk5==="dir"){va=a.myDirRank;vb=b.myDirRank;}
-        else if(sk5==="delta"){va=a.delta;vb=b.delta;}
-        if(va==null&&vb==null)return 0;if(va==null)return 1;if(vb==null)return -1;
-        return (va-vb)*sd5;
-      });
-      const S=(k,label)=>`<th class="ctr sortable" data-sk="${k}" data-skgroup="stu">${label}</th>`;
-      return `<div class="twrap tscr"><table class="tb"><thead><tr>${S("name","姓名")}${S("total","总分")}<th class="ctr">方向</th>${S("cr","班级排名")}${S("gr","年级排名")}${S("dir","方向排名")}${S("delta","较上次")}${exam.subjects.map(s=>S("subj:"+escA(s),esc(s))).join("")}<th class="ctr">标记</th></tr></thead><tbody>
-      ${stuRows.map(x=>{const r=x.r,gr=x.gr,cr=x.cr,delta=x.delta,flags=x.flags,myDirRank=x.myDirRank,prevRank=x.prevRank;
-      const rowCls=x.stat==="exc"?"tstripe-exc":x.stat==="ben"?"tstripe-ben":x.stat==="crit"?"tstripe-crit":"";
-      const curRk=myDirRank||(gr&&gr.rank);
-      const dTitle=delta!=null&&prevRank!=null?`上次第${prevRank}名 → 本次第${curRk}名，${delta>0?"退步":"进步"}${Math.abs(delta)}名`:(delta===0?"两次名次相同":"");
-      const badge=x.stat?` <span class="tag ${x.stat==="exc"?"t-purple":x.stat==="ben"?"t-green":"t-orange"}">${x.stat==="exc"?"特控":x.stat==="ben"?"本科":"临界"}</span>`:"";
-      return `<tr class="${rowCls}"><td><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}" style="border:none;padding:2px 6px"><b>${esc(r.name)}</b></button>${badge}</td>
-      <td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${cr||"—"}</td><td class="ctr">${gr?gr.rank:"—"}</td><td class="ctr">${myDirRank||"—"}</td>
-      <td class="ctr">${delta!=null?(delta===0?`<span class="muted" title="${escA(dTitle)}">0</span>`:`<span class="${delta>0?"diff-neg":"diff-pos"}" style="font-weight:600" title="${escA(dTitle)}">${delta>0?"↓"+delta:"↑"+(-delta)}</span>`):prev?"<span class='muted'>新</span>":"—"}</td>
-      ${exam.subjects.map(s=>`<td class="ctr" style="${flags.includes(s)?"color:var(--orange);font-weight:600":""}">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
-      <td class="ctr">${flags.map(s=>`<span class="tag t-orange">${esc(s)}弱</span>`).join("")}</td></tr>`;}).join("")}
-      </tbody></table></div>`;
-    })()}
-    <div class="muted" style="margin-top:6px">行左色条与姓名旁徽章：<span class="dot" style="background:#a855f7"></span>紫色=总分上特控线　<span class="dot" style="background:#10b981"></span>绿色=总分上本科线（未上特控）　<span class="dot" style="background:#f97316"></span>橙色=本科临界（浮动${critRangeTxt(exam,"pass")}）；橙色科目 = 偏科预警：该科在班内名次明显落后于总分名次。</div></div>`;
-}
-/* ================= 班级对比区块（v40） ================= */
-const CMP_COLORS=["#2563eb","#dc2626","#16a34a","#ea580c","#7c3aed","#0d9488","#d97706","#0891b2"];
-function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
-  const gradeClsRank=classTotalRank(exam);
-  const topN=topNOf();
-  const clsArr=[viewCls,...cmpCls];
-  const stat=cls=>{
-    const rowsC=exam.rows.filter(r=>r.cls===cls);
-    const withT=rowsC.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
-    const ben=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;}).length;
-    const exc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;}).length;
-    const info=ce.classes.find(c=>c.cls===cls);
-    const topNn=ce.ranks.filter(x=>x.rank!=null&&x.rank<=topN&&x.row.cls===cls).length;
-    const n=info?info.n:rowsC.length;
-    return{cls,n,avg:info&&info.total?info.total.avg:null,rank:gradeClsRank[cls]||null,ncls:ce.classes.length,ben,exc,
-      benRate:n?ben/n*100:null,excRate:n?exc/n*100:null,topNn};
-  };
-  const sts=clsArr.map(stat);
-  const row=(label,fn)=>`<tr><td><b>${label}</b></td>${sts.map(s=>`<td class="ctr">${fn(s)}</td>`).join("")}</tr>`;
-  return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(viewCls)}班 vs ${cmpCls.map(c=>esc(c)+"班").join("、")}（可收起）</summary>
-  <div class="statcards" style="grid-template-columns:repeat(${Math.min(4,sts.length)},1fr);margin-top:6px">
-    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前${topN}占${s.topNn}人</div></div>`).join("")}
-  </div>
-  <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(s.cls)}班${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
-    ${row("班级人数",s=>fmtN(s.n,0))}
-    ${row("总分均分",s=>`<b>${fmtN(s.avg)}</b>`)}
-    ${row("年级排名",s=>s.rank?`第${s.rank}/${s.ncls}名`:"—")}
-    ${row("本科上线",s=>`${s.ben}人（${fmtN(s.benRate)}%）`)}
-    ${row("特控上线",s=>`${s.exc}人（${fmtN(s.excRate)}%）`)}
-    ${row("年级前"+topN+"占席",s=>`${s.topNn}人`)}
-  </tbody></table></div>
-  <div style="margin-top:12px"><canvas class="chart" id="cClsCmp"></canvas>${legendHtml(sts.map((s,i)=>({c:CMP_COLORS[i%CMP_COLORS.length],n:s.cls+"班"})))}</div>
-  <details class="lnsec" style="margin-top:8px"><summary>📋 单科均分逐班对照（展开查看）</summary>
-  <div class="twrap" style="margin-top:6px"><table class="tb"><thead><tr><th class="ctr">科目</th>${sts.map(s=>`<th class="ctr">${esc(s.cls)}班</th>`).join("")}<th class="ctr">年级均分</th></tr></thead><tbody>
-    ${exam.subjects.map(sub=>{
-      const vals=sts.map(s=>{const b=ce.classes.find(c=>c.cls===s.cls);const m=b&&b.bySubj&&b.bySubj[sub];return m&&m.avg!=null?m.avg:null;});
-      const gv=ce.grade&&ce.grade.bySubj&&ce.grade.bySubj[sub]?ce.grade.bySubj[sub].avg:null;
-      const valid=vals.filter(v=>v!=null);
-      const best=valid.length?Math.max(...valid):null;
-      return `<tr><td><b>${esc(sub)}</b></td>${vals.map(v=>`<td class="ctr"${v!=null&&best!=null&&v===best&&valid.length>1?' style="color:#16a34a;font-weight:700"':""}>${fmtN(v)}</td>`).join("")}<td class="ctr muted">${fmtN(gv)}</td></tr>`;}).join("")}
-  </tbody></table></div>
-  <div class="muted" style="margin-top:4px;font-size:12px">绿色加粗 = 该科均分最高的班级。</div></details>
-</details>`;
-}
-ACTIONS.bzrCmpToggle=id=>{
-  if(!id)return;
-  State.bzrScoreCmp=State.bzrScoreCmp||[];
-  const i=State.bzrScoreCmp.indexOf(id);
-  if(i>=0)State.bzrScoreCmp.splice(i,1);else State.bzrScoreCmp.push(id);
-  render();
-};
-ACTIONS.bzrCmpClear=()=>{State.bzrScoreCmp=[];render();};
-ACTIONS.bzrCmpAdd=id=>{
-  if(!id)return;
-  State.bzrScoreCmp=State.bzrScoreCmp||[];
-  if(!State.bzrScoreCmp.includes(id))State.bzrScoreCmp.push(id);
-  render();
-};
-clsScoreView.after=()=>{
-  const exam=currentExam();if(!exam)return;
-  const st=settings();
-  const myCls=String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");
-  const ce=computeExam(exam);
-  const clsList=ce.classes.map(c=>c.cls);
-  const viewCls=(State.bzrScoreCls&&clsList.includes(State.bzrScoreCls))?State.bzrScoreCls:(clsList.includes(myCls)?myCls:(clsList[0]||null));
-  const mine=viewCls?ce.classes.find(c=>c.cls===viewCls):null;if(!mine)return;
-  /* 班级切换下拉 */
-  const sel=$("#bzrViewCls");
-  if(sel)sel.onchange=()=>{State.bzrScoreCls=sel.value;State.bzrScoreCmp=(State.bzrScoreCmp||[]).filter(c=>c!==sel.value);render();};
-  /* 优秀线前N选择 */
-  const selN=$("#bzrTopN");
-  if(selN)selN.onchange=()=>{try{localStorage.setItem("tbTopN",selN.value);}catch(e){}render();};
-  /* 添加对比班级（下拉选即添加） */
-  const selC=$("#bzrCmpAdd");
-  if(selC)selC.onchange=()=>{if(selC.value)ACTIONS.bzrCmpAdd(selC.value);};
-  const cv=$("#cClsSubj");
-  if(cv)chartBar2(cv,exam.subjects,
-    exam.subjects.map(s=>mine.bySubj[s]&&mine.bySubj[s].avg),
-    exam.subjects.map(s=>{const g=ce.grade.bySubj[s];return g&&g.avg;}),
-    {h:230});
-  const cvB=$("#cClsBands");
-  if(cvB){
-    const bands=examCfg(exam).bands.slice().sort((a,b)=>b-a);
-    const names=bands.map(b=>b+"+");names.push((bands[bands.length-1]||0)+"以下");
-    const rowsC=exam.rows.filter(r=>r.cls===viewCls&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
-    const vals=names.map((nm,i)=>{const lo=i===names.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
-      return rowsC.filter(r=>r.total>=lo&&r.total<hi).length;}); /* v66 修正：末段漏人（原写法 r.total<0） */
-    chartBar(cvB,names,vals,{h:200,color:"#0ea5e9",dec:0});
-  }
-  /* 班级对比：各科均分多系列柱图 */
-  const cvC=$("#cClsCmp");
-  if(cvC){
-    const cmpCls=(State.bzrScoreCmp||[]).filter(c=>clsList.includes(c)&&c!==viewCls);
-    const clsArr=[viewCls,...cmpCls];
-    chartBarN(cvC,exam.subjects,clsArr.map((c,i)=>{
-      const b=ce.classes.find(x=>x.cls===c);
-      return{color:CMP_COLORS[i%CMP_COLORS.length],values:exam.subjects.map(s=>{const m=b&&b.bySubj&&b.bySubj[s];return m&&m.avg!=null?m.avg:null;})};
-    }),{h:260});
-  }
-};
+
 /* ==================== 考务编排（移植自 智能考务系统V3.8） ==================== */
 const KB_TPL_TYPES=[["custom","自定义文本"],["county","区县代码"],["school","学校代码"],["exam","考试代码"],["combination","组合代码"],["room","考室编号"],["seat","座位号"],["class","班级"],["sequence","流水号"]];
 const KB_TPL_EXAMPLE={county:"523",school:"04",exam:"01",combination:"01",room:"01",seat:"01",class:"01",custom:"ABC",sequence:"0001"};
@@ -6267,6 +6276,29 @@ ACTIONS.cloudChipClick=async()=>{
   if(Sync.remotePending){await Sync.loadRemote();return;}
   go("set");
 };
+
+/* ================= 初始化 ================= */
+async function boot(){
+  try{await loadData();}catch(e){console.error(e);}
+  // 种子数据：任课教师对照表 + 15班班级课表（首次启动自动填入）
+  try{
+    if(!State.meta.seededTeachers&&State.data.teachers.length===0){
+      for(const[c,s,t]of TEACHER_SEED)await putRec("teachers",{id:uid(),cls:c,subject:s,teacher:t,note:""});
+      await saveMeta("seededTeachers",true);
+    }
+    if(!State.meta.seededClsSched&&!State.meta.classSched){
+      await saveMeta("classSched",JSON.parse(JSON.stringify(CLS_SCHED_SEED)));
+      await saveMeta("seededClsSched",true);
+    }
+  }catch(e){console.error(e);}
+  /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
+     合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
+  const d=new Date();
+  $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
+  render();
+  if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
+}
+boot();
 
 </script>
 </body>
