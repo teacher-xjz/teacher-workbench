@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v68";
+window.APP_VERSION="v69";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -942,8 +942,8 @@ const CRUDCFG={
     cols:[{label:"日期",k:"date",ctr:1},{label:"场次",k:"session"},{label:"考试",k:"exam"},{label:"地点",k:"place"},{label:"监考教师",k:"teachers"}]},
   teachers:{title:"班级任课教师",fields:[
     {k:"cls",label:"班级",req:1,w:.7},{k:"subject",label:"科目",req:1,type:"select",optsFn:()=>settings().subjects,w:.8},
-    {k:"teacher",label:"教师姓名",req:1,w:1},{k:"note",label:"备注",w:1.2}],
-    cols:[{label:"班级",k:"cls",ctr:1},{label:"科目",k:"subject",ctr:1},{label:"教师",k:"teacher"},{label:"备注",k:"note"}]},
+    {k:"teacher",label:"教师姓名",req:1,w:1},{k:"head",label:"班主任",type:"checkbox",w:.6},{k:"note",label:"备注",w:1.2}],
+    cols:[{label:"班级",k:"cls",ctr:1},{label:"科目",k:"subject",ctr:1},{label:"教师",k:"teacher"},{label:"班主任",k:"head",ctr:1,f:r=>r.head?"⭐":""},{label:"备注",k:"note"}]},
   projTasks:{title:"课题任务",fields:[
     {k:"title",label:"任务内容",req:1,w:2},{k:"proj",label:"所属课题",type:"select",optsFn:()=>["（独立任务）",...State.data.projects.map(p=>p.name)],w:1.4},
     {k:"due",label:"截止日期",type:"date",w:.9},{k:"done",label:"已完成",type:"checkbox",w:.6}],
@@ -4767,14 +4767,252 @@ function buildGradeReport(exam){
       benNames:x.benNames,excNames:x.excNames}))
   };
 }
+/* ===== v69 全年级完整数据包导出：与页面同源函数，选项可配置，三处一致 ===== */
+/* 数据包 = 页面统计 + 教师对应表(含班主任) + 班级单科矩阵 + 教师单科对比
+   + 前N名(可配/并列保留) + 单科前三 + 前N班级分布 + 进退步 + 脱敏明细(永不含身份证号/学号)
+   JSON 喂 AI 做 PPT，Excel 供人工核对，两份同源同口径。 */
+/* 班级代码规范化 + 教师映射：(cls,subject)->[教师]，cls->班主任（head 标记） */
+function normClsCode(v){return String(v==null?"":v).trim().replace(/^0+/,"").replace(/班$/,"");}
+function teacherMaps(){
+  const m={},heads={};
+  (State.data.teachers||[]).forEach(t=>{
+    const c=normClsCode(t.cls),s=t.subject;if(!c||!s||!t.teacher)return;
+    const k=c+"|"+s;
+    if(!m[k])m[k]=[];if(!m[k].includes(t.teacher))m[k].push(t.teacher);
+    if(t.head){if(!heads[c])heads[c]=[];if(!heads[c].includes(t.teacher))heads[c].push(t.teacher);}
+  });
+  Object.keys(m).forEach(k=>m[k].sort());
+  Object.keys(heads).forEach(k=>heads[k].sort());
+  return{m,heads};
+}
+/* 明细单科分数：0 分按缺考口径与页面一致；导出仅取成绩，绝不带编号字段 */
+function detScore(exam,r,subj){
+  const v=r.s?r.s[subj]:null;
+  if(v==null||v==="")return null;
+  const n=Number(v);
+  return (exam.zeroAsMissing&&n===0)?null:n;
+}
+/* 前N名切片：并列同分全部保留时，取总分≥第N名总分的所有学生 */
+function topSlice(ranked,N,tie){
+  if(!ranked.length)return [];
+  const cut=ranked[Math.min(N,ranked.length)-1];
+  return tie?ranked.filter(x=>x.total>=cut.total):ranked.slice(0,N);
+}
+function buildGradePack(exam,opts){
+  const R=buildGradeReport(exam);
+  if(!R)return null;
+  const ce=computeExam(exam);
+  const subjects=exam.subjects||[];
+  const {m:tmap,heads}=teacherMaps();
+  const clsList=ce.classes.map(c=>String(c.cls)).sort((a,b)=>(Number(a)||0)-(Number(b)||0));
+  /* ① 班级教师对应表（含班主任） */
+  const teacherTable=clsList.map(c=>Object.assign({cls:c,head:(heads[c]||[]).join("/")||""},
+    subjects.reduce((o,s)=>{o[s]=(tmap[c+"|"+s]||[]).join("/");return o;},{})));
+  /* ② 班级×单科矩阵（分方向：人数/均分/及格率/优秀率/最高分/年级均分差/排名） */
+  const classSubject=[];
+  ["物理","历史"].forEach(dr=>{
+    subjects.forEach(s=>{
+      const rowsD=exam.rows.filter(r=>rowDir(r)===dr);
+      const all=rowsD.map(r=>({r,v:detScore(exam,r,s)})).filter(o=>o.v!=null);
+      if(!all.length)return;
+      const gmean=avg(all.map(o=>o.v));
+      const pl=subjLine(exam,s,dr,"pass"),el=subjLine(exam,s,dr,"exc");
+      const per=clsList.map(c=>{
+        const sc=all.filter(o=>String(o.r.cls)===c);
+        if(!sc.length)return null;
+        const m=avg(sc.map(o=>o.v));
+        return{cls:c,t:(tmap[c+"|"+s]||[]).join("/")||"未录入",n:sc.length,avg:m,
+          pl,passRate:pl!=null?sc.filter(o=>o.v>=pl).length/sc.length*100:null,
+          el,excRate:el!=null?sc.filter(o=>o.v>=el).length/sc.length*100:null,
+          max:Math.max(...sc.map(o=>o.v)),d:m-gmean};
+      }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
+      per.forEach((x,i)=>classSubject.push(Object.assign({dir:dr,subj:s,rank:i+1},x)));
+    });
+  });
+  /* ③ 教师单科对比（分方向、跨班合并、学科内排名） */
+  const teacherSubject=[];
+  ["物理","历史"].forEach(dr=>{
+    subjects.forEach(s=>{
+      const grp={};
+      exam.rows.forEach(r=>{
+        if(rowDir(r)!==dr)return;
+        const v=detScore(exam,r,s);if(v==null)return;
+        const t=(tmap[String(r.cls)+"|"+s]||["未录入"]).join("/")||"未录入";
+        const g=grp[t]||(grp[t]={vals:[],clss:{}});
+        g.vals.push(v);g.clss[String(r.cls)]=1;
+      });
+      const pl=subjLine(exam,s,dr,"pass"),el=subjLine(exam,s,dr,"exc");
+      const arr=Object.keys(grp).map(t=>{
+        const g=grp[t],m=avg(g.vals);
+        return{teacher:t,cls:Object.keys(g.clss).sort((a,b)=>(Number(a)||0)-(Number(b)||0)).join("/"),n:g.vals.length,avg:m,
+          passRate:pl!=null?g.vals.filter(v=>v>=pl).length/g.vals.length*100:null,
+          excRate:el!=null?g.vals.filter(v=>v>=el).length/g.vals.length*100:null,
+          max:Math.max(...g.vals)};
+      }).sort((a,b)=>b.avg-a.avg);
+      arr.forEach((x,i)=>teacherSubject.push(Object.assign({dir:dr,subj:s,rank:i+1},x)));
+    });
+  });
+  /* ④ 前N名：全年级按总分(_gr)，分方向按方向内名次(_grDir) */
+  const N=Number(opts.topN)||20;
+  const ranked=ce.ranks.map(x=>x.row).sort((a,b)=>a._gr-b._gr);
+  const topOverall=topSlice(ranked,N,opts.tie).map(r=>({rank:r._gr,name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,dirRank:r._grDir||null}));
+  const topByDir={};
+  ["物理","历史"].forEach(dr=>{
+    const list=ranked.filter(r=>rowDir(r)===dr).sort((a,b)=>a._grDir-b._grDir);
+    topByDir[dr]=topSlice(list,N,opts.tie).map(r=>({rank:r._grDir,name:r.name,cls:r.cls,total:r.total,gradeRank:r._gr}));
+  });
+  /* ⑤ 单科前三（并列同分保留），带任课教师 */
+  const champions=[];
+  ["物理","历史"].forEach(dr=>{
+    subjects.forEach(s=>{
+      const list=exam.rows.map(r=>({r,v:detScore(exam,r,s)})).filter(o=>o.v!=null&&rowDir(o.r)===dr).sort((a,b)=>b.v-a.v);
+      if(!list.length)return;
+      const cut=list[Math.min(3,list.length)-1].v;
+      list.filter(o=>o.v>=cut).forEach((o,i)=>champions.push({dir:dr,subj:s,rank:i+1,name:o.r.name,cls:o.r.cls,score:o.v,
+        teacher:(tmap[String(o.r.cls)+"|"+s]||[]).join("/")||"未录入"}));
+    });
+  });
+  /* ⑥ 前N名班级分布 */
+  const topDist=[];
+  const distOf=(list,tag)=>{const cnt={};list.forEach(x=>{const c=String(x.cls);cnt[c]=(cnt[c]||0)+1;});
+    Object.keys(cnt).sort((a,b)=>(Number(a)||0)-(Number(b)||0)).forEach(c=>topDist.push({scope:tag,cls:c,n:cnt[c],pct:list.length?cnt[c]/list.length*100:0}));};
+  distOf(topOverall,"全年级前"+N);
+  ["物理","历史"].forEach(dr=>distOf(topByDir[dr],dr+"方向前"+N));
+  /* ⑦ 纵向进退步（方向内名次，与上一场按 姓名+班级 匹配） */
+  const exs=examsSorted(),idx=exs.findIndex(e=>e.id===exam.id),prev=idx>0?exs[idx-1]:null;
+  const delta={prevName:prev?prev.name:null,up:[],down:[]};
+  let prevDetail=null;
+  if(prev){
+    computeExam(prev);
+    const pMap={};
+    prev.rows.forEach(r=>{if(r._grDir!=null)pMap[r.name+"|"+r.cls]={grDir:r._grDir,total:r.total};});
+    exam.rows.forEach(r=>{
+      const p=pMap[r.name+"|"+r.cls];
+      if(!p||r._grDir==null)return;
+      const d=r._grDir-p.grDir;
+      const rec={name:r.name,cls:r.cls,prev:p.grDir,cur:r._grDir,step:Math.abs(d),prevTotal:p.total,total:r.total};
+      (d<0?delta.up:delta.down).push(rec);
+    });
+    delta.up.sort((a,b)=>b.step-a.step);delta.down.sort((a,b)=>b.step-a.step);
+    prevDetail=prev.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:r._gr||null,dirRank:r._grDir||null,
+      scores:subjects.reduce((o,s)=>{o[s]=detScore(prev,r,s);return o;},{})}));
+  }
+  /* ⑧ 成绩明细（仅 姓名/班级/方向/总分/名次/各科分数；永不含身份证号、学号） */
+  const detail=exam.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:r._gr||null,dirRank:r._grDir||null,
+    scores:subjects.reduce((o,s)=>{o[s]=detScore(exam,r,s);return o;},{})}));
+  return Object.assign(R,{
+    conventions:{
+      本科临界浮动:critRangeTxt(exam,"pass"),特控临界浮动:critRangeTxt(exam,"exc"),
+      总分线:["物理","历史"].reduce((o,d)=>{o[d]={本科:totalLine(exam,d,"pass"),特控:totalLine(exam,d,"exc"),top:totalLine(exam,d,"top")};return o;},{}),
+      单科及格线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","pass"),历史:subjLine(exam,s,"历史","pass")};return o;},{}),
+      单科优秀线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","exc"),历史:subjLine(exam,s,"历史","exc")};return o;},{}),
+      分数段:(examCfg(exam).bands||[]).slice(),
+      缺考口径:"单科 0 分或空 = 缺考/未选科，不计入该科统计"+(exam.zeroAsMissing?"（本场启用）":""),
+      前N名:"前"+N+"名"+(opts.tie?"（并列同分全部保留）":"（严格取前N人）"),
+      隐私:"明细仅含姓名/班级/方向/总分/名次/各科分数；身份证号、学号等编号字段一律不导出"
+    },
+    opts:{topN:N,tie:!!opts.tie,detail:!!opts.detail},
+    teacherTable,classSubject,teacherSubject,topOverall,topByDir,champions,topDist,delta,detail,prevDetail
+  });
+}
+/* Excel 版（SheetJS）：与 JSON 完全同源的一份数据，人工核对用 */
+function gradePackXlsx(exam,opts,P){
+  const subjects=exam.subjects||[];
+  const wb=XLSX.utils.book_new();
+  const add=(name,aoa)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),name);
+  add("使用说明",[
+    ["项目","内容"],
+    ["数据来源","教师工作台 v"+(window.APP_VERSION||"")+" 页面同源导出（与页面显示完全一致）"],
+    ["考试",exam.name+"（"+(exam.date||"")+"）"],
+    ["导出选项","前"+opts.topN+"名"+(opts.tie?"·并列保留":"·严格截断")+(opts.detail?"·含明细":"·不含明细")],
+    ["本科临界浮动",P.conventions.本科临界浮动],["特控临界浮动",P.conventions.特控临界浮动],
+    ["分数段",JSON.stringify(P.conventions.分数段)],
+    ["缺考口径",P.conventions.缺考口径],
+    ["隐私",P.conventions.隐私],
+    ["生成时间",new Date().toLocaleString("zh-CN")]]);
+  add("班级教师对应表",[["班级","班主任",...subjects],
+    ...P.teacherTable.map(t=>[t.cls,t.head,...subjects.map(s=>t[s]||"")])]);
+  add("划线标准",[
+    ["科目","物理及格线","历史及格线","物理优秀线","历史优秀线"],
+    ...subjects.map(s=>[s,P.conventions.单科及格线[s].物理,P.conventions.单科及格线[s].历史,P.conventions.单科优秀线[s].物理,P.conventions.单科优秀线[s].历史]),
+    [],["方向","本科线","特控线","top线"],
+    ...["物理","历史"].map(d=>[d,P.conventions.总分线[d].本科,P.conventions.总分线[d].特控,P.conventions.总分线[d].top]),
+    [],["临界浮动","本科"+P.conventions.本科临界浮动,"特控"+P.conventions.特控临界浮动]]);
+  add("年级总体",[["方向","参考人数","总分均分","最高分","最低分","本科上线","本科率%","特控上线","特控率%","top上线","top率%"],
+    ...["物理","历史"].filter(d=>P.dirs[d]).map(d=>{const x=P.dirs[d];
+      return [d,x.n,fmtN(x.avg),x.max,x.min,x.benYes||0,fmtN(x.ben),x.teYes||0,fmtN(x.te),x.topYes||0,fmtN(x.top)];})]);
+  add("班级总分",[["班级","人数","总分均分","年级排名","本科上线","本科临界","特控上线","特控临界"],
+    ...P.classes.map(c=>[c.cls,c.n,fmtN(c.avg),c.rank||"",c.ben,c.benCrit,c.exc,c.excCrit])]);
+  add("班级单科",[["方向","科目","班级","任课教师","人数","均分","及格线","及格率%","优秀线","优秀率%","最高分","年级均分差","排名"],
+    ...P.classSubject.map(x=>[x.dir,x.subj,x.cls,x.t,x.n,fmtN(x.avg),x.pl!=null?x.pl:"",x.passRate!=null?fmtN(x.passRate):"—",
+      x.el!=null?x.el:"",x.excRate!=null?fmtN(x.excRate):"—",x.max,fmtN(x.d),x.rank])]);
+  add("教师单科",[["方向","科目","教师","班级","人数","均分","及格率%","优秀率%","最高分","排名"],
+    ...P.teacherSubject.map(x=>[x.dir,x.subj,x.teacher,x.cls,x.n,fmtN(x.avg),x.passRate!=null?fmtN(x.passRate):"—",
+      x.excRate!=null?fmtN(x.excRate):"—",x.max,x.rank])]);
+  add("分数段",[["分数段","人数","占比%"],
+    ...P.bands.names.map((nm,i)=>[nm,P.bands.counts[i],P.grade.n?fmtN(P.bands.counts[i]/P.grade.n*100):"—"])]);
+  add("临界生",[["班级","人数","本科上线","本科临界","特控上线","特控临界","本科上线名单","特控上线名单"],
+    ...P.clsLines.map(x=>[x.cls,x.n,x.ben,x.benCrit,x.exc,x.excCrit,x.benNames.join("、"),x.excNames.join("、")])]);
+  add("前N名_总分",[["年级名次","姓名","班级","方向","总分","方向名次"],
+    ...P.topOverall.map(x=>[x.rank,x.name,x.cls,x.dir||"未标注",x.total,x.dirRank!=null?x.dirRank:""])]);
+  add("方向前N",[["方向","方向名次","姓名","班级","总分","年级名次"],
+    ...["物理","历史"].filter(d=>P.topByDir[d]).map(d=>P.topByDir[d].map(x=>[d,x.rank,x.name,x.cls,x.total,x.gradeRank])).flat()]);
+  add("单科前三",[["方向","科目","名次","姓名","班级","分数","任课教师"],
+    ...P.champions.map(x=>[x.dir,x.subj,x.rank,x.name,x.cls,x.score,x.teacher])]);
+  add("前N班级分布",[["范围","班级","人数","占该榜%"],
+    ...P.topDist.map(x=>[x.scope,x.cls,x.n,fmtN(x.pct)])]);
+  add("历次趋势",[["考试","日期","人数","均分","本科上线","本科临界","特控上线","特控临界"],
+    ...P.trend.map(x=>[x.name,x.date,x.n,fmtN(x.avg),x.ben,x.benCrit,x.exc,x.excCrit])]);
+  add("进退步",[["类型","姓名","班级","上次方向名次","本次方向名次","变化"],
+    ...P.delta.up.slice(0,50).map(x=>["↑进步",x.name,x.cls,x.prev,x.cur,"前"+x.step+"名"]),
+    ...P.delta.down.slice(0,50).map(x=>["↓退步",x.name,x.cls,x.prev,x.cur,"退"+x.step+"名"])]);
+  if(opts.detail){
+    const detAoa=(det)=>[["姓名","班级","方向","总分","年级名次","方向名次",...subjects],
+      ...det.map(r=>[r.name,r.cls,r.dir||"未标注",r.total!=null?r.total:"",r.gradeRank!=null?r.gradeRank:"",
+        r.dirRank!=null?r.dirRank:"",...subjects.map(s=>r.scores[s]!=null?r.scores[s]:"")])];
+    add("明细_"+exam.name.slice(0,12),detAoa(P.detail));
+    if(P.prevDetail)add("明细_"+String(P.delta.prevName||"上次").slice(0,12),detAoa(P.prevDetail));
+  }
+  XLSX.writeFile(wb,"全年级成绩分析数据包_"+exam.name+".xlsx");
+}
+/* 导出选项面板：前N/并列策略/明细开关（选择记忆在 settings.exportCfg） */
 ACTIONS.gradeReportExport=()=>{
   const exam=ensureExam();if(!exam)return toast("还没有考试数据");
-  const R=buildGradeReport(exam);
-  if(!R)return toast("本场考试没有可用的年级数据");
-  const payload={app:"teacherGradeReport",说明:"全年级分析数据：所有数值由工作台真实成绩按既定口径算出，口径见各指标 formula/source 字段；生成 PPT 时只能引用本文件中的数值。",
-    meta:R.meta,metrics:R.metrics,grade:R.grade,dirs:R.dirs,classes:R.classes,subjects:R.subjects,bands:R.bands,lines:R.lines,trend:R.trend,clsLines:R.clsLines};
-  download(`全年级成绩分析_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
-  toast(`已导出全年级分析数据（${R.meta.班级数} 个班 · ${R.meta.参考人数} 人）`);
+  const cfg=(settings().exportCfg)||{topN:20,tie:true,detail:true};
+  const body=`<div class="frow" style="flex-direction:column;gap:10px">
+    <div class="field"><label>前N名（高分榜 / 方向榜 / 班级分布共用）</label>
+      <select id="expTopN">${[10,20,30,50,100].map(n=>`<option value="${n}"${Number(cfg.topN)===n?" selected":""}>前${n}名</option>`).join("")}</select></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="expTie"${cfg.tie!==false?" checked":""}>并列同分全部保留（不硬性截断人数）</label></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="expDetail"${cfg.detail!==false?" checked":""}>含学生成绩明细（姓名/班级/各科分数）</label>
+      <div class="muted" style="font-size:12px;margin-top:4px">明细永不包含身份证号、学号等任何编号字段。</div></div>
+  </div>`;
+  openModal("导出全年级数据包 · "+exam.name,body,
+    `<button class="btn" data-act="closeModal">取消</button>
+     <button class="btn" id="expJsonBtn">⬇️ JSON（喂AI做PPT）</button>
+     <button class="btn primary" id="expXlsxBtn">⬇️ Excel（人工核对）</button>`);
+  const readOpts=async()=>{
+    const o={topN:Number(($("#expTopN")||{}).value)||20,tie:!!($("#expTie")||{}).checked,detail:!!($("#expDetail")||{}).checked};
+    await saveMeta("settings",Object.assign(settings(),{exportCfg:o}));
+    return o;
+  };
+  $("#expJsonBtn").onclick=async()=>{
+    const o=await readOpts();
+    const P=buildGradePack(exam,o);
+    if(!P)return toast("本场考试没有可用的年级数据");
+    const payload=Object.assign({app:"teacherGradePack",
+      说明:"全年级完整数据包：所有数值由工作台真实成绩按页面同源函数算出，口径见 conventions 字段；生成PPT时只能引用本文件中的数值。"+P.conventions.隐私},P);
+    download("全年级成绩分析数据包_"+exam.name+".json",JSON.stringify(payload,null,2),"application/json");
+    closeModal();
+    toast(`已导出 JSON（前${o.topN}名${o.tie?"·并列保留":""}${o.detail?"·含明细":""}），可交AI生成PPT`);
+  };
+  $("#expXlsxBtn").onclick=async()=>{
+    const o=await readOpts();
+    const P=buildGradePack(exam,o);
+    if(!P)return toast("本场考试没有可用的年级数据");
+    gradePackXlsx(exam,o,P);
+    closeModal();
+    toast(`已导出 Excel 数据包（与页面数字同源）`);
+  };
 };
 
 /* ===== 渲染后钩子：画图 ===== */
