@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v66";
+window.APP_VERSION="v67";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2323,7 +2323,8 @@ function jwOverview(){
   const benCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"pass");return isCritScore(r.total,ln,"pass",exam);});
   const excCrit=exam.rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
   const lineRate=(a,b)=>b?`${(a/b*100).toFixed(1)}%`:"—";
-  return `<div class="card"><h3>📊 年级总览<span class="sub">${esc(exam.name)}</span><span class="spacer"></span>${examSelector()}</h3>
+  return `<div class="card"><h3>📊 年级总览<span class="sub">${esc(exam.name)}</span><span class="spacer"></span>${examSelector()}
+    <button class="btn sm" data-act="gradeReportExport">⬇️ 导出全年级分析数据</button></h3>
   <div class="statcards">
     <div class="stat"><div class="v">${exam.rows.length}</div><div class="k">学生总数</div></div>
     <div class="stat"><div class="v">${ce.classes.length}</div><div class="k">教学班</div></div>
@@ -4632,7 +4633,8 @@ function bzrReportView(){
   return `<div class="card">
     <h3>📑 考试分析报告 · ${esc(cls)}班<span class="sub">${esc(exam.name)}${exam.date?" · "+esc(exam.date):""}</span><span class="spacer"></span>
       ${examSelector()}
-      <button class="btn sm" data-act="bzrReportExport">⬇️ 导出分析数据(JSON)</button></h3>
+      <button class="btn sm" data-act="gradeReportExport">⬇️ 导出全年级数据</button>
+      <button class="btn sm" data-act="bzrReportExport">⬇️ 导出本班数据(JSON)</button></h3>
     <div class="notice blue" style="margin-bottom:10px">
       <b>数据来源：</b>工作台导入的真实成绩（${esc(exam.name)}），参考 <b>${R.meta.参考人数}</b> 人${dirTxt?`，方向构成 ${esc(dirTxt)}`:""}　·　生成时间 ${esc(R.meta.生成时间)}　·　引擎 v${esc(R.meta.引擎版本)}<br>
       <b>本页所有数字均由同一套统计函数算出</b>（与「班级成绩分析」完全一致的口径）；每个数字悬停可查看<b>口径与来源</b>。导出 JSON 会连同口径一起带走，可据此生成 PPT，保证数字可溯源。
@@ -4701,6 +4703,79 @@ function bzrReportView(){
     <div class="muted" style="font-size:12px;margin-top:6px">建议由固定规则模板 + 本页计算结果拼装，不含任何外部推测；如需更深入的教研式解读，可导出分析数据后交由 AI 撰写（AI 不得修改任何数值）。</div>
   </div>`;
 }
+
+/* ===== 全年级分析数据导出（v67）：与页面统计同一套函数，口径一致、可溯源 ===== */
+function buildGradeReport(exam){
+  const ce=computeExam(exam);
+  if(!ce||!ce.classes.length)return null;
+  const g=ce.grade||{};
+  const gt=g.total||{};
+  const withT=exam.rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  /* 各班上线/临界：复用 clsLineStat（与年级总览卡、柱状图完全同源） */
+  const lineStat=clsLineStat(exam);
+  const clsRank=classTotalRank(exam);
+  const classes=ce.classes.map(c=>{
+    const ls=lineStat.find(x=>String(x.cls)===String(c.cls))||{};
+    return{cls:c.cls,n:c.n,avg:c.total&&c.total.avg!=null?c.total.avg:null,rank:clsRank[c.cls]||null,
+      ben:ls.ben||0,benCrit:ls.benCrit||0,exc:ls.exc||0,excCrit:ls.excCrit||0};
+  }).sort((a,b)=>(b.avg==null?-1:b.avg)-(a.avg==null?-1:a.avg));
+  /* 各科年级统计 */
+  const subjects=(exam.subjects||[]).map(s=>{
+    const m=g.bySubj&&g.bySubj[s];if(!m)return null;
+    return{s,n:m.n,avg:m.avg,max:m.max,min:m.min,sd:m.sd,pass:m.pass,passYes:m.passYes,exc:m.exc,excYes:m.excYes};
+  }).filter(Boolean);
+  /* 年级分数段分布 */
+  const bands=(examCfg(exam).bands||[]).slice().sort((a,b)=>b-a);
+  const bandNames=bands.map(b=>b+"+");bandNames.push((bands[bands.length-1]||0)+"以下");
+  const bandCounts=bandNames.map((nm,i)=>{const lo=i===bandNames.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
+    return withT.filter(r=>r.total>=lo&&r.total<hi).length;});
+  /* 分方向年级统计（本科率/特控率/优生率按各自方向线） */
+  const dirs={};
+  ["物理","历史"].forEach(d=>{
+    const dd=ce.dirs&&ce.dirs[d];if(!dd)return;
+    dirs[d]={n:dd.n,avg:dd.avg,max:dd.max,min:dd.min,ben:dd.ben,benYes:dd.benYes,te:dd.te,teYes:dd.teYes,top:dd.top,
+      lines:{pass:totalLine(exam,d,"pass"),exc:totalLine(exam,d,"exc"),top:totalLine(exam,d,"top")}};
+  });
+  /* 历次趋势（年级口径） */
+  const trend=examsSorted().map(e=>{
+    const c2=computeExam(e);if(!c2||!c2.grade)return null;
+    const t2=c2.grade.total||{};
+    const ls2=clsLineStat(e);
+    return{name:e.name,date:e.date||"",n:t2.n||0,avg:t2.avg!=null?t2.avg:null,
+      ben:ls2.reduce((a,b)=>a+b.ben,0),benCrit:ls2.reduce((a,b)=>a+b.benCrit,0),
+      exc:ls2.reduce((a,b)=>a+b.exc,0),excCrit:ls2.reduce((a,b)=>a+b.excCrit,0)};
+  }).filter(Boolean);
+  return{
+    meta:{考试:exam.name,考试日期:exam.date||"",范围:"全年级",班级数:ce.classes.length,参考人数:withT.length,
+      生成时间:new Date().toLocaleString("zh-CN"),引擎版本:window.APP_VERSION||"",数据来源:"工作台导入的真实成绩（Excel/CSV）"},
+    metrics:[
+      {key:"n",label:"年级参考人数",value:withT.length,formula:"全年级有有效总分的行数（0 分按缺失剔除）",source:`考试「${exam.name}」· 全部 rows`},
+      {key:"avg",label:"年级总分均分",value:gt.avg!=null?gt.avg:null,formula:"全年级有效总分之和 ÷ 有效人数",source:"computeExam → grade.total.avg"},
+      {key:"max",label:"年级最高分",value:gt.max!=null?gt.max:null,formula:"全年级有效总分最大值",source:"computeExam → grade.total.max"},
+      {key:"min",label:"年级最低分",value:gt.min!=null?gt.min:null,formula:"全年级有效总分最小值",source:"computeExam → grade.total.min"},
+      {key:"pass",label:"年级本科率",value:gt.pass!=null?gt.pass:null,formula:"按各学生自己方向的本科线达标人数 ÷ 该方向人数，再按方向人数加权",source:"computeExam → grade.total.pass"},
+      {key:"exc",label:"年级特控率",value:gt.exc!=null?gt.exc:null,formula:"同上，按特控线计算",source:"computeExam → grade.total.exc"},
+      {key:"clsCount",label:"班级数",value:ce.classes.length,formula:"本场考试出现过的班级个数",source:"computeExam → grade.classes"}
+    ],
+    grade:{n:gt.n||withT.length,avg:gt.avg,max:gt.max,min:gt.min,sd:gt.sd,pass:gt.pass,passYes:gt.passYes,passN:gt.passN,exc:gt.exc,excYes:gt.excYes,excN:gt.excN},
+    dirs,classes,subjects,
+    bands:{names:bandNames,counts:bandCounts},
+    lines:{critPass:critRangeTxt(exam,"pass"),critExc:critRangeTxt(exam,"exc"),
+      byDir:["物理","历史"].reduce((o,d)=>{const l=totalLine(exam,d,"pass");if(l!=null)o[d]={pass:l,exc:totalLine(exam,d,"exc"),top:totalLine(exam,d,"top")};return o;},{})},
+    trend,
+    clsLines:lineStat.map(x=>({cls:x.cls,n:x.n,ben:x.ben,benCrit:x.benCrit,exc:x.exc,excCrit:x.excCrit,
+      benNames:x.benNames,excNames:x.excNames}))
+  };
+}
+ACTIONS.gradeReportExport=()=>{
+  const exam=ensureExam();if(!exam)return toast("还没有考试数据");
+  const R=buildGradeReport(exam);
+  if(!R)return toast("本场考试没有可用的年级数据");
+  const payload={app:"teacherGradeReport",说明:"全年级分析数据：所有数值由工作台真实成绩按既定口径算出，口径见各指标 formula/source 字段；生成 PPT 时只能引用本文件中的数值。",
+    meta:R.meta,metrics:R.metrics,grade:R.grade,dirs:R.dirs,classes:R.classes,subjects:R.subjects,bands:R.bands,lines:R.lines,trend:R.trend,clsLines:R.clsLines};
+  download(`全年级成绩分析_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
+  toast(`已导出全年级分析数据（${R.meta.班级数} 个班 · ${R.meta.参考人数} 人）`);
+};
 
 /* ===== 渲染后钩子：画图 ===== */
 bzrReportView.after=()=>{
