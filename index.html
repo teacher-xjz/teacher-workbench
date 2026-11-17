@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v72";
+window.APP_VERSION="v73";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5002,6 +5002,7 @@ function gradePackXlsx(exam,opts,P){
     ["考试",exam.name+"（"+(exam.date||"")+"）"],
     ["导出选项","前"+opts.topN+"名"+(opts.tie?"·并列保留":"·严格截断")+(opts.detail?"·含明细":"·不含明细")],
     ["本科临界浮动",P.conventions.本科临界浮动],["特控临界浮动",P.conventions.特控临界浮动],
+    ["榜单口径","全年级前"+opts.topN+"名=物理+历史混排总分榜（语数外等共同科目可参考）；物理/历史方向前"+opts.topN+"名=方向内名次（对比分数线、临界、选科科目一律以方向榜为准）"],
     ["分数段",JSON.stringify(P.conventions.分数段)],
     ["缺考口径",P.conventions.缺考口径],
     ["隐私",P.conventions.隐私],
@@ -5057,7 +5058,8 @@ ACTIONS.gradeReportExport=()=>{
   const cfg=(settings().exportCfg)||{topN:20,tie:true,detail:true};
   const body=`<div class="frow" style="flex-direction:column;gap:10px">
     <div class="field"><label>前N名（高分榜 / 方向榜 / 班级分布共用）</label>
-      <select id="expTopN">${[10,20,30,50,100].map(n=>`<option value="${n}"${Number(cfg.topN)===n?" selected":""}>前${n}名</option>`).join("")}</select></div>
+      <select id="expTopN">${[10,20,30,50,100].map(n=>`<option value="${n}"${Number(cfg.topN)===n?" selected":""}>前${n}名</option>`).join("")}</select>
+      <div class="muted" style="font-size:12px;margin-top:4px">导出同时含「全年级前N混排榜」（语数外等共同科目可参考）与「物理/历史方向前N榜」（对比分数线、临界、选科科目以此为准）。</div></div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="expTie"${cfg.tie!==false?" checked":""}>并列同分全部保留（不硬性截断人数）</label></div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="expDetail"${cfg.detail!==false?" checked":""}>含学生成绩明细（姓名/班级/各科分数）</label>
       <div class="muted" style="font-size:12px;margin-top:4px">明细永不包含身份证号、学号等任何编号字段。</div></div>
