@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v76";
+window.APP_VERSION="v77";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5073,7 +5073,10 @@ ACTIONS.gradeReportExport=()=>{
      <button class="btn primary" id="expXlsxBtn">⬇️ Excel（人工核对）</button>`);
   const readOpts=async()=>{
     const o={topN:Number(($("#expTopN")||{}).value)||20,tie:!!($("#expTie")||{}).checked,detail:!!($("#expDetail")||{}).checked};
-    await saveMeta("settings",Object.assign(settings(),{exportCfg:o}));
+    /* v77：选项与上次一致时跳过 saveMeta——纯下载零同步，不产生无意义的整包上传 */
+    const old=(settings().exportCfg)||{},nt=x=>x!==false;
+    const same=(Number(old.topN)||20)===o.topN&&nt(old.tie)===o.tie&&nt(old.detail)===o.detail;
+    if(!same)await saveMeta("settings",Object.assign(settings(),{exportCfg:o}));
     return o;
   };
   $("#expJsonBtn").onclick=async()=>{
