@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v77";
+window.APP_VERSION="v78";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -305,7 +305,7 @@ function num(v){if(v==null||String(v).trim()==="")return null;const n=Number(v);
 function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;}
 function pct(a){return a.length?a.filter(x=>x).length/a.length*100:null;}
 function fmtN(v,d=1){return v==null||isNaN(v)?"—":(Math.round(v*Math.pow(10,d))/Math.pow(10,d)).toFixed(d).replace(/\.0$/,"");}
-function download(name,content,type){const b=new Blob(["\ufeff"+content],{type:type||"text/plain;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3e3);}
+function download(name,content,type){const t=type||"text/plain;charset=utf-8";const pre=/json/.test(t)?"":"\ufeff";const b=new Blob([pre+content],{type:t});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3e3);}
 function csvOf(rows){return rows.map(r=>r.map(c=>{c=String(c==null?"":c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c;}).join(",")).join("\n");}
 function copyText(t){if(navigator.clipboard){navigator.clipboard.writeText(t).then(()=>toast("已复制到剪贴板")).catch(()=>fallbackCopy(t));}else fallbackCopy(t);}
 function fallbackCopy(t){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("已复制到剪贴板");}catch(e){toast("复制失败，请手动复制");}ta.remove();}
@@ -4927,14 +4927,25 @@ function buildGradePack(exam,opts){
       arr.forEach((x,i)=>teacherSubject.push(Object.assign({dir:dr,subj:s,rank:i+1},x)));
     });
   });
+  /* ③.5 并列名次（v78）：与学校成绩表口径一致——名次=总分严格更高的人数+1，同分同名次；缺考（总分0/空）列并列末位名次 */
+  const tieMapOf=rows=>{
+    const scored=rows.filter(r=>r.total!=null&&r.total>0);
+    const m={};
+    rows.forEach(r=>{m[r.name+"|"+r.cls]=(r.total!=null&&r.total>0)?scored.filter(o=>o.total>r.total).length+1:scored.length+1;});
+    return m;
+  };
+  const allTie=tieMapOf(exam.rows);
+  const dirTie={};
+  ["物理","历史"].forEach(dr=>{const rs=exam.rows.filter(r=>rowDir(r)===dr);Object.assign(dirTie,tieMapOf(rs));});
+  const tieOf=(m,r)=>m[r.name+"|"+r.cls]||null;
   /* ④ 前N名：全年级按总分(_gr)，分方向按方向内名次(_grDir) */
   const N=Number(opts.topN)||20;
   const ranked=ce.ranks.map(x=>x.row).sort((a,b)=>a._gr-b._gr);
-  const topOverall=topSlice(ranked,N,opts.tie).map(r=>({rank:r._gr,name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,dirRank:r._grDir||null}));
+  const topOverall=topSlice(ranked,N,opts.tie).map(r=>({rank:tieOf(allTie,r),name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,dirRank:tieOf(dirTie,r)}));
   const topByDir={};
   ["物理","历史"].forEach(dr=>{
     const list=ranked.filter(r=>rowDir(r)===dr).sort((a,b)=>a._grDir-b._grDir);
-    topByDir[dr]=topSlice(list,N,opts.tie).map(r=>({rank:r._grDir,name:r.name,cls:r.cls,total:r.total,gradeRank:r._gr}));
+    topByDir[dr]=topSlice(list,N,opts.tie).map(r=>({rank:tieOf(dirTie,r),name:r.name,cls:r.cls,total:r.total,gradeRank:tieOf(allTie,r)}));
   });
   /* ⑤ 单科前三（并列同分保留），带任课教师 */
   const champions=[];
@@ -4943,7 +4954,8 @@ function buildGradePack(exam,opts){
       const list=exam.rows.map(r=>({r,v:detScore(exam,r,s)})).filter(o=>o.v!=null&&rowDir(o.r)===dr).sort((a,b)=>b.v-a.v);
       if(!list.length)return;
       const cut=list[Math.min(3,list.length)-1].v;
-      list.filter(o=>o.v>=cut).forEach((o,i)=>champions.push({dir:dr,subj:s,rank:i+1,name:o.r.name,cls:o.r.cls,score:o.v,
+      const kept=list.filter(o=>o.v>=cut);
+      kept.forEach(o=>champions.push({dir:dr,subj:s,rank:kept.filter(x=>x.v>o.v).length+1,name:o.r.name,cls:o.r.cls,score:o.v,
         teacher:(tmap[String(o.r.cls)+"|"+s]||[]).join("/")||"未录入"}));
     });
   });
@@ -4959,22 +4971,25 @@ function buildGradePack(exam,opts){
   let prevDetail=null;
   if(prev){
     computeExam(prev);
+    const prevAllTie=tieMapOf(prev.rows);
+    const pTie={};["物理","历史"].forEach(dr=>{Object.assign(pTie,tieMapOf(prev.rows.filter(r=>rowDir(r)===dr)));}); /* 上次考试并列名次（同口径） */
     const pMap={};
-    prev.rows.forEach(r=>{if(r._grDir!=null)pMap[r.name+"|"+r.cls]={grDir:r._grDir,total:r.total};});
+    prev.rows.forEach(r=>{pMap[r.name+"|"+r.cls]={grDir:tieOf(pTie,r),total:r.total};});
     exam.rows.forEach(r=>{
       const p=pMap[r.name+"|"+r.cls];
-      if(!p||r._grDir==null)return;
-      const d=r._grDir-p.grDir;
+      const cur=tieOf(dirTie,r);
+      if(!p||cur==null||p.grDir==null)return;
+      const d=cur-p.grDir;
       if(d===0)return; /* 名次未变不计入进退步 */
-      const rec={name:r.name,cls:r.cls,prev:p.grDir,cur:r._grDir,step:Math.abs(d),prevTotal:p.total,total:r.total};
+      const rec={name:r.name,cls:r.cls,prev:p.grDir,cur:cur,step:Math.abs(d),prevTotal:p.total,total:r.total};
       (d<0?delta.up:delta.down).push(rec);
     });
     delta.up.sort((a,b)=>b.step-a.step);delta.down.sort((a,b)=>b.step-a.step);
-    prevDetail=prev.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:r._gr||null,dirRank:r._grDir||null,
+    prevDetail=prev.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:tieOf(prevAllTie,r),dirRank:tieOf(pTie,r),
       scores:subjects.reduce((o,s)=>{o[s]=detScore(prev,r,s);return o;},{})}));
   }
   /* ⑧ 成绩明细（仅 姓名/班级/方向/总分/名次/各科分数；永不含身份证号、学号） */
-  const detail=exam.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:r._gr||null,dirRank:r._grDir||null,
+  const detail=exam.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:tieOf(allTie,r),dirRank:tieOf(dirTie,r),
     scores:subjects.reduce((o,s)=>{o[s]=detScore(exam,r,s);return o;},{})}));
   return Object.assign(R,{
     conventions:{
@@ -4986,6 +5001,7 @@ function buildGradePack(exam,opts){
       分数段:(examCfg(exam).bands||[]).slice(),
       缺考口径:"单科 0 分或空 = 缺考/未选科，不计入该科统计"+(exam.zeroAsMissing?"（本场启用）":""),
       前N名:"前"+N+"名"+(opts.tie?"（并列同分全部保留）":"（严格取前N人）"),
+      名次口径:"并列名次（与学校成绩表一致）：名次=总分严格更高的人数+1，同分同名次；缺考（总分0/空）列并列末位名次",
       榜单使用建议:"高分榜展示用方向榜（物理前N/历史前N）；语数外等共同科目分析可用全年级排名；选科科目一律用方向内名次。全年级混排总分榜仅作整体格局参考。",
       隐私:"明细仅含姓名/班级/方向/总分/名次/各科分数；身份证号、学号等编号字段一律不导出"
     },
@@ -5005,6 +5021,7 @@ function gradePackXlsx(exam,opts,P){
     ["导出选项","前"+opts.topN+"名"+(opts.tie?"·并列保留":"·严格截断")+(opts.detail?"·含明细":"·不含明细")],
     ["本科临界浮动",P.conventions.本科临界浮动],["特控临界浮动",P.conventions.特控临界浮动],
     ["榜单口径","高分榜展示用方向榜（物理前N/历史前N）；语数外等共同科目分析可用全年级排名；选科科目一律用方向内名次。全年级混排总分榜仅作整体格局参考"],
+    ["名次口径",P.conventions.名次口径],
     ["分数段",JSON.stringify(P.conventions.分数段)],
     ["缺考口径",P.conventions.缺考口径],
     ["隐私",P.conventions.隐私],
@@ -5084,7 +5101,7 @@ ACTIONS.gradeReportExport=()=>{
     const P=buildGradePack(exam,o);
     if(!P)return toast("本场考试没有可用的年级数据");
     const payload=Object.assign({app:"teacherGradePack",
-      说明:"全年级完整数据包：所有数值由工作台真实成绩按页面同源函数算出，口径见 conventions 字段；生成PPT时只能引用本文件中的数值。"+P.conventions.隐私+"【榜单口径】"+P.conventions.榜单使用建议},P);
+      说明:"全年级完整数据包：所有数值由工作台真实成绩按页面同源函数算出，口径见 conventions 字段；生成PPT时只能引用本文件中的数值。"+P.conventions.隐私+"【名次口径】"+P.conventions.名次口径+"【榜单口径】"+P.conventions.榜单使用建议},P);
     download("全年级成绩分析数据包_"+exam.name+".json",JSON.stringify(payload,null,2),"application/json");
     closeModal();
     toast(`已导出 JSON（前${o.topN}名${o.tie?"·并列保留":""}${o.detail?"·含明细":""}），可交AI生成PPT`);
