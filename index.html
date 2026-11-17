@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v65";
+window.APP_VERSION="v66";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1321,7 +1321,7 @@ ACTIONS.qcNote=async()=>{
   $("#qcText").value="";toast("已存入随手记");render();
 };
 /* ================= 班主任 ================= */
-const BZR_TABS=[["sched","班级课表"],["students","学生名册"],["duties","班委与值日"],["activities","班会与活动"],["contacts","家长联系"],["score","班级成绩分析"]];
+const BZR_TABS=[["sched","班级课表"],["students","学生名册"],["duties","班委与值日"],["activities","班会与活动"],["contacts","家长联系"],["score","班级成绩分析"],["report","分析报告"]];
 function renderBzr(){
   const sub=State.sub.bzr||"sched";
   const f={
@@ -1331,8 +1331,9 @@ function renderBzr(){
     activities:()=>crudView("activities",CRUDCFG.activities),
     contacts:()=>crudView("contacts",CRUDCFG.contacts),
     score:()=>clsScoreView(),
+    report:()=>bzrReportView(),
   }[sub];
-  renderBzr.after=(sub==="score")?clsScoreView.after:null;
+  renderBzr.after=(sub==="score")?clsScoreView.after:(sub==="report"&&typeof bzrReportView!=="undefined"?bzrReportView.after:null);
   return `<div class="subtabs">${BZR_TABS.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
 }
 /* ================= 教科室 ================= */
@@ -4480,6 +4481,248 @@ document.addEventListener("change",e=>{
     return;
   }
 });
+
+/* ==================== 考试分析报告（班主任 · 本班） ==================== */
+/* 设计原则（v66）：
+   ① 唯一数据源＝工作台里导入的真实成绩；本页不新增任何统计口径，全部复用
+      computeExam / classTotalRank / totalLine / isCritScore / examCfg 等既有函数。
+   ② 每个指标都带「口径说明 + 来源」，悬停即可查证；导出 JSON 同样携带口径，
+      供据此生成 PPT 时保证数字可溯源、不可杜撰。
+   ③ 纯计算函数 buildReport() 与渲染函数分离：buildReport 只算数不画界面，
+      视图与导出共用同一份结果，保证"页面看到的 = 导出的 = PPT 里的"。 */
+function reportClsCode(){const st=settings();return String(st.clsCode||st.cls).replace(/^0+/,"").replace(/班$/,"");}
+
+/* ===== 纯计算：产出报告所需的全部指标（不含界面） ===== */
+function buildReport(exam,cls){
+  const ce=computeExam(exam);
+  const mine=ce.classes.find(c=>c.cls===cls);
+  if(!mine)return null;
+  const rows=exam.rows.filter(r=>r.cls===cls);
+  const withT=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
+  const gradeRank=classTotalRank(exam);
+  const clsRank=gradeRank[cls]||null,nCls=ce.classes.length;
+  const gradeAvg=ce.grade&&ce.grade.total&&ce.grade.total.avg!=null?ce.grade.total.avg:null;
+  const clsAvg=mine.total&&mine.total.avg!=null?mine.total.avg:null;
+  /* 上线 / 临界（按每个学生自己的方向线） */
+  const ben=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&r.total>=ln;});
+  const exc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
+  const critPass=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"pass");return ln!=null&&isCritScore(r.total,ln,"pass",exam);});
+  const critExc=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&isCritScore(r.total,ln,"exc",exam);});
+  const bandPass=critRangeTxt(exam,"pass"),bandExc=critRangeTxt(exam,"exc");
+  /* 与上一次考试的方向内名次变化 */
+  const exs=examsSorted(),idx=exs.findIndex(e=>e.id===exam.id),prev=idx>0?exs[idx-1]:null;
+  let up=[],down=[];
+  if(prev){
+    const pRank={};computeExam(prev).ranks.forEach(x=>pRank[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);
+    const dl=rows.map(r=>{const pr=pRank[r.name+"|"+r.cls];const cur=r._grDir||null;if(pr==null||cur==null)return null;
+      return{name:r.name,prev:pr,cur,d:cur-pr};}).filter(Boolean);
+    up=dl.filter(x=>x.d<0).map(x=>({name:x.name,prev:x.prev,cur:x.cur,step:x.prev-x.cur})).sort((a,b)=>b.step-a.step);
+    down=dl.filter(x=>x.d>0).map(x=>({name:x.name,prev:x.prev,cur:x.cur,step:x.d})).sort((a,b)=>b.step-a.step);
+  }
+  /* 偏科预警：单科班内位次比总分位次落后 25% 以上 */
+  const weakMap={};
+  rows.forEach(r=>{
+    const cr=r._cr;if(!cr||!mine.n)return;
+    const weak=[];
+    exam.subjects.forEach(s=>{
+      const v=validScore(exam,r,s);if(v==null)return;
+      const mates=rows.map(x=>({x,v:validScore(exam,x,s)})).filter(o=>o.v!=null).sort((a,b)=>b.v-a.v);
+      const sr=mates.findIndex(o=>o.x===r)+1;
+      const pctile=(1-(sr-1)/mates.length)*100;
+      const tPctile=(1-(cr-1)/mine.n)*100;
+      if(tPctile-pctile>25)weak.push(s);
+    });
+    if(weak.length)weakMap[r.name+"|"+r.cls]=weak;
+  });
+  const weakList=Object.keys(weakMap).map(k=>({name:k.split("|")[0],weak:weakMap[k].join("/")}));
+  /* 各科诊断 */
+  const subjects=exam.subjects.map(s=>{
+    const m=mine.bySubj[s],g=ce.grade.bySubj[s];if(!m)return null;
+    const all=ce.classes.filter(c=>c.bySubj[s]&&c.bySubj[s].avg!=null).sort((a,b)=>b.bySubj[s].avg-a.bySubj[s].avg);
+    return{s,avg:m.avg,gavg:g&&g.avg,d:g&&g.avg!=null?m.avg-g.avg:null,pass:m.pass,exc:m.exc,py:m.passYes,ey:m.excYes,pn:m.n,
+      rank:all.findIndex(c=>c.cls===cls)+1,ncls:all.length};
+  }).filter(Boolean);
+  /* 分数段分布：本班 vs 年级 */
+  const bands=(examCfg(exam).bands||[]).slice().sort((a,b)=>b-a);
+  const bandNames=bands.map(b=>b+"+");bandNames.push((bands[bands.length-1]||0)+"以下");
+  const clsRows=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const gradeRows=exam.rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const inBand=(r,i)=>{const lo=i===bandNames.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
+    return i===bandNames.length-1?r.total<lo:(r.total>=lo&&r.total<hi);};
+  const bandCls=bandNames.map((nm,i)=>clsRows.filter(r=>inBand(r,i)).length);
+  const bandGrade=bandNames.map((nm,i)=>gradeRows.filter(r=>inBand(r,i)).length);
+  /* 历次趋势（本班） */
+  const trend=exs.map(e=>{
+    const c2=computeExam(e);
+    const m2=c2.classes.find(c=>c.cls===cls);if(!m2)return null;
+    const w2=e.rows.filter(r=>r.cls===cls&&r.total!=null&&!(e.zeroAsMissing&&r.total===0));
+    const b2=w2.filter(r=>{const ln=totalLine(e,rowDir(r),"pass");return ln!=null&&r.total>=ln;}).length;
+    const x2=w2.filter(r=>{const ln=totalLine(e,rowDir(r),"exc");return ln!=null&&r.total>=ln;}).length;
+    return{name:e.name,avg:m2.total&&m2.total.avg,ben:b2,exc:x2,n:m2.n};
+  }).filter(Boolean);
+  /* 教学建议：规则模板 + 实际数值（不引入任何外部数字） */
+  const advice=[];
+  const dAvg=clsAvg!=null&&gradeAvg!=null?clsAvg-gradeAvg:null;
+  if(clsAvg!=null)advice.push(`总分均分 ${fmtN(clsAvg)} 分${gradeAvg!=null?`，年级均分 ${fmtN(gradeAvg)} 分，${dAvg>=0?`高出 ${fmtN(dAvg)}`:`低 ${fmtN(Math.abs(dAvg))}`} 分`:""}${clsRank?`，本班在 ${nCls} 个班中排第 ${clsRank} 名`:"")}。`);
+  if(clsRank&&nCls>1)advice.push(clsRank<=Math.ceil(nCls/3)
+    ?`班均分位于年级前列（${clsRank}/${nCls}），可安排经验分享或承担学科帮扶。`
+    :clsRank>nCls-Math.ceil(nCls/3)
+      ?`班均分位于年级后段（${clsRank}/${nCls}），建议优先补齐基础薄弱学科。`
+      :`班均分处于年级中段（${clsRank}/${nCls}），建议在临界生与偏科学生上找增量。`);
+  const weakSubs=subjects.filter(x=>x.d!=null&&x.d<0).sort((a,b)=>a.d-b.d).slice(0,2);
+  if(weakSubs.length)advice.push(`学科短板：${weakSubs.map(x=>`${x.s}（班均 ${fmtN(x.avg)}，低于年级 ${fmtN(Math.abs(x.d))} 分，班内第 ${x.rank}/${x.ncls}）`).join("；")}。`);
+  const strongSubs=subjects.filter(x=>x.d!=null&&x.d>0).sort((a,b)=>b.d-a.d).slice(0,2);
+  if(strongSubs.length)advice.push(`优势学科：${strongSubs.map(x=>`${x.s}（高于年级 ${fmtN(x.d)} 分，班内第 ${x.rank}/${x.ncls}）`).join("；")}。`);
+  const benRate=withT.length?ben.length/withT.length*100:null;
+  advice.push(`本科上线 ${ben.length} 人${benRate!=null?`（占参考 ${fmtN(benRate)}%）`:""}；特控上线 ${exc.length} 人。`);
+  if(critPass.length)advice.push(`本科临界 ${critPass.length} 人（浮动 ${bandPass}，口径：总分落在本科线区间内），名单：${clipNames(critPass,r=>`${r.name} ${fmtN(r.total,0)}`)}。`);
+  else advice.push("本科临界 0 人，本班暂无处于本科线临界区间的学生。");
+  if(critExc.length)advice.push(`特控临界 ${critExc.length} 人（浮动 ${bandExc}）。`);
+  if(prev){
+    advice.push(`与上次考试「${esc(prev.name)}」相比（方向内名次）：进步 ${up.length} 人、退步 ${down.length} 人。`);
+    if(down.length)advice.push(`退步较明显：${clipNames(down,x=>`${x.name} 第${x.prev}→第${x.cur}名`).replace(/</g,"")}。`);
+  }else advice.push("这是最早的一场考试，暂无对比基准。");
+  if(weakList.length)advice.push(`偏科预警 ${weakList.length} 人（单科班内位次落后总分位次 25% 以上）：${clipNames(weakList,x=>`${x.name}（${x.weak}）`).replace(/</g,"")}。`);
+  return{
+    meta:{考试:exam.name,考试日期:exam.date||"",班级:cls+"班",参考人数:withT.length,方向构成:dirN,
+      生成时间:new Date().toLocaleString("zh-CN"),引擎版本:window.APP_VERSION||"",数据来源:"工作台导入的真实成绩（Excel/CSV）"},
+    metrics:[
+      {key:"n",label:"班级参考人数",value:withT.length,formula:"该班有有效总分的行数（0 分按缺失剔除）",source:`考试「${exam.name}」· rows[cls=${cls}]`},
+      {key:"avg",label:"总分均分",value:clsAvg,formula:"该班有效总分之和 ÷ 有效人数",source:`computeExam → classes[${cls}].total.avg`},
+      {key:"gradeRank",label:"年级班级排名",value:clsRank,formula:"各班总分均分降序后本班的名次",source:`classTotalRank(${exam.name})`},
+      {key:"ben",label:"本科上线",value:ben.length,formula:"按每个学生自己的方向本科线：总分 ≥ 线",source:`totalLine(exam,方向,"pass")`},
+      {key:"exc",label:"特控上线",value:exc.length,formula:"按每个学生自己的方向特控线：总分 ≥ 线",source:`totalLine(exam,方向,"exc")`},
+      {key:"critPass",label:"本科临界",value:critPass.length,formula:`总分落在本科线浮动区间（${bandPass}）内`,source:`isCritScore(...,${bandPass})`},
+      {key:"critExc",label:"特控临界",value:critExc.length,formula:`总分落在特控线浮动区间（${bandExc}）内`,source:`isCritScore(...,${bandExc})`},
+      {key:"up",label:"较上次进步",value:up.length,formula:"方向内名次数字变小（前进）",source:`与「${prev?prev.name:"—"}」对比`},
+      {key:"down",label:"较上次退步",value:down.length,formula:"方向内名次数字变大（后退）",source:`与「${prev?prev.name:"—"}」对比`},
+      {key:"weak",label:"偏科预警",value:weakList.length,formula:"单科班内位次落后总分位次 25% 以上",source:"行内 _cr 位次 + 各科班内位次"}
+    ],
+    bands:{names:bandNames,cls:bandCls,grade:bandGrade},
+    subjects,crit:{pass:critPass.map(r=>({name:r.name,cls:r.cls,total:r.total,delta:r.total-totalLine(exam,rowDir(r),"pass")})),
+      exc:critExc.map(r=>({name:r.name,cls:r.cls,total:r.total,delta:r.total-totalLine(exam,rowDir(r),"exc")}))},
+    delta:{up,down,prevName:prev?prev.name:null},
+    trend,advice,weak:weakList,
+    clsAvg,gradeAvg,clsRank,nCls,benN:ben.length,excN:exc.length,critPassN:critPass.length,critExcN:critExc.length,
+    bandPass,bandExc
+  };
+}
+
+/* ===== 视图 ===== */
+function bzrReportView(){
+  const exam=ensureExam();
+  if(!exam)return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}</div>`;
+  const cls=reportClsCode();
+  const ce=computeExam(exam);
+  if(!ce.classes.find(c=>c.cls===cls))
+    return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}<div class="notice">本次数据里没有班级「${esc(cls)}班」。现有班级：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}。请到「设置 → 基本信息」检查班级代码。</div></div>`;
+  const R=buildReport(exam,cls);
+  if(!R)return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}<div class="empty">暂无可分析的数据</div></div>`;
+  const mOf=k=>R.metrics.find(x=>x.key===k)||{value:"—",formula:""};
+  const tip=k=>{const m=mOf(k);return `口径：${m.formula||"—"}　来源：${m.source||"—"}`;};
+  const stat=(v,k,t,color)=>`<div class="stat"${t?` title="${escA(t)}"`:""}><div class="v"${color?` style="color:${color}"`:""}>${v}</div><div class="k">${k}</div></div>`;
+  const dirTxt=Object.keys(R.meta.方向构成||{}).map(d=>`${d}${R.meta.方向构成[d]}人`).join(" · ");
+  const bandMax=Math.max(1,...R.bands.cls,...R.bands.grade);
+  return `<div class="card">
+    <h3>📑 考试分析报告 · ${esc(cls)}班<span class="sub">${esc(exam.name)}${exam.date?" · "+esc(exam.date):""}</span><span class="spacer"></span>
+      ${examSelector()}
+      <button class="btn sm" data-act="bzrReportExport">⬇️ 导出分析数据(JSON)</button></h3>
+    <div class="notice blue" style="margin-bottom:10px">
+      <b>数据来源：</b>工作台导入的真实成绩（${esc(exam.name)}），参考 <b>${R.meta.参考人数}</b> 人${dirTxt?`，方向构成 ${esc(dirTxt)}`:""}　·　生成时间 ${esc(R.meta.生成时间)}　·　引擎 v${esc(R.meta.引擎版本)}<br>
+      <b>本页所有数字均由同一套统计函数算出</b>（与「班级成绩分析」完全一致的口径）；每个数字悬停可查看<b>口径与来源</b>。导出 JSON 会连同口径一起带走，可据此生成 PPT，保证数字可溯源。
+    </div>
+    <div class="statcards">
+      ${stat(R.meta.参考人数,"参考人数",tip("n"))}
+      ${stat(fmtN(R.clsAvg)+`<small>${R.clsRank?` · 年级第${R.clsRank}/${R.nCls}班`:""}</small>`,"总分均分",tip("avg"),"#2563eb")}
+      ${stat(R.benN,"本科上线",tip("ben"),"#10b981")}
+      ${stat(R.excN,"特控上线",tip("exc"),"#a855f7")}
+      ${stat(`${R.critPassN}<small>本科</small> · ${R.critExcN}<small>特控</small>`,"临界生",tip("critPass"),"#f97316")}
+      ${stat(`<span style="color:#16a34a">↑${R.delta.up.length}</span> · <span style="color:#dc2626">↓${R.delta.down.length}</span>`,"较上次(进步/退步)",tip("up"))}
+      ${stat(R.weak.length,"偏科预警",tip("weak"),"#f97316")}
+    </div>
+  </div>
+
+  <div class="card"><h3>📶 分数段分布 · 本班 vs 年级<span class="sub">口径：${esc(exam.name)} 总分分段（分段线取自本场考试设置）</span></h3>
+    <canvas class="chart" id="cRepBand"></canvas>
+    ${legendHtml([{c:"#2563eb",n:`${cls}班`},{c:"#94a3b8",n:"全年级"}])}
+    <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>分数段</th><th class="ctr">${esc(cls)}班</th><th class="ctr">占班比</th><th class="ctr">全年级</th><th class="ctr">占年级比</th></tr></thead><tbody>
+    ${R.bands.names.map((nm,i)=>{const c=R.bands.cls[i],g=R.bands.grade[i];return `<tr><td><b>${esc(nm)}</b></td>
+      <td class="ctr"><b>${c}</b></td><td class="ctr">${R.meta.参考人数?fmtN(c/R.meta.参考人数*100)+"%":"—"}</td>
+      <td class="ctr">${g}</td><td class="ctr">${R.bands.grade.reduce((a,b)=>a+b,0)?fmtN(g/R.bands.grade.reduce((a,b)=>a+b,0)*100)+"%":"—"}</td></tr>`;}).join("")}
+    </tbody></table></div>
+  </div>
+
+  <div class="card"><h3>📚 各科诊断<span class="sub">差值 = 班均 − 年级均分（红=落后，绿=领先）</span></h3>
+    <canvas class="chart" id="cRepSubj"></canvas>
+    ${legendHtml([{c:"#2563eb",n:"本班均分"},{c:"#94a3b8",n:"年级均分"}])}
+    <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>科目</th><th class="ctr">班均分</th><th class="ctr">年级均分</th><th class="ctr">差值</th><th class="ctr">本科率</th><th class="ctr">特控率</th><th class="ctr">班级排名</th></tr></thead><tbody>
+    ${R.subjects.map(x=>`<tr><td><b>${esc(x.s)}</b></td><td class="ctr"><b>${fmtN(x.avg)}</b></td><td class="ctr">${fmtN(x.gavg)}</td>
+      <td class="ctr ${x.d!=null?(x.d>=0?"diff-pos":"diff-neg"):""}">${x.d!=null?(x.d>=0?"+":"")+fmtN(x.d):"—"}</td>
+      <td class="ctr">${rateStr(x.pass,x.py,x.pn)}</td><td class="ctr">${rateStr(x.exc,x.ey,x.pn)}</td>
+      <td class="ctr"><span class="tag ${x.rank<=Math.ceil(x.ncls/3)?"t-green":x.rank>x.ncls-Math.ceil(x.ncls/3)?"t-red":"t-gray"}">第${x.rank}名/${x.ncls}</span></td></tr>`).join("")}
+    </tbody></table></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>🎯 临界生名单<span class="sub">本科临界 ${R.critPassN} 人（浮动 ${esc(R.bandPass)}）· 特控临界 ${R.critExcN} 人（浮动 ${esc(R.bandExc)}）</span></h3>
+      <div class="twrap"><table class="tb"><thead><tr><th>类别</th><th>姓名</th><th class="ctr">总分</th><th class="ctr">距线</th></tr></thead><tbody>
+      ${R.crit.pass.map(x=>`<tr><td class="muted">本科</td><td><b>${esc(x.name)}</b></td><td class="ctr">${fmtN(x.total,0)}</td>
+        <td class="ctr"><span class="tag ${x.delta>=0?"t-green":"t-orange"}">${x.delta>=0?"线上 +":"线下 -"}${fmtN(Math.abs(x.delta),0)}</span></td></tr>`).join("")}
+      ${R.crit.exc.map(x=>`<tr><td class="muted">特控</td><td><b>${esc(x.name)}</b></td><td class="ctr">${fmtN(x.total,0)}</td>
+        <td class="ctr"><span class="tag ${x.delta>=0?"t-green":"t-orange"}">${x.delta>=0?"线上 +":"线下 -"}${fmtN(Math.abs(x.delta),0)}</span></td></tr>`).join("")}
+      ${!R.crit.pass.length&&!R.crit.exc.length?`<tr><td colspan="4" class="ctr muted">本班暂无临界生</td></tr>`:""}
+      </tbody></table></div>
+    </div>
+    <div class="card"><h3>📈 较上次进退步<span class="sub">${R.delta.prevName?`对比「${esc(R.delta.prevName)}」方向内名次`:"无对比基准"}</span></h3>
+      <div class="grid2" style="gap:10px">
+        <div><div class="muted" style="margin-bottom:4px">↑ 进步（名次前进）</div>
+          ${R.delta.up.length?R.delta.up.slice(0,12).map(x=>`<div class="ag-item"><span class="d">${esc(x.name)}</span><span class="tag t-green">第${x.prev}→第${x.cur}名</span></div>`).join(""):`<div class="muted">无</div>`}</div>
+        <div><div class="muted" style="margin-bottom:4px">↓ 退步（名次后退）</div>
+          ${R.delta.down.length?R.delta.down.slice(0,12).map(x=>`<div class="ag-item"><span class="d">${esc(x.name)}</span><span class="tag t-red">第${x.prev}→第${x.cur}名</span></div>`).join(""):`<div class="muted">无</div>`}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card"><h3>📉 历次趋势 · ${esc(cls)}班<span class="sub">总分均分与上线人数（各场考试按同一口径重算）</span></h3>
+    <canvas class="chart" id="cRepTrend"></canvas>
+    ${legendHtml([{c:"#2563eb",n:"本班总分均分"}])}
+    <canvas class="chart" id="cRepTrendBen" style="margin-top:8px"></canvas>
+    ${legendHtml([{c:"#10b981",n:"本科上线人数"}])}
+  </div>
+
+  <div class="card"><h3>🧭 教学建议（规则引擎自动生成，句中数值均来自本页数据）</h3>
+    ${R.advice.map(a=>`<div class="notice" style="margin-bottom:6px">${a}</div>`).join("")}
+    <div class="muted" style="font-size:12px;margin-top:6px">建议由固定规则模板 + 本页计算结果拼装，不含任何外部推测；如需更深入的教研式解读，可导出分析数据后交由 AI 撰写（AI 不得修改任何数值）。</div>
+  </div>`;
+}
+
+/* ===== 渲染后钩子：画图 ===== */
+bzrReportView.after=()=>{
+  const exam=currentExam();if(!exam)return;
+  const cls=reportClsCode();
+  const R=buildReport(exam,cls);if(!R)return;
+  const cv=$("#cRepBand");
+  if(cv)chartBar2(cv,R.bands.names,R.bands.cls,R.bands.grade,{h:220});
+  const cs=$("#cRepSubj");
+  if(cs)chartBar2(cs,R.subjects.map(x=>x.s),R.subjects.map(x=>x.avg),R.subjects.map(x=>x.gavg),{h:240});
+  const ct=$("#cRepTrend");
+  if(ct&&R.trend.length)chartLine(ct,R.trend.map(x=>x.name),[{name:"总分均分",color:"#2563eb",values:R.trend.map(x=>x.avg)}],{h:200});
+  const cb=$("#cRepTrendBen");
+  if(cb&&R.trend.length)chartBar(cb,R.trend.map(x=>x.name),R.trend.map(x=>x.ben),{h:180,color:"#10b981",dec:0});
+};
+
+/* ===== 导出分析数据（供生成 PPT 用；数字与口径一起带走） ===== */
+ACTIONS.bzrReportExport=()=>{
+  const exam=ensureExam();if(!exam)return toast("还没有考试数据");
+  const cls=reportClsCode();
+  const R=buildReport(exam,cls);
+  if(!R)return toast("没有找到该班级的数据");
+  const payload={app:"teacherReport",说明:"本页所有数值均由工作台真实成绩计算得出，口径见各指标 source 字段；生成 PPT 时只能引用本文件中的数值。",
+    meta:R.meta,metrics:R.metrics,bands:R.bands,subjects:R.subjects,crit:R.crit,delta:R.delta,trend:R.trend,weak:R.weak,advice:R.advice};
+  download(`考试分析报告_${cls}班_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
+  toast("已导出分析数据（含口径与来源），可据此生成 PPT");
+};
 
 /* ================= 云同步层（v50：GitHub 私有仓库 · 主数据 + 成绩 双文件） ================= */
 /* 数据主副本在本机 IndexedDB；云端为 GitHub 私有仓库中的两个文件：
