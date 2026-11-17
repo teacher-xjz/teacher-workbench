@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v67";
+window.APP_VERSION="v68";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5268,7 +5268,10 @@ const Sync={
     const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
     const map={off:["🔗","连接云端同步"],on:["☁️","已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","同步中…"],err:["⚠️","同步异常 · 点击查看"]};
     const[m1,m2]=map[this.status]||["☁️",""];
-    el.innerHTML=`<span style="cursor:pointer;background:rgba(255,255,255,.18);padding:3px 10px;border-radius:12px;white-space:nowrap" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
+    /* v68 同步状态配色：已同步=整颗绿胶囊、同步中=琥珀、异常=红，未连接=默认白，状态一眼可辨 */
+    const bg={on:"rgba(22,163,74,.9)",err:"rgba(220,38,38,.9)",sync:"rgba(217,119,6,.85)"}[this.status]||"rgba(255,255,255,.18)";
+    const glow=this.status==="on"?";box-shadow:0 0 0 2px rgba(255,255,255,.45),0 0 8px rgba(34,197,94,.8)":this.status==="err"?";box-shadow:0 0 8px rgba(239,68,68,.7)":"";
+    el.innerHTML=`<span style="cursor:pointer;background:${bg}${glow};padding:3px 10px;border-radius:12px;white-space:nowrap;font-weight:${this.status==="on"?"600":"normal"}" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
   },
   /* 手动导出/导入：不依赖任何网络的保底通道（导出含成绩，单文件） */
   manualExport(){
