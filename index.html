@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v69";
+window.APP_VERSION="v70";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3067,10 +3067,26 @@ function jwPlan(){
 /* ---- 任课对照（独立页） ---- */
 function jwTmap(){
   return `<div class="card"><h3>👩‍🏫 班级任课教师对照表<span class="sub">用于"教师维度对比"；支持从学校任课表批量导入</span><span class="spacer"></span>
+    <button class="btn" data-act="teachersDedupe">🧹 一键去重</button>
     <button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button></h3>
-    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动也可删除后重新添加。批量变动推荐用「批量粘贴导入」。</div>
+    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动也可删除后重新添加。批量变动推荐用「批量粘贴导入」（整表覆盖，会清掉班主任勾选）。发现大量重复记录（早期追加式导入遗留）时点「一键去重」。</div>
     ${crudBody("teachers",CRUDCFG.teachers)}</div>`;
 }
+/* 一键去重：按 班级+科目+教师 保留唯一一条；重复行里已有班主任勾选则保留勾选（v70） */
+ACTIONS.teachersDedupe=async()=>{
+  const seen=new Map();const del=[];
+  for(const t of State.data.teachers){
+    const k=String(t.cls).trim()+"|"+String(t.subject).trim()+"|"+String(t.teacher).trim();
+    const prev=seen.get(k);
+    if(prev){if(t.head)prev.head=true;del.push(t.id);}
+    else seen.set(k,t);
+  }
+  if(!del.length)return toast("没有重复记录，无需清理");
+  if(!confirm(`发现 ${del.length} 条重复记录（每组「班级+科目+教师」保留一条，班主任勾选会保留），确定清理吗？`))return;
+  for(const id of del)await delRec("teachers",id);
+  toast(`已清理 ${del.length} 条重复记录`);
+  render();
+};
 /* ---- 任课对照表批量粘贴导入 ---- */
 function normSubj(s){return ({"英语":"外语","english":"外语"})[s]||s;}
 function splitCells(l){return l.split(/\t|,|，|;|；|\s{2,}|\s+/).map(s=>s.trim()).filter(Boolean);}
