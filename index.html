@@ -3206,6 +3206,9 @@ jwStudents.after=()=>{
   if(jwStudents._hist&&$("#InTotal"))stuHistDraw(jwStudents._hist,"In");
 };
 
+/* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
+AppModule({id:"jw",icon:"📊",label:"教务",order:4,render:renderJw});
+
 /* ================= 重点关注名单 ================= */
 /* 临界生分两类概念：本科临界（锚本科线）/ 特控临界（锚特控线）；总分按方向、各科按科目（方向科再分方向） */
 function critGroups(exam,kind){ // kind:"pass"(本科)|"exc"(特控)
