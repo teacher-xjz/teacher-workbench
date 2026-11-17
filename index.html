@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v73";
+window.APP_VERSION="v74";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4985,6 +4985,7 @@ function buildGradePack(exam,opts){
       分数段:(examCfg(exam).bands||[]).slice(),
       缺考口径:"单科 0 分或空 = 缺考/未选科，不计入该科统计"+(exam.zeroAsMissing?"（本场启用）":""),
       前N名:"前"+N+"名"+(opts.tie?"（并列同分全部保留）":"（严格取前N人）"),
+      榜单使用建议:"高分榜展示用方向榜（物理前N/历史前N）；语数外等共同科目分析可用全年级排名；选科科目一律用方向内名次。全年级混排总分榜仅作整体格局参考。",
       隐私:"明细仅含姓名/班级/方向/总分/名次/各科分数；身份证号、学号等编号字段一律不导出"
     },
     opts:{topN:N,tie:!!opts.tie,detail:!!opts.detail},
@@ -5002,7 +5003,7 @@ function gradePackXlsx(exam,opts,P){
     ["考试",exam.name+"（"+(exam.date||"")+"）"],
     ["导出选项","前"+opts.topN+"名"+(opts.tie?"·并列保留":"·严格截断")+(opts.detail?"·含明细":"·不含明细")],
     ["本科临界浮动",P.conventions.本科临界浮动],["特控临界浮动",P.conventions.特控临界浮动],
-    ["榜单口径","全年级前"+opts.topN+"名=物理+历史混排总分榜（语数外等共同科目可参考）；物理/历史方向前"+opts.topN+"名=方向内名次（对比分数线、临界、选科科目一律以方向榜为准）"],
+    ["榜单口径","高分榜展示用方向榜（物理前N/历史前N）；语数外等共同科目分析可用全年级排名；选科科目一律用方向内名次。全年级混排总分榜仅作整体格局参考"],
     ["分数段",JSON.stringify(P.conventions.分数段)],
     ["缺考口径",P.conventions.缺考口径],
     ["隐私",P.conventions.隐私],
@@ -5078,7 +5079,7 @@ ACTIONS.gradeReportExport=()=>{
     const P=buildGradePack(exam,o);
     if(!P)return toast("本场考试没有可用的年级数据");
     const payload=Object.assign({app:"teacherGradePack",
-      说明:"全年级完整数据包：所有数值由工作台真实成绩按页面同源函数算出，口径见 conventions 字段；生成PPT时只能引用本文件中的数值。"+P.conventions.隐私},P);
+      说明:"全年级完整数据包：所有数值由工作台真实成绩按页面同源函数算出，口径见 conventions 字段；生成PPT时只能引用本文件中的数值。"+P.conventions.隐私+"【榜单口径】"+P.conventions.榜单使用建议},P);
     download("全年级成绩分析数据包_"+exam.name+".json",JSON.stringify(payload,null,2),"application/json");
     closeModal();
     toast(`已导出 JSON（前${o.topN}名${o.tie?"·并列保留":""}${o.detail?"·含明细":""}），可交AI生成PPT`);
