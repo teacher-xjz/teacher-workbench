@@ -4890,6 +4890,7 @@ function buildGradePack(exam,opts){
       const p=pMap[r.name+"|"+r.cls];
       if(!p||r._grDir==null)return;
       const d=r._grDir-p.grDir;
+      if(d===0)return; /* 名次未变不计入进退步 */
       const rec={name:r.name,cls:r.cls,prev:p.grDir,cur:r._grDir,step:Math.abs(d),prevTotal:p.total,total:r.total};
       (d<0?delta.up:delta.down).push(rec);
     });
