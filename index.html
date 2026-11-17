@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v70";
+window.APP_VERSION="v71";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3067,11 +3067,42 @@ function jwPlan(){
 /* ---- 任课对照（独立页） ---- */
 function jwTmap(){
   return `<div class="card"><h3>👩‍🏫 班级任课教师对照表<span class="sub">用于"教师维度对比"；支持从学校任课表批量导入</span><span class="spacer"></span>
+    <button class="btn" data-act="headSetup">👨‍👩‍👧 班主任设置</button>
     <button class="btn" data-act="teachersDedupe">🧹 一键去重</button>
     <button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button></h3>
-    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动也可删除后重新添加。批量变动推荐用「批量粘贴导入」（整表覆盖，会清掉班主任勾选）。发现大量重复记录（早期追加式导入遗留）时点「一键去重」。</div>
+    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动推荐用「批量粘贴导入」（原位更新，不会产生重复，教师换人才清班主任勾选）。发现重复记录时点「一键去重」。设置班主任用「班主任设置」，一个面板全班选完。</div>
     ${crudBody("teachers",CRUDCFG.teachers)}</div>`;
 }
+/* 班主任快速设置（v71）：一个弹窗列出所有班，下拉选人、一次保存，免去逐行点编辑 */
+ACTIONS.headSetup=()=>{
+  const clss=[...new Set(State.data.teachers.map(t=>String(t.cls||"").trim()))]
+    .filter(Boolean).sort((a,b)=>(Number(a)||0)-(Number(b)||0));
+  if(!clss.length)return toast("请先录入任课教师");
+  const byCls={};
+  State.data.teachers.forEach(t=>{const c=String(t.cls||"").trim();if(!c)return;(byCls[c]=byCls[c]||new Set()).add(t.teacher);});
+  const heads=(typeof teacherMaps==="function")?teacherMaps().heads:{};
+  const body=`<div class="notice blue">每个班选一位班主任（人选来自该班任课教师）。保存后「班级任课教师对照表」对应行会带 ⭐，导出全年级数据包时自动附「班主任」列。</div>
+    <div class="frow" style="flex-direction:column;gap:8px">
+    ${clss.map(c=>`<div class="field" style="flex-direction:row;align-items:center;gap:8px"><label style="min-width:64px;margin:0">${esc(c)}班</label>
+      <select id="headSel_${esc(c)}" data-cls="${esc(c)}"><option value="">（未设置）</option>${[...(byCls[c]||[])].sort().map(t=>`<option${(heads[c]||[]).includes(t)?" selected":""}>${escA(t)}</option>`).join("")}</select></div>`).join("")}
+    </div>`;
+  openModal("班主任快速设置",body,`<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="headSaveBtn">保存全部</button>`);
+  $("#headSaveBtn").onclick=async()=>{
+    let n=0;
+    const sels=document.querySelectorAll("select[id^='headSel_']");
+    for(const sel of sels){
+      const c=sel.dataset.cls,name=sel.value;
+      const rows=State.data.teachers.filter(t=>String(t.cls||"").trim()===c);
+      for(const t of rows){
+        const want=!!(name&&t.teacher===name);
+        if(!!t.head!==want){await putRec("teachers",Object.assign({},t,{head:want}));n++;}
+      }
+    }
+    closeModal();
+    toast(n?`班主任已保存（更新 ${n} 条记录，同步稍后自动上传）`:"没有改动");
+    render();
+  };
+};
 /* 一键去重：按 班级+科目+教师 保留唯一一条；重复行里已有班主任勾选则保留勾选（v70） */
 ACTIONS.teachersDedupe=async()=>{
   const seen=new Map();const del=[];
@@ -3145,12 +3176,33 @@ ACTIONS.teachersPaste=()=>{
   };
   $("#tpDo").onclick=async()=>{
     if(!parsed||!parsed.rows.length)return;
-    if($("#tpMode").value==="replace"){
-      if(State.data.teachers.length&&!confirm(`将覆盖现有对照表（${State.data.teachers.length} 条），确定吗？`))return;
-      await DB.clear("teachers");State.data.teachers=[];
+    const mode=$("#tpMode").value;
+    if(mode==="replace"&&State.data.teachers.length){
+      if(!confirm(`将覆盖现有对照表（${State.data.teachers.length} 条）：名单里没有的「班级+科目」会被移除，已有的原位更新（保留班主任勾选）。确定吗？`))return;
     }
-    for(const r of parsed.rows)await putRec("teachers",{id:uid(),cls:r.cls,subject:r.subject,teacher:r.teacher,note:""});
-    closeModal();toast(`已导入 ${parsed.rows.length} 条任课关系`);render();
+    /* v71 断根：不再"整表删除重建新id"（历史7代重复名单的根源），改为按「班级+科目」
+       原位更新——已有组合保留原记录id与班主任勾选（教师换人才清勾选），没有的才新建。
+       「追加」也走同一逻辑，从此粘贴导入永远不会再产生重复。 */
+    const cur=State.data.teachers.slice();
+    const byKey=new Map();
+    cur.forEach(t=>byKey.set(String(t.cls||"").trim()+"|"+String(t.subject||"").trim(),t));
+    let upd=0,add=0,del=0;const used=new Set();
+    for(const r of parsed.rows){
+      const k=String(r.cls||"").trim()+"|"+r.subject;
+      const old=byKey.get(k);
+      if(old){
+        used.add(old.id);
+        if(old.teacher!==r.teacher){await putRec("teachers",Object.assign({},old,{teacher:r.teacher,head:false}));upd++;}
+      }else{
+        await putRec("teachers",{id:uid(),cls:r.cls,subject:r.subject,teacher:r.teacher,head:false,note:""});add++;
+      }
+    }
+    if(mode==="replace"){
+      for(const t of cur)if(!used.has(t.id)){await delRec("teachers",t.id);del++;}
+    }
+    closeModal();
+    toast(`已导入：新增 ${add} 条 / 更新 ${upd} 条`+(del?` / 移除 ${del} 条`:""));
+    render();
   };
 };
 /* ================= 统计设置 ================= */
@@ -5068,6 +5120,22 @@ ACTIONS.bzrReportExport=()=>{
    - 读取失败/内容异常一律报错中止，绝不误判"云端为空"而覆盖（v44 教训）
    - 超过 1MB 的文件必须用 raw 方式读（v46 教训）
    - 国内访问 GitHub 时通时断：请求级重试 + 启动自动重连 + 上传失败自动重试（v48/v49） */
+/* v71 教师表内容级去重：按「班级+科目+教师」合并为一条。
+   背景：早期追加式导入/多设备并集合并曾叠出 7 代重复名单（1027条→实际148条）。
+   规则：保留 _ut 最新的一条记录作为载体；班主任勾选(head)取并集，绝不因去重丢失。 */
+function dedupeTeachers(list){
+  const seen=new Map();const out=[];
+  (list||[]).forEach(t=>{
+    const k=String(t.cls==null?"":t.cls).trim()+"|"+String(t.subject==null?"":t.subject).trim()+"|"+String(t.teacher==null?"":t.teacher).trim();
+    const prev=seen.get(k);
+    if(!prev){seen.set(k,Object.assign({},t));out.push(seen.get(k));return;}
+    if((t._ut||0)>(prev._ut||0)){
+      const head=t.head||prev.head;
+      Object.assign(prev,t,{head:head,_ut:Math.max(t._ut||0,prev._ut||0)});
+    }else if(t.head)prev.head=true;
+  });
+  return out;
+}
 const Sync={
   rev:0,
   device:(()=>{let d=null;try{d=localStorage.getItem("tbDevice");}catch(e){}
@@ -5422,7 +5490,7 @@ const Sync={
       State.meta=p.meta||{};
       for(const s of DB.stores){
         if(s==="exams")continue;
-        State.data[s]=(p.data&&p.data[s])||[];
+        State.data[s]=(s==="teachers")?dedupeTeachers((p.data&&p.data[s])||[]):((p.data&&p.data[s])||[]);
       }
       if(p.data&&p.data.exams)State.data.exams=p.data.exams;
       this.rev=p.rev||0;
@@ -5451,7 +5519,13 @@ const Sync={
         if(!rr){out.push(r);changed=true;}
         else if((r._ut||0)>(rr._ut||0)){out[out.indexOf(rr)]=r;changed=true;}
       });
-      State.data[s]=out;
+      /* v71 教师表内容级去重：历史"追加式导入"叠出多代重复名单，按 班级+科目+教师
+         合并为一条（保留 _ut 最新字段、班主任勾选取并集），合并后自动干净且上传固化 */
+      if(s==="teachers"){
+        const dd=dedupeTeachers(out);
+        if(dd.length!==out.length)changed=true;
+        State.data[s]=dd;
+      }else State.data[s]=out;
     }
     /* 旧格式（成绩混在主文件里）或手动导入：文件里带成绩时以文件为准 */
     if(p.data&&p.data.exams&&p.data.exams.length){
