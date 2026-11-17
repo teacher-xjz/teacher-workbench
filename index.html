@@ -3671,7 +3671,7 @@ clsScoreView.after=()=>{
     const names=bands.map(b=>b+"+");names.push((bands[bands.length-1]||0)+"以下");
     const rowsC=exam.rows.filter(r=>r.cls===viewCls&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
     const vals=names.map((nm,i)=>{const lo=i===names.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
-      return rowsC.filter(r=>i===names.length-1?r.total<lo:(r.total>=lo&&r.total<hi)).length;});
+      return rowsC.filter(r=>r.total>=lo&&r.total<hi).length;}); /* v66 修正：末段漏人（原写法 r.total<0） */
     chartBar(cvB,names,vals,{h:200,color:"#0ea5e9",dec:0});
   }
   /* 班级对比：各科均分多系列柱图 */
@@ -4549,7 +4549,7 @@ function buildReport(exam,cls){
   const clsRows=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
   const gradeRows=exam.rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
   const inBand=(r,i)=>{const lo=i===bandNames.length-1?0:bands[i];const hi=i===0?Infinity:bands[i-1];
-    return i===bandNames.length-1?r.total<lo:(r.total>=lo&&r.total<hi);};
+    return r.total>=lo&&r.total<hi;}; /* v66 修正：末段应为 [0,最低分段)，原写法漏掉低分段学生 */
   const bandCls=bandNames.map((nm,i)=>clsRows.filter(r=>inBand(r,i)).length);
   const bandGrade=bandNames.map((nm,i)=>gradeRows.filter(r=>inBand(r,i)).length);
   /* 历次趋势（本班） */
