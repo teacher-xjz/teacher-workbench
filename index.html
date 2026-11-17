@@ -1961,16 +1961,17 @@ function computeExam(exam){
   // 总分与排名
   const rows=exam.rows.map(r=>({r,total:num(r.total)}));
   const withTotal=rows.filter(x=>x.total!=null&&!(exam.zeroAsMissing&&x.total===0)).sort((a,b)=>b.total-a.total);
-  withTotal.forEach((x,i)=>{x.r._gr=i+1;});
+  withTotal.forEach((x,i)=>{x.r._gr=(i>0&&withTotal[i-1].total===x.total)?withTotal[i-1].r._gr:i+1;}); /* 并列名次：同分同名次，下一名跳号（1224式，与学校成绩表一致） */
   // 方向内排名（物理方向/历史方向各自按总分排）
   const dirRows={物理:[],历史:[]};
-  withTotal.forEach(x=>{const d=rowDir(x.r);if(d){x.r._dir=d;dirRows[d].push(x.r);}});
-  Object.values(dirRows).forEach(list=>list.forEach((r,i)=>{r._grDir=i+1;}));
+  withTotal.forEach(x=>{const d=rowDir(x.r);if(d){x.r._dir=d;dirRows[d].push(x);}});
+  Object.values(dirRows).forEach(list=>list.forEach((x,i)=>{x.r._grDir=(i>0&&list[i-1].total===x.total)?list[i-1].r._grDir:i+1;}));
   out.ranks=withTotal.map(x=>({row:x.r,rank:x.r._gr}));
   cls.forEach(c=>{
     const rowsC=exam.rows.filter(r=>r.cls===c);
     const withC=rowsC.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&Number(r.total)===0)).sort((a,b)=>b.total-a.total);
-    withC.forEach((r,i)=>{r._cr=i+1;});
+    let pcr=null,pcrT=null;
+    withC.forEach((r,i)=>{const t=Number(r.total);r._cr=(pcr!=null&&pcrT===t)?pcr:i+1;pcr=r._cr;pcrT=t;}); /* 班级内并列名次 */
     const bySubj={};subjects.forEach(s=>bySubj[s]=subjStats(exam,s,rowsC));
     const dirs={};
     ["物理","历史"].forEach(d=>{
