@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v79";
+window.APP_VERSION="v80";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -505,6 +505,8 @@ const Lock={
   }
 };
 function go(route,sub){
+  /* v80：全局统计口径收口到「设置→成绩统计口径」，旧深链 jw/lines 自动改道 */
+  if(route==="jw"&&sub==="lines"){route="set";sub="lines";}
   if(route==="set"&&Lock.has()&&!Lock.unlocked()){Lock.prompt();return;}
   State.route=route;if(sub)State.sub[route]=sub;render();
 }
@@ -1309,7 +1311,7 @@ function renderHome(){
     const d=Math.min(...[p.midDate,p.endDate].filter(Boolean).map(daysFromToday).filter(x=>x!=null&&x>=0).map(x=>x),999);
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
-  const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试安排"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
+  const qn=[["bzr","sched","🏫","班级课表"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","classes","🆚","班级对比"],["jw","students","🔍","学生查询"],["jw","kb","🗓","考试日程"],["gr","todos","⏰","待办事项"],["gr","events","📅","日程"]];
   return `
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
@@ -1738,8 +1740,15 @@ function notesView(){
       <button class="btn sm danger" data-act="crudDel" data-store="notes" data-id="${n.id}">删除</button></div></div>`).join("")
     :`<div class="empty"><div class="big">🗒</div>还没有随手记</div>`}</div>`;
 }
-/* ================= 设置 ================= */
-function renderSet(){
+/* ================= 设置（v80 页签化：全局设置统一收口） ================= */
+const SET_TABS=[
+  ["basic","🏫 基本信息"],
+  ["lines","📐 成绩统计口径"],
+  ["sync","☁️ 同步与备份"],
+  ["periods","⏰ 作息时间表"],
+  ["secure","🔐 安全与关于"],
+];
+function setTabBasic(){
   const s=settings();
   return `<div class="card"><h3>🏫 基本信息</h3>
     <div class="frow">
@@ -1749,37 +1758,54 @@ function renderSet(){
       <div class="field" style="flex:.5"><label>班级代码（成绩表中的编号）</label><input id="stClsCode" value="${escA(s.clsCode)}"></div>
       <div class="field" style="flex:.6"><label>我的姓名（用于个人课表提取）</label><input id="stMyName" value="${escA(s.myName||"")}" placeholder="如：谢俊中"></div>
     </div>
-    <button class="btn primary" data-act="saveSettings">保存基本信息</button></div>
-  <div class="card"><h3>🔒 设置密码锁</h3>
+    <button class="btn primary" data-act="saveSettings">保存基本信息</button></div>`;
+}
+function setTabLines(){
+  /* 全局默认线（linesPanel(null) 来自 jw2.js）；考试级覆盖在「教务 → 考试与成绩」每场考试的「📐 划线覆盖」 */
+  return linesPanel(null,false);
+}
+function setTabSync(){
+  return `${typeof Sync!=="undefined"?Sync.settingsCard():""}
+  <div class="card"><h3>💾 数据备份与恢复</h3>
+    <div class="notice blue">所有数据保存在本设备的浏览器中。<b>换手机/换电脑时</b>：先"导出全部数据"得到一个 JSON 备份文件，传到另一台设备后再"导入备份"即可完成同步。建议定期导出备份。</div>
+    <div class="flex">
+      <button class="btn primary" data-act="exportAll">⬇ 导出全部数据（备份文件）</button>
+      <button class="btn" data-act="importAll">⬆ 导入备份文件</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+    </div></div>`;
+}
+function setTabPeriods(){
+  return `<div class="card"><h3>⏰ 作息时间表（节次结构）</h3>
+    <div class="notice blue">每行一条：「课|名称|时间」或「休|名称|时间」。“课”为上课时段（课表格子），“休”为休息/活动（整行提示，如课间操、午休）。<b>注意：调整行顺序会导致已填课表错位，建议只改名称/时间。</b></div>
+    <div class="field"><textarea id="stPeriods" style="min-height:200px">${escA(periodsText())}</textarea></div>
+    <div class="flex"><button class="btn primary" data-act="savePeriods">保存节次结构</button><button class="btn" data-act="resetPeriods">恢复默认作息</button></div></div>`;
+}
+function setTabSecure(){
+  return `<div class="card"><h3>🔒 设置密码锁</h3>
     ${Lock.has()
       ?`<div class="notice blue">已启用密码保护：进入「设置」板块需输入密码。同一浏览器窗口内一次验证有效，关闭窗口后需重新输入。密码只保存在本设备（不参与云同步），忘记密码可在弹出的解锁框里点「忘记密码」紧急恢复。</div>
         <div class="flex"><button class="btn" data-act="changeLock">修改密码</button><button class="btn danger" data-act="clearLock">关闭密码锁</button></div>`
-      :`<div class="notice blue">给「设置」板块加一道密码，防止他人在你电脑上误改学校信息、节次结构、数据清空等配置。注意：这是防误操作的软锁，数据本身未加密；密码只保存在本设备，忘记密码可通过解锁框里的「忘记密码」紧急恢复。</div>
+      :`<div class="notice blue">给「设置」板块加一道密码，防止他人在你电脑上误改学校信息、节次结构、成绩口径、数据清空等配置。注意：这是防误操作的软锁，数据本身未加密；密码只保存在本设备，忘记密码可通过解锁框里的「忘记密码」紧急恢复。</div>
         <div class="frow">
           <div class="field" style="flex:1"><label>新密码（至少 4 位）</label><input type="password" id="lockNew" autocomplete="new-password"></div>
           <div class="field" style="flex:1"><label>确认新密码</label><input type="password" id="lockNew2" autocomplete="new-password"></div>
         </div>
         <button class="btn primary" data-act="setLock">启用密码锁</button>`}
   </div>
-  ${typeof Sync!=="undefined"?Sync.settingsCard():""}
-  <div class="card"><h3>⏰ 作息与节次结构</h3>
-    <div class="notice blue">每行一条：「课|名称|时间」或「休|名称|时间」。“课”为上课时段（课表格子），“休”为休息/活动（整行提示，如课间操、午休）。<b>注意：调整行顺序会导致已填课表错位，建议只改名称/时间。</b></div>
-    <div class="field"><textarea id="stPeriods" style="min-height:200px">${escA(periodsText())}</textarea></div>
-    <div class="flex"><button class="btn primary" data-act="savePeriods">保存节次结构</button><button class="btn" data-act="resetPeriods">恢复默认作息</button></div></div>
-  <div class="card"><h3>💾 数据备份与同步</h3>
-    <div class="notice blue">所有数据保存在本设备的浏览器中。<b>换手机/换电脑时</b>：先"导出全部数据"得到一个 JSON 备份文件，传到另一台设备后再"导入备份"即可完成同步。建议定期导出备份。</div>
-    <div class="flex">
-      <button class="btn primary" data-act="exportAll">⬇ 导出全部数据（备份文件）</button>
-      <button class="btn" data-act="importAll">⬆ 导入备份文件</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
-    </div></div>
   <div class="card"><h3>⚠️ 危险操作</h3>
     <div class="flex"><button class="btn danger" data-act="clearAll">清空全部数据（不可恢复）</button></div></div>
   <div class="card"><h3>ℹ️ 关于</h3>
     <div class="muted" style="line-height:2">
     教师工作台 · 单文件本地应用，离线可用。<b>当前版本：${esc(window.APP_VERSION||"未知")}</b>（顶栏标题下方同步显示）。<br>
-    板块：首页总览 / 班主任（班级课表·名册·值日·活动·家长联系·班级成绩分析）/ 教科室（文稿看板·归档·课题管理·教学成果·教研）/ 教务（成绩导入·年级分析·教师对比·学生查询·考试安排）/ 个人（课表·待办·随手记·日程）。<br>
+    板块：首页总览 / 班主任（班级课表·名册·值日·活动·家长联系·班级成绩分析）/ 教科室（文稿看板·归档·课题管理·教学成果·教研）/ 教务（考试与成绩·教师任课·年级分析·学生查询·考试日程·考场编排）/ 个人（课表·待办·随手记·日程）。<br>
+    全局设置统一收口在「设置」：基本信息 / 成绩统计口径 / 同步与备份 / 作息时间表 / 安全与关于。<br>
     成绩数据从本地 Excel / CSV 文件导入，支持选科、赋分总分、排名列自动识别。</div></div>`;
+}
+function renderSet(){
+  const tab=State.sub.set||"basic";
+  const map={basic:setTabBasic,lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
+  const body=(map[tab]||setTabBasic)();
+  return `<div class="subtabs">${SET_TABS.map(t=>`<div class="stab${tab===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+body;
 }
 ACTIONS.saveSettings=async()=>{
   const s=settings();
@@ -1882,18 +1908,19 @@ boot();
 /* ================= 教务模块 ================= */
 /* 两级导航：大标签分组 → 子页签；选中组由当前子页自动反推（深链/其他模块跳转无需关心组） */
 const JW_GROUPS=[
-  {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"]]},
-  {key:"cfg",name:"⚙️ 基础配置",pages:[["tmap","任课对照"],["lines","统计设置"]]},
+  {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"],["tmap","教师任课"]]},
   {key:"ana",name:"📊 分析",pages:[["overview","年级总览"],["classes","班级对比"],["subject","单科分析"],["teachers","教师对比"]]},
   {key:"stu",name:"👨‍🎓 学生",pages:[["students","学生查询"],["watch","重点关注"],["trend","趋势追踪"]]},
-  {key:"kb",name:"📝 考务",pages:[["plan","考试安排"],["arrange","考务编排"]]},
+  {key:"kb",name:"📝 考务",pages:[["plan","考试日程"],["arrange","考场编排"]]},
 ];
 const JW_TABS=JW_GROUPS.flatMap(g=>g.pages);
 function renderJw(){
-  const sub=State.sub.jw||"manage";
+  let sub=State.sub.jw||"manage";
+  /* v80：全局统计口径收口到「设置→成绩统计口径」；旧深链 jw/lines 自动改道 */
+  if(sub==="lines"){sub="manage";State.sub.jw="manage";}
   const f={
     manage:jwManage,overview:jwOverview,classes:jwClasses,subject:jwSubject,teachers:jwTeachers,
-    students:jwStudents,watch:jwWatch,trend:jwTrend,plan:jwPlan,tmap:jwTmap,arrange:jwArrange,lines:jwLines,
+    students:jwStudents,watch:jwWatch,trend:jwTrend,plan:jwPlan,tmap:jwTmap,arrange:jwArrange,
   }[sub];
   renderJw.after=f&&f.after;
   const grp=JW_GROUPS.find(g=>g.pages.some(p=>p[0]===sub))||JW_GROUPS[0];
@@ -2139,6 +2166,7 @@ function jwManage(){
       <div><b>${esc(e.name)}</b> <span class="muted">${esc(e.date||"")} · ${e.rows.length} 名学生 · 科目：${(e.subjects||[]).map(esc).join("、")||"—"}${e.zeroAsMissing?" · 0分视为缺考":""}</span></div>
       <span class="spacer"></span>
       <button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>
+      <button class="btn sm" data-act="examLinesModal" data-id="${e.id}">📐 划线覆盖${e.lines?"（已自定义）":""}</button>
       <button class="btn sm danger" data-act="delExam" data-id="${e.id}">删除</button></div>`).join("")
     :`<div class="empty"><div class="big">📭</div>还没有导入任何考试</div>`}
   </div>`;
@@ -2438,7 +2466,7 @@ function jwOverview(){
       <div class="statline"><span>上线</span><b style="color:#a855f7">${excList.length}</b><i>${lineRate(excList.length,withT.length)}</i></div>
       <div class="statline"><span>临界</span><b style="color:#f97316">${excCrit.length}</b><i>${lineRate(excCrit.length,withT.length)}</i></div></div>
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算（本科临界 ${critRangeTxt(exam,"pass")}、特控临界 ${critRangeTxt(exam,"exc")}，区间可在「统计设置」改）；比例 = 占本年级有总分人数（${withT.length} 人）的百分比。各班上线人数见下方图表，具体名单见「重点关注 → 临界生名单」。</div>
+  <div class="muted" style="margin-top:2px;font-size:12px">上线/临界按学生各自方向的线计算（本科临界 ${critRangeTxt(exam,"pass")}、特控临界 ${critRangeTxt(exam,"exc")}，区间可在「设置 → 成绩统计口径」改）；比例 = 占本年级有总分人数（${withT.length} 人）的百分比。各班上线人数见下方图表，具体名单见「重点关注 → 临界生名单」。</div>
   <details open class="lnsec" style="margin-top:14px"><summary>📊 各班上线人数（本科线 / 特控线，按班级顺序）（可收起）</summary>
   <div class="chartscroll"><div id="cClsLineBox"><canvas class="chart" id="cClsLine"></canvas></div></div>
   ${legendHtml([{c:"#10b981",n:"本科上线"},{c:"#a855f7",n:"特控上线"}])}
@@ -2752,8 +2780,8 @@ function jwTeachers(){
   const rankMap={};list.slice().sort((a,b)=>b.avg-a.avg).forEach((x,i)=>rankMap[x.t+"|"+x.cls]=i+1);
   return `<div class="card"><h3>👩‍🏫 教师维度对比 · ${esc(subj)}<span class="spacer"></span>
     ${examSelector()} <select id="teachModeSel" class="searchbox"><option value="cls"${mode==="cls"?" selected":""}>按教师·班级分开</option><option value="sum"${mode==="sum"?" selected":""}>按教师汇总</option></select> <select id="subjSel3" class="searchbox">${subjects.map(s=>`<option${s===subj?" selected":""}>${esc(s)}</option>`).join("")}</select>
-    <button class="btn sm" data-go="jw" data-sub="tmap">✏️ 调整任课对照表</button></h3>
-    <div class="notice blue">同一教师教多个班时，默认<b>每个班单独一行/一根柱子</b>，互不混合；如需看总体可用上方切换为“按教师汇总”。<br>教师请假、代课、任课变动时，点右上角「✏️ 调整任课对照表」到「任课对照」页修改 班级↔教师 对照，修改后本页立即按新对照重新统计。${unmapped.length?`<b>未登记教师的班级（已排除）：${unmapped.map(esc).join("、")}</b>，请在对照表中补充。`:""}</div>
+    <button class="btn sm" data-go="jw" data-sub="tmap">✏️ 调整教师任课</button></h3>
+    <div class="notice blue">同一教师教多个班时，默认<b>每个班单独一行/一根柱子</b>，互不混合；如需看总体可用上方切换为“按教师汇总”。<br>教师请假、代课、任课变动时，点右上角「✏️ 调整教师任课」修改 班级↔教师 对照，修改后本页立即按新对照重新统计。${unmapped.length?`<b>未登记教师的班级（已排除）：${unmapped.map(esc).join("、")}</b>，请在对照表中补充。`:""}</div>
     ${list.length?`
     <details open class="lnsec" style="margin-top:8px"><summary>📊 教师均分对比图（可收起）</summary><canvas class="chart" id="cTeach"></canvas></details>
     <div class="twrap tscr" style="margin-top:12px"><table class="tb"><thead><tr><th class="ctr">排名</th><th class="ctr sortable" data-sk="teacher">教师</th><th class="ctr sortable" data-sk="cls">班级</th><th class="ctr sortable" data-sk="n">人数</th><th class="ctr sortable" data-sk="avg">均分</th><th class="ctr sortable" data-sk="d">与年级差</th><th class="ctr sortable" data-sk="pass">本科率</th><th class="ctr sortable" data-sk="exc">特控率</th><th class="ctr sortable" data-sk="max">最高</th><th class="ctr sortable" data-sk="min">最低</th><th class="ctr sortable" data-sk="sd">标准差</th><th class="ctr sortable" data-sk="low20">后20%均分</th></tr></thead><tbody>
@@ -2839,7 +2867,7 @@ function stuHistHtml(h,pfx){
       <td class="ctr ${d!=null?(d>=0?"diff-pos":"diff-neg"):""}">${d!=null?(d>=0?"+":"")+fmtN(d,1):"—"}</td>
       <td class="muted">${Object.entries(x.s).filter(([k,v])=>v!=null&&v!=="").map(([k,v])=>{const lb=(k==="外语"&&x.lang)?`${k}(${x.lang})`:k;const rv=(x.sRaw&&x.sRaw[k]!=null)?`（原${fmtN(x.sRaw[k],x.sRaw[k]%1?1:0)}）`:"";return esc(lb)+" "+fmtN(Number(v),Number(v)%1?1:0)+rv;}).join("｜")||"—"}</td></tr>`;}).join("")}
     </tbody></table></div>
-    <div class="muted" style="margin-top:6px">口径：与年级差 = 总分 − 年级均分，正数=高于年级平均；排名数字越小越好，“较上次”按方向内排名对比（未分方向时用年级排名），↑=进步（名次前进）、↓=退步（名次后退），鼠标悬浮可看“上次第x名 → 本次第y名”；均分不含缺考；本科率/特控率/本科特控线可在「统计设置」分方向设置。</div>`;
+    <div class="muted" style="margin-top:6px">口径：与年级差 = 总分 − 年级均分，正数=高于年级平均；排名数字越小越好，“较上次”按方向内排名对比（未分方向时用年级排名），↑=进步（名次前进）、↓=退步（名次后退），鼠标悬浮可看“上次第x名 → 本次第y名”；均分不含缺考；本科率/特控率/本科特控线可在「设置 → 成绩统计口径」分方向设置。</div>`;
 }
 function stuHistDraw(h,pfx){
   const labels=h.map(x=>String(x.exam.name||"").slice(0,10));
@@ -3002,7 +3030,7 @@ function jwWatch(){
   });
   const critTotal=groups.reduce((a,g)=>a+g.list.length,0);
   return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
-    <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
+    <div class="notice blue">全局默认分数线与临界浮动在「设置 → 成绩统计口径」分方向设置 · 本场考试的自定义覆盖点上方「📐 划线覆盖」 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
       <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优秀名单 · ${scopeTxt}（优秀线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
         <span class="spacer"></span><button class="btn sm" data-act="copyList" data-kind="top" data-id="${exam.id}">📋 复制</button></h3>
@@ -3308,22 +3336,25 @@ ACTIONS.teachersPaste=()=>{
     render();
   };
 };
-/* ================= 统计设置 ================= */
-function jwLines(){
+/* ================= 成绩统计口径（v80 收口到「设置」） =================
+   linesPanel(exam, modal)：
+   - exam=null  → 全局默认线（设置·成绩统计口径 页签，整页渲染）
+   - exam=考试   → 考试级划线覆盖（在「考试与成绩」页弹窗内打开，modal=true 时保存后自动关弹窗）
+   继承链不变：本考试自定义 > 全局方向线 > 共用回退线 */
+function linesPanel(exam,modal){
   const st=settings();
   const subjects=st.subjects;
-  const scope=State.lnScope||"__global";
-  const exs=examsSorted();
-  const exam=scope==="__global"?null:examById(scope);
-  const isG=scope==="__global";
+  const isG=!exam;
+  const scope=exam?exam.id:"__global";
   const L=(exam&&exam.lines)||{};
   const ph=v=>v!=null?String(v):"";
   const ddirs=subj=>subj==="物理"?["物理"]:subj==="历史"?["历史"]:["物理","历史"];
   /* 输入框当前值：全局=全局方向线；考试=考试自定义（留空沿用全局，灰色占位显示当前生效值） */
   const dval=(src,subj,d,kind)=>{const m=src[kind==="pass"?"dpass":"dexc"];const v=m&&m[subj]&&m[subj][d];return v!=null?String(v):"";};
   const dEff=(subj,d,kind)=>ph(subjLine(exam,subj,d,kind));
-  return `<div class="card"><h3>📐 统计设置<span class="sub">本科线 / 特控线 分方向设置 · 可按考试单独覆盖</span><span class="spacer"></span>
-  <select id="lnScope" class="searchbox" style="min-width:230px"><option value="__global"${isG?" selected":""}>全局默认线</option>${exs.map(e=>`<option value="${e.id}"${e.id===scope?" selected":""}>考试：${esc(e.name)}</option>`).join("")}</select></h3>
+  const title=isG?`📐 成绩统计口径<span class="sub">本科线 / 特控线 分方向设置 · 全局默认</span>`
+                 :`📐 划线覆盖 · ${esc(exam.name)}<span class="sub">仅该考试生效，其余考试沿用全局默认线</span>`;
+  return `<div class="card"><h3>${title}</h3>
   <div class="notice blue"><b>口径说明：</b><b>所有科目（含语文/数学/外语）都按物理、历史方向分设本科线/特控线</b>，与高考口径一致；物理、历史各自只有一个方向考；化学/生物/政治/地理两个方向都考、分方向各设；总分线（本科/特控/优秀）物理、历史各一套。继承顺序：<b>本考试自定义 &gt; 全局方向线 &gt; 共用回退线（老数据）</b>；某个方向留空时自动沿用共用回退线（输入框右侧灰色数字即当前生效值）。临界生不再单独设线：<b>本科临界锚本科线、特控临界锚特控线</b>，各配一个浮动范围。</div>
   <details class="lnsec"><summary>📋 从文字粘贴分数线（微信提取文字后粘贴，自动填表）</summary>
   <textarea id="lnPaste" class="searchbox" style="width:100%;min-height:90px;font-size:13px" placeholder="把学校发的分数线通知图片在微信里长按→提取文字→复制，粘贴到这里。&#10;例如：&#10;物理方向 特控线 本科线&#10;总分 480.0 412.0&#10;语文 107.0 100.5&#10;历史方向 特控线 本科线&#10;总分 502.0 432.0"></textarea>
@@ -3367,11 +3398,13 @@ function jwLines(){
     <div class="field" style="flex:1"><label>导入默认</label><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="lnZero" ${st.zeroAsMissing?"checked":""}> 0分视为缺考</label></div>
   </div></details>`:""}
   <div class="flex">
-    <button class="btn primary" data-act="saveLines">${isG?"保存全局默认线":"保存本考试分数线"}</button>
-    ${!isG?`<button class="btn" data-act="clearExamLines" data-id="${scope}">清除本考试自定义线（改用全局默认）</button>`:""}
+    <button class="btn primary" data-act="${modal?"saveLinesModal":"saveLines"}">${isG?"保存全局默认线":"保存本考试划线覆盖"}</button>
+    ${!isG?`<button class="btn" data-act="${modal?"clearExamLinesModal":"clearExamLines"}" data-id="${scope}">清除本考试自定义线（改用全局默认）</button>`:""}
   </div>
-  <div class="muted" style="margin-top:8px">${isG?"保存后，所有未单独设线的考试立即按新默认线重新计算。年级总览、班级对比、教师对比、重点关注、班级成绩分析、学生查询的本科率/特控率、临界生名单都会按方向取线。":"保存后，仅该考试的分析按这套线计算，其他考试不受影响。"}</div></div>`;
+  <div class="muted" style="margin-top:8px">${isG?"保存后，所有未单独设线的考试立即按新默认线重新计算。年级总览、班级对比、教师对比、重点关注、班级成绩分析、学生查询的本科率/特控率、临界生名单都会按方向取线。单场考试临时改线：教务 → 考试与成绩 → 该考试行的「📐 划线覆盖」。":"保存后，仅该考试的分析按这套线计算，其他考试不受影响。"}</div></div>`;
 }
+/* 兼容旧调用名（不再作为教务子页路由，仅供老引用兜底） */
+function jwLines(){return linesPanel(null,false);}
 ACTIONS.saveLines=async()=>{
   const st=settings();
   const subjects=st.subjects;
@@ -3453,6 +3486,15 @@ ACTIONS.clearExamLines=async id=>{
   await putRec("exams",exam);
   toast("已清除，该考试改用全局默认线");render();
 };
+/* v80：考试级划线覆盖入口 —— 「考试与成绩」每场考试行的「📐 划线覆盖」按钮弹窗 */
+ACTIONS.examLinesModal=id=>{
+  const exam=examById(id);if(!exam){toast("考试不存在");return;}
+  State.lnScope=id; /* saveLines/clearExamLines 按此定位考试 */
+  openModal("📐 划线覆盖 · "+exam.name,linesPanel(exam,true),
+    `<button class="btn" data-act="closeModal">关闭</button>`);
+};
+ACTIONS.saveLinesModal=async()=>{await ACTIONS.saveLines();closeModal();};
+ACTIONS.clearExamLinesModal=async id=>{await ACTIONS.clearExamLines(id);closeModal();};
 /* ===== 分数线文字粘贴识别（方案B）=====
    支持：方向分块（物理方向/历史方向/物理类/历史类）、双列表头（特控线 本科线）、
    单标签段（本科线：语文 100…）、一行四数（语文 107 100.5 111.5 104.5）、
@@ -3597,7 +3639,6 @@ ACTIONS.lnApplyPaste=()=>{
   if(n)toast(`已填入 ${n} 项到表单${skip?`，${skip} 项无处可填已跳过`:String()}，请核对后点保存`);
   else toast("没有可填入的项（科目或方向对不上）");
 };
-document.addEventListener("change",e=>{if(e.target.id==="lnScope"){State.lnScope=e.target.value;renderKeep();}});
 /* ================= 班主任 · 班级成绩分析 ================= */
 function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
 function clsScoreView(){
@@ -4172,7 +4213,7 @@ function kbExportRows(result,kbDef){
       room.combination,
       first&&last?first+"-"+last:"",room.isVirtual?"虚拟考室":""];
   });
-  const info=[["系统名称","教师工作台 · 考务编排"],["编排时间",nowLocal()],
+  const info=[["系统名称","教师工作台 · 考场编排"],["编排时间",nowLocal()],
     ["总考生数",result.stats.total],["实际考室",result.stats.realRooms],["虚拟考室",result.stats.virtualRooms],
     ["表格说明","【上报数据表】提交上级；【考室安排】内部存档；【使用说明】本表"]];
   return {rep,roomsTable,info};
@@ -4208,7 +4249,7 @@ function jwArrange(){
   if(!State.kb)State.kb={schemeId:null};
   const schemes=State.data.arrangements.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
   const cur=kbCur();
-  let body=`<div class="card"><h3>🗃 考务编排<span class="sub">按选科组合编排考场 · 生成考号 · 导出上报模板（移植自考务系统V3.8）</span></h3>
+  let body=`<div class="card"><h3>🗃 考场编排<span class="sub">按选科组合编排考场 · 生成考号 · 导出上报模板（移植自考务系统V3.8）</span></h3>
     <div class="frow"><div class="field" style="flex:2"><label>编排方案</label><select id="kbSchemeSel" class="searchbox" style="width:100%">
     <option value="">— 请选择已有方案，或新建 —</option>
     ${schemes.map(s=>`<option value="${s.id}"${cur&&cur.id===s.id?" selected":""}>${esc(s.name)}${s.date?"（"+esc(s.date)+"）":""}</option>`).join("")}
