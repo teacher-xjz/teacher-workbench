@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v74";
+window.APP_VERSION="v75";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4883,7 +4883,7 @@ function buildGradePack(exam,opts){
   /* ① 班级教师对应表（含班主任） */
   const teacherTable=clsList.map(c=>Object.assign({cls:c,head:(heads[c]||[]).join("/")||""},
     subjects.reduce((o,s)=>{o[s]=(tmap[c+"|"+s]||[]).join("/");return o;},{})));
-  /* ② 班级×单科矩阵（分方向：人数/均分/及格率/优秀率/最高分/年级均分差/排名） */
+  /* ② 班级×单科矩阵（分方向：人数/均分/本科率/特控率/最高分/年级均分差/排名；线名=学校口径，原及格/优秀线） */
   const classSubject=[];
   ["物理","历史"].forEach(dr=>{
     subjects.forEach(s=>{
@@ -4897,8 +4897,8 @@ function buildGradePack(exam,opts){
         if(!sc.length)return null;
         const m=avg(sc.map(o=>o.v));
         return{cls:c,t:(tmap[c+"|"+s]||[]).join("/")||"未录入",n:sc.length,avg:m,
-          pl,passRate:pl!=null?sc.filter(o=>o.v>=pl).length/sc.length*100:null,
-          el,excRate:el!=null?sc.filter(o=>o.v>=el).length/sc.length*100:null,
+          本科线:pl,本科率:pl!=null?sc.filter(o=>o.v>=pl).length/sc.length*100:null,
+          特控线:el,特控率:el!=null?sc.filter(o=>o.v>=el).length/sc.length*100:null,
           max:Math.max(...sc.map(o=>o.v)),d:m-gmean};
       }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
       per.forEach((x,i)=>classSubject.push(Object.assign({dir:dr,subj:s,rank:i+1},x)));
@@ -4920,8 +4920,8 @@ function buildGradePack(exam,opts){
       const arr=Object.keys(grp).map(t=>{
         const g=grp[t],m=avg(g.vals);
         return{teacher:t,cls:Object.keys(g.clss).sort((a,b)=>(Number(a)||0)-(Number(b)||0)).join("/"),n:g.vals.length,avg:m,
-          passRate:pl!=null?g.vals.filter(v=>v>=pl).length/g.vals.length*100:null,
-          excRate:el!=null?g.vals.filter(v=>v>=el).length/g.vals.length*100:null,
+          本科率:pl!=null?g.vals.filter(v=>v>=pl).length/g.vals.length*100:null,
+          特控率:el!=null?g.vals.filter(v=>v>=el).length/g.vals.length*100:null,
           max:Math.max(...g.vals)};
       }).sort((a,b)=>b.avg-a.avg);
       arr.forEach((x,i)=>teacherSubject.push(Object.assign({dir:dr,subj:s,rank:i+1},x)));
@@ -4980,8 +4980,9 @@ function buildGradePack(exam,opts){
     conventions:{
       本科临界浮动:critRangeTxt(exam,"pass"),特控临界浮动:critRangeTxt(exam,"exc"),
       总分线:["物理","历史"].reduce((o,d)=>{o[d]={本科:totalLine(exam,d,"pass"),特控:totalLine(exam,d,"exc"),top:totalLine(exam,d,"top")};return o;},{}),
-      单科及格线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","pass"),历史:subjLine(exam,s,"历史","pass")};return o;},{}),
-      单科优秀线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","exc"),历史:subjLine(exam,s,"历史","exc")};return o;},{}),
+      单科本科线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","pass"),历史:subjLine(exam,s,"历史","pass")};return o;},{}),
+      单科特控线:subjects.reduce((o,s)=>{o[s]={物理:subjLine(exam,s,"物理","exc"),历史:subjLine(exam,s,"历史","exc")};return o;},{}),
+      线名口径:"按学校口径命名：单科本科线（原及格线）、单科特控线（原优秀线）、总分优秀线（原top线）；数值不变",
       分数段:(examCfg(exam).bands||[]).slice(),
       缺考口径:"单科 0 分或空 = 缺考/未选科，不计入该科统计"+(exam.zeroAsMissing?"（本场启用）":""),
       前N名:"前"+N+"名"+(opts.tie?"（并列同分全部保留）":"（严格取前N人）"),
@@ -5011,22 +5012,23 @@ function gradePackXlsx(exam,opts,P){
   add("班级教师对应表",[["班级","班主任",...subjects],
     ...P.teacherTable.map(t=>[t.cls,t.head,...subjects.map(s=>t[s]||"")])]);
   add("划线标准",[
-    ["科目","物理及格线","历史及格线","物理优秀线","历史优秀线"],
-    ...subjects.map(s=>[s,P.conventions.单科及格线[s].物理,P.conventions.单科及格线[s].历史,P.conventions.单科优秀线[s].物理,P.conventions.单科优秀线[s].历史]),
-    [],["方向","本科线","特控线","top线"],
+    ["科目","物理类本科线","历史类本科线","物理类特控线","历史类特控线"],
+    ...subjects.map(s=>[s,P.conventions.单科本科线[s].物理,P.conventions.单科本科线[s].历史,P.conventions.单科特控线[s].物理,P.conventions.单科特控线[s].历史]),
+    [],["方向","本科线","特控线","优秀线"],
     ...["物理","历史"].map(d=>[d,P.conventions.总分线[d].本科,P.conventions.总分线[d].特控,P.conventions.总分线[d].top]),
-    [],["临界浮动","本科"+P.conventions.本科临界浮动,"特控"+P.conventions.特控临界浮动]]);
-  add("年级总体",[["方向","参考人数","总分均分","最高分","最低分","本科上线","本科率%","特控上线","特控率%","top上线","top率%"],
+    [],["临界浮动","本科"+P.conventions.本科临界浮动,"特控"+P.conventions.特控临界浮动],
+    ["注","单科本科线=原及格线口径；单科特控线=原优秀线口径；总分优秀线=原top线。数值均未改变"]]);
+  add("年级总体",[["方向","参考人数","总分均分","最高分","最低分","本科上线","本科率%","特控上线","特控率%","优秀线上线","优秀率%"],
     ...["物理","历史"].filter(d=>P.dirs[d]).map(d=>{const x=P.dirs[d];
       return [d,x.n,fmtN(x.avg),x.max,x.min,x.benYes||0,fmtN(x.ben),x.teYes||0,fmtN(x.te),x.topYes||0,fmtN(x.top)];})]);
   add("班级总分",[["班级","人数","总分均分","年级排名","本科上线","本科临界","特控上线","特控临界"],
     ...P.classes.map(c=>[c.cls,c.n,fmtN(c.avg),c.rank||"",c.ben,c.benCrit,c.exc,c.excCrit])]);
-  add("班级单科",[["方向","科目","班级","任课教师","人数","均分","及格线","及格率%","优秀线","优秀率%","最高分","年级均分差","排名"],
-    ...P.classSubject.map(x=>[x.dir,x.subj,x.cls,x.t,x.n,fmtN(x.avg),x.pl!=null?x.pl:"",x.passRate!=null?fmtN(x.passRate):"—",
-      x.el!=null?x.el:"",x.excRate!=null?fmtN(x.excRate):"—",x.max,fmtN(x.d),x.rank])]);
-  add("教师单科",[["方向","科目","教师","班级","人数","均分","及格率%","优秀率%","最高分","排名"],
-    ...P.teacherSubject.map(x=>[x.dir,x.subj,x.teacher,x.cls,x.n,fmtN(x.avg),x.passRate!=null?fmtN(x.passRate):"—",
-      x.excRate!=null?fmtN(x.excRate):"—",x.max,x.rank])]);
+  add("班级单科",[["方向","科目","班级","任课教师","人数","均分","本科线","本科率%","特控线","特控率%","最高分","年级均分差","排名"],
+    ...P.classSubject.map(x=>[x.dir,x.subj,x.cls,x.t,x.n,fmtN(x.avg),x.本科线!=null?x.本科线:"",x.本科率!=null?fmtN(x.本科率):"—",
+      x.特控线!=null?x.特控线:"",x.特控率!=null?fmtN(x.特控率):"—",x.max,fmtN(x.d),x.rank])]);
+  add("教师单科",[["方向","科目","教师","班级","人数","均分","本科率%","特控率%","最高分","排名"],
+    ...P.teacherSubject.map(x=>[x.dir,x.subj,x.teacher,x.cls,x.n,fmtN(x.avg),x.本科率!=null?fmtN(x.本科率):"—",
+      x.特控率!=null?fmtN(x.特控率):"—",x.max,x.rank])]);
   add("分数段",[["分数段","人数","占比%"],
     ...P.bands.names.map((nm,i)=>[nm,P.bands.counts[i],P.grade.n?fmtN(P.bands.counts[i]/P.grade.n*100):"—"])]);
   add("临界生",[["班级","人数","本科上线","本科临界","特控上线","特控临界","本科上线名单","特控上线名单"],
