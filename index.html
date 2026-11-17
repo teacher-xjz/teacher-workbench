@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v71";
+window.APP_VERSION="v72";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -941,7 +941,7 @@ const CRUDCFG={
     {k:"exam",label:"考试",w:1},{k:"place",label:"考场地点",w:1},{k:"teachers",label:"监考教师",w:1.4}],
     cols:[{label:"日期",k:"date",ctr:1},{label:"场次",k:"session"},{label:"考试",k:"exam"},{label:"地点",k:"place"},{label:"监考教师",k:"teachers"}]},
   teachers:{title:"班级任课教师",fields:[
-    {k:"cls",label:"班级",req:1,w:.7},{k:"subject",label:"科目",req:1,type:"select",optsFn:()=>settings().subjects,w:.8},
+    {k:"cls",label:"班级",req:1,w:.7},{k:"subject",label:"科目",type:"select",optsFn:()=>[...settings().subjects,"班主任（无任课科目）"],w:1.2},
     {k:"teacher",label:"教师姓名",req:1,w:1},{k:"head",label:"班主任",type:"checkbox",w:.6},{k:"note",label:"备注",w:1.2}],
     cols:[{label:"班级",k:"cls",ctr:1},{label:"科目",k:"subject",ctr:1},{label:"教师",k:"teacher"},{label:"班主任",k:"head",ctr:1,f:r=>r.head?"⭐":""},{label:"备注",k:"note"}]},
   projTasks:{title:"课题任务",fields:[
@@ -3070,8 +3070,9 @@ function jwTmap(){
     <button class="btn" data-act="headSetup">👨‍👩‍👧 班主任设置</button>
     <button class="btn" data-act="teachersDedupe">🧹 一键去重</button>
     <button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button></h3>
-    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动推荐用「批量粘贴导入」（原位更新，不会产生重复，教师换人才清班主任勾选）。发现重复记录时点「一键去重」。设置班主任用「班主任设置」，一个面板全班选完。</div>
-    ${crudBody("teachers",CRUDCFG.teachers)}</div>`;
+    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动推荐用「批量粘贴导入」（原位更新，不会产生重复，教师换人才清班主任勾选）。发现重复记录时点「一键去重」。设置班主任用「班主任设置」，一个面板全班选完。<b>只当班主任、不任文化课的教师</b>（如体育班班主任）：点下方「手动增加教师」，科目选「班主任（无任课科目）」并勾选班主任即可。</div>
+    ${crudBody("teachers",CRUDCFG.teachers)}
+    <div style="margin-top:10px"><button class="btn primary" data-act="crudAdd" data-store="teachers">➕ 手动增加教师</button><span class="muted" style="margin-left:10px">体育班班主任等无文化课科目的教师也可录入：科目选「班主任（无任课科目）」</span></div></div>`;
 }
 /* 班主任快速设置（v71）：一个弹窗列出所有班，下拉选人、一次保存，免去逐行点编辑 */
 ACTIONS.headSetup=()=>{
@@ -3081,7 +3082,7 @@ ACTIONS.headSetup=()=>{
   const byCls={};
   State.data.teachers.forEach(t=>{const c=String(t.cls||"").trim();if(!c)return;(byCls[c]=byCls[c]||new Set()).add(t.teacher);});
   const heads=(typeof teacherMaps==="function")?teacherMaps().heads:{};
-  const body=`<div class="notice blue">每个班选一位班主任（人选来自该班任课教师）。保存后「班级任课教师对照表」对应行会带 ⭐，导出全年级数据包时自动附「班主任」列。</div>
+  const body=`<div class="notice blue">每个班选一位班主任（人选来自该班全部教师记录，含"班主任（无任课科目）"）。保存后「班级任课教师对照表」对应行会带 ⭐，导出全年级数据包时自动附「班主任」列。<b>下拉里没有此人？</b>（如体育班班主任）先关掉本面板，到对照表点「➕ 手动增加教师」录入后再来设置。</div>
     <div class="frow" style="flex-direction:column;gap:8px">
     ${clss.map(c=>`<div class="field" style="flex-direction:row;align-items:center;gap:8px"><label style="min-width:64px;margin:0">${esc(c)}班</label>
       <select id="headSel_${esc(c)}" data-cls="${esc(c)}"><option value="">（未设置）</option>${[...(byCls[c]||[])].sort().map(t=>`<option${(heads[c]||[]).includes(t)?" selected":""}>${escA(t)}</option>`).join("")}</select></div>`).join("")}
@@ -3186,7 +3187,7 @@ ACTIONS.teachersPaste=()=>{
     const cur=State.data.teachers.slice();
     const byKey=new Map();
     cur.forEach(t=>byKey.set(String(t.cls||"").trim()+"|"+String(t.subject||"").trim(),t));
-    let upd=0,add=0,del=0;const used=new Set();
+    let upd=0,add=0,del=0;const used=new Set();let toastKeep="";
     for(const r of parsed.rows){
       const k=String(r.cls||"").trim()+"|"+r.subject;
       const old=byKey.get(k);
@@ -3198,10 +3199,14 @@ ACTIONS.teachersPaste=()=>{
       }
     }
     if(mode==="replace"){
-      for(const t of cur)if(!used.has(t.id)){await delRec("teachers",t.id);del++;}
+      /* 仅班主任记录（无任课科目，如体育班班主任）不参与名单覆盖，始终保留（v72） */
+      const isHeadOnly=t=>String(t.subject||"").trim()==="班主任（无任课科目）"||(!String(t.subject||"").trim()&&t.head);
+      const keep=cur.filter(t=>!used.has(t.id)&&isHeadOnly(t)).length;
+      for(const t of cur)if(!used.has(t.id)&&!isHeadOnly(t)){await delRec("teachers",t.id);del++;}
+      if(keep)toastKeep=`（另保留 ${keep} 条"仅班主任"记录，不受覆盖影响）`;
     }
     closeModal();
-    toast(`已导入：新增 ${add} 条 / 更新 ${upd} 条`+(del?` / 移除 ${del} 条`:""));
+    toast(`已导入：新增 ${add} 条 / 更新 ${upd} 条`+(del?` / 移除 ${del} 条`:"")+(toastKeep||""));
     render();
   };
 };
@@ -4844,10 +4849,12 @@ function normClsCode(v){return String(v==null?"":v).trim().replace(/^0+/,"").rep
 function teacherMaps(){
   const m={},heads={};
   (State.data.teachers||[]).forEach(t=>{
-    const c=normClsCode(t.cls),s=t.subject;if(!c||!s||!t.teacher)return;
+    const c=normClsCode(t.cls);if(!c||!t.teacher)return;
+    /* 班主任不依赖科目：无任课科目的教师（如体育班班主任）也要能被识别（v72） */
+    if(t.head){if(!heads[c])heads[c]=[];if(!heads[c].includes(t.teacher))heads[c].push(t.teacher);}
+    const s=t.subject;if(!s)return;
     const k=c+"|"+s;
     if(!m[k])m[k]=[];if(!m[k].includes(t.teacher))m[k].push(t.teacher);
-    if(t.head){if(!heads[c])heads[c]=[];if(!heads[c].includes(t.teacher))heads[c].push(t.teacher);}
   });
   Object.keys(m).forEach(k=>m[k].sort());
   Object.keys(heads).forEach(k=>heads[k].sort());
