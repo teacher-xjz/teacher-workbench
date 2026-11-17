@@ -283,7 +283,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v75";
+window.APP_VERSION="v76";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1867,7 +1867,7 @@ function subjLine(exam,subj,dir,kind){ // kind:"pass"(本科)|"exc"(特控)
   return kind==="pass"?examCfg(exam).pass(subj):examCfg(exam).exc(subj);
 }
 /* 总分线：考试方向线 > 全局方向线 > 老版共用线(totalPass/totalExc/totalTop) > 按优生线比例推算 */
-function totalLine(exam,dir,kind){ // kind:"pass"(本科)|"exc"(特控)|"top"(优生)
+function totalLine(exam,dir,kind){ // kind:"pass"(本科)|"exc"(特控)|"top"(优秀)
   const st=settings();const L=(exam&&exam.lines)||{};
   const dt=(L.dtotal&&L.dtotal[dir])||(st.dtotal&&st.dtotal[dir])||null;
   if(kind==="top"){
@@ -1987,7 +1987,7 @@ function computeExam(exam){
   });
   const bySubj={};subjects.forEach(s=>bySubj[s]=subjStats(exam,s,exam.rows));
   out.grade={classes:cls,bySubj,total:fullTotalStats(exam,exam.rows)||{n:withTotal.length,avg:avg(withTotal.map(x=>x.total))}};
-  // 分方向年级统计（本科率/特控率/优生率按各自方向线计算）
+  // 分方向年级统计（本科率/特控率/优秀率按各自方向线计算）
   out.dirs={};
   ["物理","历史"].forEach(d=>{
     const rowsD=exam.rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
@@ -2348,15 +2348,15 @@ function jwOverview(){
   </details>
   <details open class="lnsec" style="margin-top:10px"><summary>📶 总分分数段分布（${bandNames.join(" / ")}）（可收起）</summary>
   <canvas class="chart" id="cBands" style="margin-top:8px"></canvas></details></div>
-  ${Object.keys(ce.dirs||{}).length?`<div class="card"><h3>🧭 分方向统计（物理方向 / 历史方向）<span class="sub">本科率、特控率、优生率按各自方向的线计算</span></h3>
+  ${Object.keys(ce.dirs||{}).length?`<div class="card"><h3>🧭 分方向统计（物理方向 / 历史方向）<span class="sub">本科率、特控率、优秀率按各自方向的线计算</span></h3>
     <details open class="lnsec"><summary>物理 / 历史方向各自线与达标率（可收起）</summary>
-    <div class="twrap" style="margin-top:8px"><table class="tb"><thead><tr><th>方向</th><th class="ctr">人数</th><th class="ctr">总分均分</th><th class="ctr">本科线</th><th class="ctr">本科率</th><th class="ctr">特控线</th><th class="ctr">特控率</th><th class="ctr">优生线</th><th class="ctr">优生率</th></tr></thead><tbody>
+    <div class="twrap" style="margin-top:8px"><table class="tb"><thead><tr><th>方向</th><th class="ctr">人数</th><th class="ctr">总分均分</th><th class="ctr">本科线</th><th class="ctr">本科率</th><th class="ctr">特控线</th><th class="ctr">特控率</th><th class="ctr">优秀线</th><th class="ctr">优秀率</th></tr></thead><tbody>
     ${["物理","历史"].map(d=>{const ds=ce.dirs[d];if(!ds)return "";
       const rowsD=exam.rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
       return `<tr><td><b>${d}方向</b></td><td class="ctr">${ds.n}</td><td class="ctr"><b>${fmtN(ds.avg)}</b></td>
       <td class="ctr">${ds.benLine!=null?ds.benLine:"—"}</td><td class="ctr" title="本科达标：${escA(totalPassNames(exam,rowsD,"pass"))}">${rateStr(ds.ben,ds.benYes,ds.n)}</td>
       <td class="ctr">${ds.teLine!=null?ds.teLine:"—"}</td><td class="ctr" title="特控达标：${escA(totalPassNames(exam,rowsD,"exc"))}">${rateStr(ds.te,ds.teYes,ds.n)}</td>
-      <td class="ctr">${ds.topLine!=null?ds.topLine:"—"}</td><td class="ctr" title="优生达标：${escA(totalPassNames(exam,rowsD,"top"))}">${rateStr(ds.top,ds.topYes,ds.n)}</td></tr>`;}).join("")}
+      <td class="ctr">${ds.topLine!=null?ds.topLine:"—"}</td><td class="ctr" title="优秀线达标：${escA(totalPassNames(exam,rowsD,"top"))}">${rateStr(ds.top,ds.topYes,ds.n)}</td></tr>`;}).join("")}
     </tbody></table></div></div>`:""}
   <div class="card"><h3>各科年级统计<span class="sub">点表头可排序</span></h3>
     ${(()=>{
@@ -2906,11 +2906,11 @@ function jwWatch(){
   return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
     <div class="notice blue">分数线与临界浮动在「教务 → 统计设置」分方向设置 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
-      <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优生名单 · ${scopeTxt}（优生线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
+      <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优秀名单 · ${scopeTxt}（优秀线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
         <span class="spacer"></span><button class="btn sm" data-act="copyList" data-kind="top" data-id="${exam.id}">📋 复制</button></h3>
         ${top.length?`<div class="twrap" style="max-height:300px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">名次</th><th class="ctr">班级</th><th>姓名</th><th class="ctr">方向</th><th class="ctr">总分</th></tr></thead><tbody>
         ${top.map(x=>`<tr><td class="ctr">${x.row._grDir||x.rank}</td><td class="ctr">${esc(x.row.cls)}</td><td>${esc(x.row.name)}</td><td class="ctr">${rowDir(x.row)||"—"}</td><td class="ctr"><b>${fmtN(x.row.total,1)}</b></td></tr>`).join("")}
-        </tbody></table></div>`:`<div class="empty">无人达到优生线</div>`}
+        </tbody></table></div>`:`<div class="empty">无人达到优秀线</div>`}
       </div>
       <div><h3 style="font-size:14px;margin-bottom:8px">📉 退步名单 · ${scopeTxt}（对比「${idx>0?esc(exs[idx-1].name):"无"}」按${declines.some(x=>x.isDir)?"方向内":"年级"}排名）
         <span class="spacer"></span><button class="btn sm" data-act="copyList" data-kind="dec" data-id="${exam.id}">📋 复制</button></h3>
@@ -3226,7 +3226,7 @@ function jwLines(){
   const dEff=(subj,d,kind)=>ph(subjLine(exam,subj,d,kind));
   return `<div class="card"><h3>📐 统计设置<span class="sub">本科线 / 特控线 分方向设置 · 可按考试单独覆盖</span><span class="spacer"></span>
   <select id="lnScope" class="searchbox" style="min-width:230px"><option value="__global"${isG?" selected":""}>全局默认线</option>${exs.map(e=>`<option value="${e.id}"${e.id===scope?" selected":""}>考试：${esc(e.name)}</option>`).join("")}</select></h3>
-  <div class="notice blue"><b>口径说明：</b><b>所有科目（含语文/数学/外语）都按物理、历史方向分设本科线/特控线</b>，与高考口径一致；物理、历史各自只有一个方向考；化学/生物/政治/地理两个方向都考、分方向各设；总分线（本科/特控/优生）物理、历史各一套。继承顺序：<b>本考试自定义 &gt; 全局方向线 &gt; 共用回退线（老数据）</b>；某个方向留空时自动沿用共用回退线（输入框右侧灰色数字即当前生效值）。临界生不再单独设线：<b>本科临界锚本科线、特控临界锚特控线</b>，各配一个浮动范围。</div>
+  <div class="notice blue"><b>口径说明：</b><b>所有科目（含语文/数学/外语）都按物理、历史方向分设本科线/特控线</b>，与高考口径一致；物理、历史各自只有一个方向考；化学/生物/政治/地理两个方向都考、分方向各设；总分线（本科/特控/优秀）物理、历史各一套。继承顺序：<b>本考试自定义 &gt; 全局方向线 &gt; 共用回退线（老数据）</b>；某个方向留空时自动沿用共用回退线（输入框右侧灰色数字即当前生效值）。临界生不再单独设线：<b>本科临界锚本科线、特控临界锚特控线</b>，各配一个浮动范围。</div>
   <details class="lnsec"><summary>📋 从文字粘贴分数线（微信提取文字后粘贴，自动填表）</summary>
   <textarea id="lnPaste" class="searchbox" style="width:100%;min-height:90px;font-size:13px" placeholder="把学校发的分数线通知图片在微信里长按→提取文字→复制，粘贴到这里。&#10;例如：&#10;物理方向 特控线 本科线&#10;总分 480.0 412.0&#10;语文 107.0 100.5&#10;历史方向 特控线 本科线&#10;总分 502.0 432.0"></textarea>
   <div class="flex" style="margin-top:6px;align-items:center"><button class="btn" data-act="lnParsePaste">🔍 解析文字</button><span class="muted">识别「物理/历史方向」+「特控线/本科线」表头 + 科目行；解析结果先核对，再点「填入表单」，最后照常点保存。</span></div>
@@ -3254,7 +3254,7 @@ function jwLines(){
   ${["物理","历史"].map(d=>`
     <div class="field" style="flex:.6"><label>${d}方向 本科线</label><input type="number" id="lnDTotal_${d}_ben" placeholder="${ph(totalLine(exam,d,"pass"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].ben!=null?st.dtotal[d].ben:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].ben!=null?L.dtotal[d].ben:"")}"></div>
     <div class="field" style="flex:.6"><label>${d}方向 特控线</label><input type="number" id="lnDTotal_${d}_te" placeholder="${ph(totalLine(exam,d,"exc"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].te!=null?st.dtotal[d].te:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].te!=null?L.dtotal[d].te:"")}"></div>
-    <div class="field" style="flex:.6"><label>${d}方向 优生线</label><input type="number" id="lnDTotal_${d}_top" placeholder="${ph(totalLine(exam,d,"top"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].top!=null?st.dtotal[d].top:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].top!=null?L.dtotal[d].top:"")}"></div>`).join("")}
+    <div class="field" style="flex:.6"><label>${d}方向 优秀线（原优生线/top线）</label><input type="number" id="lnDTotal_${d}_top" placeholder="${ph(totalLine(exam,d,"top"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].top!=null?st.dtotal[d].top:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].top!=null?L.dtotal[d].top:"")}"></div>`).join("")}
   </div>
   <div class="frow" style="margin-top:6px">
     <div class="field" style="flex:.8"><label>本科临界浮动（如 +10,-10）</label><input id="lnCritBen" placeholder="如 +10,-10 / -10,0 / 12" value="${isG?(st.critBands.ben!=null?st.critBands.ben:""):(L.critBands&&L.critBands.ben!=null?L.critBands.ben:"")}"></div>
@@ -3362,7 +3362,7 @@ ACTIONS.clearExamLines=async id=>{
 function parseLineText(text,subjects){
   const items=[],unmatched=[];
   let curDir=null,curKind=null,dirOrder=null,colOrder=null;
-  const kindReE=/特控|重点|一本/,kindReP=/本科|二本/,kindReT=/优生/;
+  const kindReE=/特控|重点|一本/,kindReP=/本科|二本/,kindReT=/优生/; /* 注："优秀线"含义有歧义（单科特控层次或总分优秀线），不自动识别，进未识别列表人工核对 */
   const has=s=>subjects.includes(s);
   const res=s=>{
     if(has(s))return{subj:s};
@@ -3466,7 +3466,7 @@ ACTIONS.lnParsePaste=()=>{
   if(!text.trim()){toast("请先粘贴分数线文字");return;}
   const{groups,order,unmatched}=parseLineText(text,st.subjects);
   const conflict=key=>{const arr=groups[key];return arr.length>1&&arr.some(x=>x.value!==arr[0].value);};
-  const lab={exc:"特控线",pass:"本科线",top:"优生线"};
+  const lab={exc:"特控线",pass:"本科线",top:"优秀线"};
   const html=order.length||unmatched.length?`
     ${order.map(key=>{const arr=groups[key];const it=arr[arr.length-1];const cf=conflict(key);
       const name=it.total?"总分":it.subj+(it.alias?`（${it.alias}→外语）`:"");
@@ -3571,7 +3571,7 @@ function clsScoreView(){
   ${clsList.length>1?`<div class="bzrbar">
     <div class="bzrgrp"><span>查看班级</span>
       <select id="bzrViewCls" style="max-width:170px">${clsList.map(c=>`<option value="${escA(c)}"${c===viewCls?" selected":""}>${esc(c)}${c===myCls?"（我的）":""}</option>`).join("")}</select></div>
-    <div class="bzrgrp"><span>优生线前 N</span>
+    <div class="bzrgrp"><span>优秀线前 N</span>
       <select id="bzrTopN" style="width:88px">${[30,50,60,80,100,120,150].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select></div>
     <div class="bzrgrp bzrcmp"><span>对比班级</span>
       ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
@@ -3728,7 +3728,7 @@ clsScoreView.after=()=>{
   /* 班级切换下拉 */
   const sel=$("#bzrViewCls");
   if(sel)sel.onchange=()=>{State.bzrScoreCls=sel.value;State.bzrScoreCmp=(State.bzrScoreCmp||[]).filter(c=>c!==sel.value);render();};
-  /* 优生线前N选择 */
+  /* 优秀线前N选择 */
   const selN=$("#bzrTopN");
   if(selN)selN.onchange=()=>{try{localStorage.setItem("tbTopN",selN.value);}catch(e){}render();};
   /* 添加对比班级（下拉选即添加） */
