@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v93";
+window.APP_VERSION="v94";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5497,12 +5497,17 @@ ACTIONS.bzrReportExport=()=>{
 /* ================= 学生异动记录（v83） =================
    台账 + 时间线模型：异动只追加不改历史，任何日期的应考状态由 rosterAt() 按时间线回放推导。
    名单基准 = 考试库全部考试 rows 并集（天然含缺考行）∪ 学生名册。 */
-/* v89：移除 物理转历史/历史转物理（转科已由「班级调整」承载，且云端无存量记录）；
-   新增 转校（学籍正式转走，区别于借读转出——学籍仍在我校）、复学（补全休学生命周期）、其他（兜底）。 */
+/* v89：移除 物理转历史/历史转物理（转科已由「班级调整」承载，且云端无存量记录）。
+   v94：类型重构为「学籍归属 × 人在哪」对称体系（9类）——
+   进：学籍转入（正式转入我校，学籍+人一起来，状态=在读）/ 借读转入（学籍在他校、人在我校读，状态=借读生，算应考）；
+   出：学籍转出（学籍正式转走，原「转校」改名，状态=已转校）/ 借读外校（学籍在我校、人去外校读）/ 退学；
+   校内：转班；学业状态：休学→复学闭环；其他：兜底。
+   四个象限（学籍在我校×人在我校 / 学籍在我校×人在外校 / 学籍在他校×人在我校 / 学籍终止）全覆盖。 */
 const TRANSFER_TYPES=[
-  ["cls_move","班级调整"],
-  ["in_borrow","外校学生到我校借读"],["out_borrow","我校学生到外校借读"],
-  ["transfer_out","转校"],["suspend","休学"],["resume","复学"],["quit","退学"],
+  ["transfer_in","学籍转入"],["in_borrow","借读转入"],
+  ["cls_move","转班"],
+  ["transfer_out","学籍转出"],["out_borrow","借读外校"],["quit","退学"],
+  ["suspend","休学"],["resume","复学"],
   ["other","其他"],
 ];
 const TRANSFER_LABEL={};TRANSFER_TYPES.forEach(t=>TRANSFER_LABEL[t[0]]=t[1]);
@@ -5534,7 +5539,7 @@ function latestTransfer(name){
   });
   return best;
 }
-/* 当前状态推导（v89：resume→在读；transfer_out→已转校；转科类型已移除） */
+/* 当前状态推导（v94：transfer_in→在读；transfer_out→已转校） */
 function transferStatus(name){
   const t=latestTransfer(name);
   if(!t)return "在读";
@@ -5544,6 +5549,7 @@ function transferStatus(name){
     case "out_borrow":return "借读外校";
     case "transfer_out":return "已转校";
     case "in_borrow":return "借读生";
+    case "transfer_in":return "在读";
     case "cls_move":return "现读"+(t.to||"新班");
     default:return "在读";
   }
@@ -5569,11 +5575,12 @@ function rosterAt(date){
       /* 状态按基准日期推导（与 clsNow 同源）：休学→复学的时间线可正确回到在读 */
       status=(()=>{switch(cur.type){
         case "quit":return "已退学";case "suspend":return "休学";case "out_borrow":return "借读外校";
-        case "in_borrow":return "借读生";case "transfer_out":return "已转校";
+        case "in_borrow":return "借读生";case "transfer_out":return "已转校";case "transfer_in":return "在读";
         case "cls_move":return "现读"+(cur.to||"新班");
         default:return "在读";}})();
       if(cur.type==="cls_move")clsNow=normClsNum(cur.to)||"";
       else if(cur.type==="resume")clsNow=normClsNum(cur.to)||clsNow;
+      else if(cur.type==="transfer_in")clsNow=normClsNum(cur.to)||clsNow;
       else if(cur.type==="quit"||cur.type==="out_borrow"||cur.type==="transfer_out")clsNow="";
     }else if(ds>=todayStr()){
       /* v90 名册状态兜底：无异动记录、且回放基准=今天或未来时，采用名册「在读状态」。
@@ -5696,6 +5703,7 @@ function transferForm(rec){
     const clsTxt=p&&p.cls?p.cls+"班":"";
     let from="",to="";
     if(t==="cls_move"){from=clsTxt;to="";}
+    else if(t==="transfer_in"){from="外校";to=clsTxt;}
     else if(t==="in_borrow"){from="外校";to="我校（借读）";}
     else if(t==="out_borrow"){from="我校";to="外校（借读）";}
     else if(t==="transfer_out"){from=clsTxt;to="";}
@@ -5900,16 +5908,17 @@ ACTIONS.ioTemplate=()=>{
     ["序号","姓名","身份证号（重名必填）","异动类型","异动日期","原班级","现班级/去向","说明"],
     ["示例","王五","510000200903030033","休学","2026-11-18","15","休学","生病"],
     ["示例","王五","510000200903030033","复学","2026-12-01","15","15","返校"],
+    ["示例","赵六","510000200904040044","学籍转入","2026-11-18","","16","从西南中学正式转入"],
   ]);
   ws2["!cols"]=[{wch:6},{wch:10},{wch:24},{wch:12},{wch:14},{wch:10},{wch:16},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws2,"异动记录");
   const ws3=XLSX.utils.aoa_to_sheet([
     ["填写说明"],
     ["1. 学生名单：一人一行；班级填纯数字（15，不写15班）；在校状态可选：在读/休学/借读外校/借读生/旁听/已离校。"],
-    ["2. 异动记录：一次异动一行；异动类型可选：班级调整/借读转入/借读转出/转校/休学/复学/退学/其他。"],
+    ["2. 异动记录：一次异动一行；异动类型可选：学籍转入/借读转入/转班/学籍转出/借读外校/退学/休学/复学/其他。"],
     ["3. 异动日期统一 2026-11-18 格式；只记得月份可写 2026-09。"],
-    ["4. 「现班级/去向」：班级调整填新班号；休学填「休学」；退学/转校填去向；复学填回的班级。"],
-    ["5. 转校=学籍正式转走（区别于借读转出：学籍仍在我校）。"],
+    ["4. 「现班级/去向」：转班填新班号；学籍转入填转入班级；休学填「休学」；退学/学籍转出填去向；复学填回的班级。"],
+    ["5. 学籍转入=正式转入我校（学籍+人一起来，区别于借读转入：借读生学籍在他校）；学籍转出=学籍正式转走（区别于借读外校：学籍仍在我校）。"],
     ["6. 重名学生的名单行与异动行都务必填身份证号。"],
     ["7. 同一人多次异动写多行，按时间顺序。"],
   ]);
