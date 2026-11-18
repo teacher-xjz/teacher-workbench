@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v94";
+window.APP_VERSION="v95";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5582,9 +5582,11 @@ function rosterAt(date){
       else if(cur.type==="resume")clsNow=normClsNum(cur.to)||clsNow;
       else if(cur.type==="transfer_in")clsNow=normClsNum(cur.to)||clsNow;
       else if(cur.type==="quit"||cur.type==="out_borrow"||cur.type==="transfer_out")clsNow="";
-    }else if(ds>=todayStr()){
-      /* v90 名册状态兜底：无异动记录、且回放基准=今天或未来时，采用名册「在读状态」。
-         约定：历史离校者（如22班）不补异动台账，直接在名册标「已离校」；以后的新异动才进台账。
+    }else{
+      /* v95 名册状态兜底（v90 扩展到任意日期）：学生完全无异动记录时，一律采用名册「在读状态」。
+         约定：22班等历史离校者不补台账、只在名册标「已离校」——名册状态就是他们唯一的状态事实，
+         任何日期回放都应排除；否则历史考试名单校验会把 22 班 88 人全误报为「应考在读但不在名单」。
+         有台账的学生不受影响（仍按台账时间线回放，异动生效前算在读——日期填错才会误报）。
          匹配：同名唯一→直接用；重名→按班级消歧（考试行班级是旧班号时，靠同名唯一性兜住）。 */
       const cands=(State.data.students||[]).filter(x=>String(x.name||"").trim()===p.name);
       const hit=cands.length===1?cands[0]:cands.find(x=>normClsNum(x.cls)===normClsNum(p.cls));
