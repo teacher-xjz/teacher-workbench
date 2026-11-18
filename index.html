@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v92";
+window.APP_VERSION="v93";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5776,7 +5776,8 @@ ACTIONS.examRosterCheck=id=>{
   const names=new Set(rows.map(r=>String(r.name||"").trim()));
   const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
   /* 应考在读，但不在考试名单 */
-  const missing=snap.filter(p=>p.status==="在读"&&!names.has(p.name));
+  /* 应缺考名单（v93 排除法）：非 BAD 状态（含转班后"现读X班"、借读生）都应出现在考试里 */
+  const missing=snap.filter(p=>!NOT_EXAM.includes(p.status)&&!names.has(p.name));
   /* 在考试名单，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断 */
   const BAD=["已退学","休学","借读外校","已转校","已离校"];
   const extra=rows.filter(r=>{
@@ -5800,16 +5801,19 @@ ACTIONS.examRosterCheck=id=>{
    考试库只录已考完的考试，下拉选考试永远选不出"下一次"——改为直接指定基准日期（默认今天）：
    异动台账回放到该日，凡休学/退学/借读外校已生效者自动不在名单；已知下次考试日期或
    考前将有异动生效时，把日期改成考试日即可。名单池=考试库 rows 并集 ∪ 名册，缺考生保留。 */
+/* 应考名单排除清单（v93 排除法）：除这五种外一律应考——
+   转班后（"现读X班"）、借读生（人在我校上课，用户确认算应考）都在名单内。
+   旧实现只留 status==="在读" 会把转班生/借读生错误排除（刘鑫转班即消失的 bug）。 */
+const NOT_EXAM=["休学","已退学","借读外校","已转校","已离校"];
 function buildRosterExport(date){
   const ds=String(date||todayStr());
   if(!ds)return null;
   const snap=rosterAt(ds);
-  /* 只保留应考在读（status==="在读"）：休学/退学/借读外校等在该日期不计入应考名单 */
-  const on=snap.filter(p=>p.status==="在读");
+  const on=snap.filter(p=>!NOT_EXAM.includes(p.status));
   const sorted=on.slice().sort((a,b)=>String(a.cls||"zz").localeCompare(String(b.cls||"zz"),"zh")||
     String(a.name||"").localeCompare(String(b.name||""),"zh"));
   const rows=sorted.map(p=>[p.name,String(p.cls||"")]);
-  const excluded=snap.filter(p=>p.status!=="在读");
+  const excluded=snap.filter(p=>NOT_EXAM.includes(p.status));
   return{date:ds,head:["姓名","班级"],rows,total:rows.length,excluded:excluded.map(p=>({name:p.name,status:p.status}))};
 }
 function doRosterExport(date){
@@ -6544,13 +6548,16 @@ const Sync={
   cleanExams(){return (State.data.exams||[]).map(e=>Object.assign({},e,{rows:(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;})}));},
   /* 主数据上传内容：全部 store 但**不含 exams**（成绩单独一个文件） */
   cleanData(){
+    /* v93：考场编排（arrangements）为每次考试临时性快照（占云端体积 ~60%），本地保留、不上云；
+       历史编排无跨设备价值（每次考试重新编排）。手动备份 cleanExport 仍包含。 */
     const data={};
-    for(const s of DB.stores){if(s==="exams")continue;data[s]=State.data[s];}
+    for(const s of DB.stores){if(s==="exams"||s==="arrangements")continue;data[s]=State.data[s];}
     return data;
   },
   /* 整份导出（含成绩）——手动备份/搬家用单文件 */
   cleanExport(){
     const d=this.cleanData();
+    d.arrangements=State.data.arrangements; /* 编排不上云但备份要带（v93） */
     d.exams=this.cleanExams();
     return d;
   },
