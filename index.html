@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v83";
+window.APP_VERSION="v84";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5606,22 +5606,47 @@ jwTransfer.after=()=>{
   const c=$("#trClsSel");if(c)c.onchange=()=>{State.trCls=c.value;renderKeep();};
   const s=$("#trSearch");if(s)s.oninput=()=>{State.trQ=s.value;renderKeep();const i=$("#trSearch");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}};
 }
+/* ---------- 学生资料卡：搜索选中后展示，确认是本人再标记异动 ---------- */
+function transferStuCard(name){
+  const p=rosterPool().find(x=>x.name===name);
+  if(!p)return "";
+  const s=(State.data.students||[]).find(x=>x.name===name)||{};
+  const st=transferStatus(name);
+  const kv=(k,v)=>`<div><span class="muted">${k}</span> ${escA(v==null||v===""?"—":v)}</div>`;
+  return `<div class="notice blue" style="margin:8px 0;word-break:break-all">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <b style="font-size:15px">${escA(name)}</b>
+      <span class="chip">${p.cls?escA(p.cls)+"班":"班级未记录"}</span>
+      ${p.absent?'<span class="chip">⚠ 缺考（无成绩记录）</span>':''}
+      <span class="chip">${escA(st)}</span>
+      ${p.inRoster?'<span class="chip">名册在册</span>':'<span class="chip">仅考试库</span>'}
+      <span class="spacer"></span><button class="btn sm" id="trStuChange">更换学生</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:3px 12px">
+      ${kv("学号",s.sid)}${kv("性别",s.sex)}${kv("住宿",s.boarding)}${kv("名册班级",s.cls)}
+      ${kv("名册状态",s.status)}${kv("考试场次",p.exams)}
+      ${kv("电话",s.phone)}${kv("父亲",s.father)}${kv("父电话",s.fatherPhone)}
+      ${kv("母亲",s.mother)}${kv("母电话",s.motherPhone)}
+      ${kv("家庭住址",s.address)}${kv("身份证",s.idcard)}${kv("备注",s.note)}
+    </div></div>`;
+}
 /* ---------- 新增/编辑弹窗 ---------- */
 function transferForm(rec){
   const pool=rosterPool();
   const isEdit=!!rec;
   rec=rec||{};
-  const selName=rec.name||"";
-  const opts=pool.map(p=>{
-    const st=transferStatus(p.name);
-    const tag=(p.absent?"【缺考】":"")+(st!=="在读"?"·"+st:"");
-    return `<option value="${escA(p.name)}"${p.name===selName?" selected":""}>${p.cls?"("+escA(p.cls)+"班)":""}${escA(p.name)}${tag?" "+escA(tag):""}</option>`;
-  }).join("");
+  let selName=rec.name||"",curEdit=isEdit;
   openModal(isEdit?"编辑异动记录":"新增异动记录",`
-    <div class="notice blue">学生名单=考试库应考名单（<b>含缺考学生</b>，已标注）∪ 名册。类型选定后「变动前/后」自动预填，可改。<b>调班/休学后若再变动，请新增一条记录</b>（不要改旧记录），考试名单按时间线回放才正确。</div>
+    <div class="notice blue">① 搜索并点选学生（<b>缺考学生也在名单里，已标注</b>）→ ② 选类型 → ③ 保存。类型选定后「变动前/后」自动预填，可改。<b>调班/休学后若再变动，请新增一条记录</b>（不要改旧记录），名单回放才正确。</div>
     <div class="frow">
-      <div class="field" style="flex:1.2"><label>学生（班级·姓名，含缺考/异动状态）</label><select id="trName">${opts}</select></div>
-      <div class="field" style="flex:1"><label>异动类型</label><select id="trType">${TRANSFER_TYPES.map(t=>`<option value="${t[0]}"${rec.type===t[0]?" selected":""}>${t[1]}</option>`).join("")}</select></div>
+      <div class="field" style="flex:1.4"><label>① 搜索学生（输入姓名或班级，如「张三」或「15班」）</label>
+        <input id="trStuQ" placeholder="输入姓名搜索，回车选第一个…" autocomplete="off">
+        <div id="trStuList" style="max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:4px;display:none"></div>
+      </div>
+    </div>
+    <div id="trStuCard">${selName?transferStuCard(selName):'<div class="notice">👆 请先在上方搜索并点选学生</div>'}</div>
+    <div class="frow">
+      <div class="field" style="flex:1"><label>② 异动类型</label><select id="trType">${TRANSFER_TYPES.map(t=>`<option value="${t[0]}"${rec.type===t[0]?" selected":""}>${t[1]}</option>`).join("")}</select></div>
       <div class="field" style="flex:.8"><label>发生时间</label><input type="date" id="trDate" value="${escA(rec.date||new Date().toISOString().slice(0,10))}"></div>
     </div>
     <div class="frow">
@@ -5633,9 +5658,10 @@ function transferForm(rec){
       <div class="field"><label>备注</label><input id="trNote" value="${escA(rec.note||"")}"></div>
     </div>`,
     `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="trSave">保存</button>`);
+  const q=$("#trStuQ"),list=$("#trStuList"),card=$("#trStuCard");
   const fill=()=>{
-    const name=$("#trName").value,t=$("#trType").value;
-    const p=rosterPool().find(x=>x.name===name);
+    const t=$("#trType").value;
+    const p=selName?pool.find(x=>x.name===selName):null;
     const clsTxt=p&&p.cls?p.cls+"班":"";
     let from="",to="";
     if(t==="dir_ph"){from="物理类";to="历史类";}
@@ -5645,17 +5671,46 @@ function transferForm(rec){
     else if(t==="out_borrow"){from="我校";to="外校（借读）";}
     else if(t==="suspend"){from=clsTxt;to="休学";}
     else if(t==="quit"){from=clsTxt;to="已退学";}
-    $("#trFrom").value=isEdit&&rec.type===t?(rec.from||from):from;
-    $("#trTo").value=isEdit&&rec.type===t?(rec.to||to):to;
+    $("#trFrom").value=curEdit&&rec.type===t?(rec.from||from):from;
+    $("#trTo").value=curEdit&&rec.type===t?(rec.to||to):to;
   };
+  const showCard=()=>{
+    card.innerHTML=selName?transferStuCard(selName):'<div class="notice">👆 请先在上方搜索并点选学生</div>';
+    const ch=$("#trStuChange");
+    if(ch)ch.onclick=()=>{selName="";curEdit=false;q.value="";list.style.display="none";showCard();q.focus();};
+    list.style.display="none";fill();
+  };
+  const renderList=()=>{
+    const raw=String(q.value||"").trim().toLowerCase();
+    if(!raw){list.innerHTML='<div class="muted" style="padding:8px">输入姓名或班级后显示匹配学生</div>';list.style.display="block";return;}
+    const compact=raw.replace(/\s/g,"");
+    const hits=pool.filter(p=>String(p.name).toLowerCase().includes(raw)||
+      String(p.cls||"").includes(raw)||(String(p.cls||"")+String(p.name)).toLowerCase().includes(compact)).slice(0,60);
+    list.innerHTML=hits.length?hits.map(p=>{
+      const st=transferStatus(p.name);
+      return `<div class="stu-hit" data-name="${escA(p.name)}" style="padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer">
+        <b>${p.cls?"("+escA(p.cls)+"班) ":""}${escA(p.name)}</b>
+        ${p.absent?'<span class="chip">⚠ 缺考</span>':''}
+        ${st!=="在读"?`<span class="muted"> · ${escA(st)}</span>`:""}
+      </div>`;
+    }).join(""):`<div class="muted" style="padding:8px">无匹配学生（名单共 ${pool.length} 人）</div>`;
+    list.style.display="block";
+    list.querySelectorAll(".stu-hit").forEach(el=>el.onclick=()=>{
+      selName=el.dataset.name;if(selName!==rec.name)curEdit=false;
+      q.value="";showCard();
+    });
+  };
+  q.oninput=renderList;
+  q.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();const first=list.querySelector(".stu-hit");if(first)first.click();}};
   $("#trType").onchange=fill;
-  if(!isEdit)fill();else{$("#trFrom").value=rec.from||"";$("#trTo").value=rec.to||"";}
+  showCard();
   $("#trSave").onclick=async()=>{
-    const name=$("#trName").value,type=$("#trType").value,date=$("#trDate").value;
-    if(!name)return toast("请选择学生");
+    if(!selName)return toast("请先搜索并点选学生");
+    const name=selName,type=$("#trType").value,date=$("#trDate").value;
     if(!date)return toast("请填写发生时间");
+    const p=pool.find(x=>x.name===name)||{};
     const obj={id:rec.id||uid(),name,type,date,
-      cls:(rosterPool().find(x=>x.name===name)||{}).cls||rec.cls||"",
+      cls:p.cls||rec.cls||"",
       from:$("#trFrom").value.trim(),to:$("#trTo").value.trim(),
       reason:$("#trReason").value.trim(),note:$("#trNote").value.trim()};
     await putRec("transfers",obj);
