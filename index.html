@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v91";
+window.APP_VERSION="v92";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1456,7 +1456,7 @@ async function doRosterImport(){
 /* 适用上级下发的《平昌县高2025级学生信息表》类表格：无表头、第1行即数据，
    按内容特征自动识别姓名/性别/身份证/现住址（姓名左侧两列）/户籍（左侧四列）列。
    合并口径与通用名册导入一致：按姓名匹配，已存在只补空缺（住址/性别），新的追加。 */
-const NAME_ALIAS={"颜姣":"颜娇","吴诗语":"吴诗雨","王伊柠":"王洢柠"};
+const NAME_ALIAS={"颜姣":"颜娇","吴诗雨":"吴诗语","王伊柠":"王洢柠"};
 function normNameAlias(n){const s=String(n||"").replace(/\s+/g,"");return NAME_ALIAS[s]||s;}
 function parseInfoGrid(grid){
   const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
@@ -1527,7 +1527,7 @@ function findClsCol(rows){
 ACTIONS.infoImport=()=>{
   IInfo=null;
   openModal("导入学生信息表（官方格式 · 支持全年级）",`
-    <div class="notice blue">适用于上级下发的<b>无表头</b>学生信息表（第1行直接是学生数据，如《平昌县高2025级学生信息表》）。<b>全年级可整个工作簿一次导入：一个班一个工作表，工作表名含班号（如「15班」「15」「高一15班」）即自动识别班级；识别不了的可在下方预览里逐表指定。</b>自动按内容识别姓名、性别、身份证、现住址（姓名左侧两列）、户籍（左侧四列）列。导入按「班级+姓名」匹配：已存在的学生<b>只补空缺</b>的家庭住址/性别/班级（电话等已有信息不动），新的学生追加。字形变体（颜姣→颜娇、吴诗语→吴诗雨、王伊柠→王洢柠）自动纠正。</div>
+    <div class="notice blue">适用于上级下发的<b>无表头</b>学生信息表（第1行直接是学生数据，如《平昌县高2025级学生信息表》）。<b>全年级可整个工作簿一次导入：一个班一个工作表，工作表名含班号（如「15班」「15」「高一15班」）即自动识别班级；识别不了的可在下方预览里逐表指定。</b>自动按内容识别姓名、性别、身份证、现住址（姓名左侧两列）、户籍（左侧四列）列。导入按「班级+姓名」匹配：已存在的学生<b>只补空缺</b>的家庭住址/性别/班级（电话等已有信息不动），新的学生追加。字形变体（颜姣→颜娇、吴诗雨→吴诗语、王伊柠→王洢柠）自动纠正。</div>
     <div class="frow"><div class="field"><label>学生信息表文件（.xlsx / .xls，可含多个班的 sheet；.csv 单表按当前班级导入）</label><input type="file" id="infoFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
     <div id="infoLog" class="muted"></div>`,
     `<button class="btn" data-act="closeModal">取消</button>`);
