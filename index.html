@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v99";
+window.APP_VERSION="v100";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1772,14 +1772,16 @@ AppModule({id:"bzr",icon:"🏫",label:"班主任",order:2,render:renderBzr});
 
 /* ================= 班主任 · 班级成绩分析 ================= */
 function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
-/* v99 班级分析统计口径（存 settings.anaCfg，随云同步；默认：历史方向 / 前20名 / 并列保留）
-   统计范围固定为当前班级（默认班主任本人班级），不提供全年级口径 */
+/* v100 班级分析统计口径（存 settings.anaCfg，随云同步；默认：历史方向 / 前20名 / 口径=方向内年级前N）
+   前N名=年级维度切片（方向内按 _grDir、年级总榜按 _gr），只显示所选口径的一张榜；并列同分同名次全部保留（1224式名次天然含并列）
+   统计范围固定为当前班级（默认班主任本人班级），不提供全年级班级对比以外的口径 */
 function anaCfgOf(){
   const a=(settings().anaCfg)||{};
   const dir=a.dir==="物理"?"物理":"历史";
   let n=Number(a.topN);
   if(!Number.isInteger(n)||n<1||n>100)n=20;
-  return{dir,topN:n,tie:a.tie!==false};
+  const topBase=a.topBase==="grade"?"grade":"dir";
+  return{dir,topN:n,topBase};
 }
 function clsScoreView(){
   const exam=ensureExam();
@@ -1806,17 +1808,21 @@ function clsScoreView(){
   const excList=withT.filter(r=>{const ln=totalLine(exam,rowDir(r),"exc");return ln!=null&&r.total>=ln;});
   const critT=rows.filter(r=>{if(r.total==null)return false;const d=rowDir(r);const ln=totalLine(exam,d,"exc");return isCritScore(r.total,ln,"exc",exam);});
   const dirN={};withT.forEach(r=>{const d=rowDir(r);if(d)dirN[d]=(dirN[d]||0)+1;});
-  /* v99 优秀线与前N名：按设置的分析方向取线与名次（默认历史方向），范围=当前班级 */
+  /* v100 优秀线=方向线；前N名=年级维度切片（口径：方向内/年级总榜），只显示所选口径，范围=当前班级 */
   const ana=anaCfgOf();
   const anaDir=ana.dir;
   const topN=ana.topN;
+  const topBase=ana.topBase;
   const dirRowsC=withT.filter(r=>rowDir(r)===anaDir);
   const topLn=totalLine(exam,anaDir,"top");
   const excRowsT=topLn!=null?dirRowsC.filter(r=>r.total>=topLn).sort((a,b)=>b.total-a.total):[];
   const topSrc=(exam.lines&&exam.lines.dtotal&&exam.lines.dtotal[anaDir]&&exam.lines.dtotal[anaDir].top!=null)?"本场考试划线覆盖":"全局默认线";
-  const clsRanked=rows.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&r.total===0)).sort((a,b)=>b.total-a.total);
-  const clsTop=ana.tie?clsRanked.filter(r=>r._cr!=null&&r._cr<=topN):clsRanked.slice(0,topN);
-  const grTopN=dirRowsC.filter(r=>r._grDir!=null&&r._grDir<=topN);
+  const isGrade=topBase==="grade";
+  const topList=isGrade
+    ?withT.filter(r=>r._gr!=null&&r._gr<=topN).sort((a,b)=>a._gr-b._gr)
+    :dirRowsC.filter(r=>r._grDir!=null&&r._grDir<=topN).sort((a,b)=>a._grDir-b._grDir);
+  const rkTxt=isGrade?"年级名次":`${anaDir}方向内名次`;
+  const rkOf=r=>isGrade?r._gr:r._grDir;
   const weakMap={};
   rows.forEach(r=>{const cr=r._cr;if(!cr||!mine.n)return;const weak=[];
     exam.subjects.forEach(s=>{
@@ -1863,6 +1869,8 @@ function clsScoreView(){
       <select id="anaDirSel" style="width:100px">${["历史","物理"].map(d=>`<option value="${d}"${d===anaDir?" selected":""}>${d}方向${d==="历史"?"（默认）":""}</option>`).join("")}</select></div>
     <div class="bzrgrp"><span>前N名</span>
       <select id="anaTopNSel" style="width:88px">${[10,20,30,50].map(n=>`<option value="${n}"${n===topN?" selected":""}>前${n}</option>`).join("")}</select></div>
+    <div class="bzrgrp"><span>前N口径</span>
+      <select id="anaBaseSel" style="width:130px"><option value="dir"${topBase==="dir"?" selected":""}>${anaDir}方向内（默认）</option><option value="grade"${topBase==="grade"?" selected":""}>年级总榜</option></select></div>
     <div class="bzrgrp bzrcmp"><span>对比班级</span>
       ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
       ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(c)}班</option>`).join("")}</select>`:""}
@@ -1872,29 +1880,31 @@ function clsScoreView(){
   ${viewCls!==myCls&&clsList.includes(myCls)?`<div class="notice blue" style="margin-bottom:8px">正在查看 ${esc(viewCls)} 班的数据（自己的班级代码是「${esc(myCls)}」，切换回即可恢复默认）</div>`:""}`:""}
   <div class="statcards" style="grid-template-columns:repeat(3,1fr)">
     ${statCard(mine.n+(dirN["物理"]&&dirN["历史"]?`<small>物${dirN["物理"]}/历${dirN["历史"]}</small>`:""),"班级人数","",null)}
-    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+(topLn!=null?`<small>${anaDir}优秀线上${excRowsT.length}人</small>`:""),"总分均分",clipNames(clsTop,x=>`${x.name} ${fmtN(x.total,0)}（班第${x._cr}名）`),"#2563eb")}
+    ${statCard(fmtN(mine.total&&mine.total.avg)+(gradeClsRank[viewCls]?`<small>年级第${gradeClsRank[viewCls]}/${ce.classes.length} · </small>`:"")+(dirRankTxt?`<small>· ${dirRankTxt} · </small>`:"")+(topLn!=null?`<small>${anaDir}优秀线上${excRowsT.length}人</small>`:""),"总分均分",clipNames(topList,x=>`${x.name} ${fmtN(x.total,0)}（${rkTxt}第${rkOf(x)}名）`),"#2563eb")}
     ${statCard(prev?`<span class="hk" style="color:#dc2626" title="本次退步 ${upList.length} 人：${escA(dTip(upList))}">↓${upList.length} <small>退步</small></span> · <span class="hk" style="color:#16a34a" title="本次进步 ${downList.length} 人：${escA(dTip(downList))}">↑${downList.length} <small>进步</small></span>`:"—","较上次（方向排名）","",null)}
     ${statCard(`<span class="hk" style="color:#10b981" title="本科上线 ${benList.length} 人：${escA(clipNames(benList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#10b981">${benList.length}</b> · <span class="hk" style="color:#f97316" title="本科临界（浮动${critBenBand}） ${critRows.length} 人：${escA(tipCrit(critRows,"pass"))}">临界</span><b style="color:#f97316">${critRows.length}</b>`,`本科线`,"","#10b981")}
     ${statCard(`<span class="hk" style="color:#a855f7" title="特控上线 ${excList.length} 人：${escA(clipNames(excList,x=>`${x.name} ${fmtN(x.total,0)}`))}">上线</span><b style="color:#a855f7">${excList.length}</b> · <span class="hk" style="color:#f97316" title="特控临界（浮动${critExcBand}） ${critT.length} 人：${escA(tipCrit(critT,"exc"))}">临界</span><b style="color:#f97316">${critT.length}</b>`,`特控线`,"","#a855f7")}
     ${statCard(weakList.length+"<small>人</small>","偏科预警",clipNames(weakList,x=>`${x.name}（${x.weak}弱）`),"#f97316")}
   </div>
-  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（本班前${topN}名单）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
-  ${(() => { /* v99 优秀线与前N名统计：范围=当前班级（viewCls），方向/前N/并列在上方切换或「设置→成绩统计口径⑤」配置 */
+  <div class="muted" style="margin-top:2px;font-size:12px">鼠标悬浮到 总分均分（前${topN}名单·本班入选）/ 本科线 / 特控线 / 偏科预警 卡片上可查看名单；「较上次」卡片把鼠标移到 <span class="hk">↓退步</span> 或 <span class="hk">↑进步</span> 数字上，可分别查看退步名单 / 进步名单（最多前15人，超出显示"等共N人"）。</div>
+  ${(() => { /* v100 前N名=年级维度切片，只显示所选口径的一张榜；优秀线=方向线 */
     const excGap=dirRowsC.length?Math.max(...dirRowsC.map(r=>r.total)):null;
+    const topTitle=isGrade?`年级前 ${topN} 名 · 本班入选`:`年级${anaDir}方向前 ${topN} 名 · 本班入选`;
+    const dirCell=r=>isGrade?`<td class="ctr">${rowDir(r)||"—"}</td>`:String();
     return `<details open class="lnsec" style="margin-top:10px"><summary>🏆 优秀线与前N名 · ${esc(viewCls)}班 · ${anaDir}方向（统计范围=当前班级，可收起）</summary>
   <div class="grid2">
     <div><h3 style="font-size:14px;margin-bottom:8px">🏆 优秀线统计<span class="sub">${anaDir}方向优秀线 ${topLn!=null?fmtN(topLn,1):"未设"}（${topSrc}）</span></h3>
       ${topLn==null?`<div class="empty">${anaDir}方向未设总分优秀线：到「设置 → 成绩统计口径」③ 填写「${anaDir}方向 优秀线」后回来</div>`
-      :excRowsT.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">班内名次</th><th>姓名</th><th class="ctr">方向</th><th class="ctr">总分</th><th class="ctr">方向内年级名次</th></tr></thead><tbody>
-        ${excRowsT.map(r=>`<tr><td class="ctr">${r._cr||"—"}</td><td><b>${esc(r.name)}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._grDir||"—"}</td></tr>`).join("")}
+      :excRowsT.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">班内名次</th><th>姓名</th><th class="ctr">总分</th><th class="ctr">方向内年级名次</th></tr></thead><tbody>
+        ${excRowsT.map(r=>`<tr><td class="ctr">${r._cr||"—"}</td><td><b>${esc(r.name)}</b></td><td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._grDir||"—"}</td></tr>`).join("")}
         </tbody></table></div><div class="muted" style="margin-top:4px">达线 ${excRowsT.length} 人 / 本班${anaDir}方向参考 ${dirRowsC.length} 人，占 ${fmtN(dirRowsC.length?excRowsT.length/dirRowsC.length*100:0)}%</div>`
       :`<div class="empty">优秀线 ${fmtN(topLn,1)} 分，本班${anaDir}方向最高 ${excGap!=null?fmtN(excGap,1):"—"} 分${excGap!=null?`，差距 ${fmtN(topLn-excGap,1)} 分`:String()}</div>`}
     </div>
-    <div><h3 style="font-size:14px;margin-bottom:8px">🔝 本班前 ${topN} 名<span class="sub">并列同分${ana.tie?"全部保留":"截断"}${ana.tie&&clsTop.length>topN?` · 扩榜至 ${clsTop.length} 人`:String()}</span></h3>
-      ${clsTop.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">班内名次</th><th>姓名</th><th class="ctr">方向</th><th class="ctr">总分</th><th class="ctr">方向内年级名次</th></tr></thead><tbody>
-        ${clsTop.map(r=>`<tr><td class="ctr">${r._cr||"—"}</td><td><b>${esc(r.name)}</b></td><td class="ctr">${rowDir(r)||"—"}</td><td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._grDir||"—"}</td></tr>`).join("")}
-        </tbody></table></div><div class="muted" style="margin-top:4px">本班参考 ${clsRanked.length} 人 · ${anaDir}方向年级前 ${topN} 名中本班占 ${grTopN.length} 人</div>`
-      :`<div class="empty">本班暂无有效总分数据</div>`}
+    <div><h3 style="font-size:14px;margin-bottom:8px">🔝 ${topTitle}<span class="sub">${isGrade?"按年级总排名（含两个方向）":`按${anaDir}方向内年级名次`} · 并列同分同名次全部保留</span></h3>
+      ${topList.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">${rkTxt}</th><th>姓名</th>${isGrade?"<th class='ctr'>方向</th>":String()}<th class="ctr">总分</th><th class="ctr">班内名次</th></tr></thead><tbody>
+        ${topList.map(r=>`<tr><td class="ctr"><b>${rkOf(r)}</b></td><td><b>${esc(r.name)}</b></td>${dirCell(r)}<td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._cr||"—"}</td></tr>`).join("")}
+        </tbody></table></div><div class="muted" style="margin-top:4px">${isGrade?"年级总榜":`${anaDir}方向榜`}前 ${topN} 名中，本班入选 ${topList.length} 人</div>`
+      :`<div class="empty">本班无人进入${isGrade?"年级":"年级"+anaDir+"方向"}前 ${topN} 名</div>`}
     </div>
   </div>
   </details>`;
@@ -2052,6 +2062,13 @@ clsScoreView.after=()=>{
     const n=Number(selAN.value);
     const st2=settings();
     st2.anaCfg=Object.assign({},st2.anaCfg,{topN:(Number.isInteger(n)&&n>=1&&n<=100)?n:20});
+    await saveMeta("settings",st2);
+    render();
+  };
+  const selB=$("#anaBaseSel");
+  if(selB)selB.onchange=async()=>{
+    const st2=settings();
+    st2.anaCfg=Object.assign({},st2.anaCfg,{topBase:selB.value==="grade"?"grade":"dir"});
     await saveMeta("settings",st2);
     render();
   };
@@ -3931,9 +3948,9 @@ function linesPanel(exam,modal){
   <div class="frow" style="margin-top:8px">
     <div class="field" style="flex:.8"><label>分析方向</label><select id="anaDir"><option value="历史"${(st.anaCfg&&st.anaCfg.dir)==="物理"?"":" selected"}>历史方向（默认）</option><option value="物理"${(st.anaCfg&&st.anaCfg.dir)==="物理"?" selected":""}>物理方向</option></select></div>
     <div class="field" style="flex:.8"><label>前N名 N 值（1–100）</label><input type="number" id="anaTopN" value="${(st.anaCfg&&st.anaCfg.topN)||20}"></div>
-    <div class="field" style="flex:1"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="anaTie" ${(!st.anaCfg||st.anaCfg.tie!==false)?"checked":""}> 前N名并列同分全部保留</label></div>
+    <div class="field" style="flex:1"><label>前N名口径</label><select id="anaBase"><option value="dir"${(st.anaCfg&&st.anaCfg.topBase)==="grade"?"":" selected"}>方向内年级前N（默认）</option><option value="grade"${(st.anaCfg&&st.anaCfg.topBase)==="grade"?" selected":""}>年级总榜前N</option></select></div>
   </div>
-  <div class="muted" style="margin-top:4px;font-size:12px">「班级成绩分析」的优秀线/前N名统计按所选方向取线与名次（默认<b>历史方向</b>）；统计范围固定为<b>当前班级</b>（默认班主任本人班级），不提供全年级口径。</div></details>`:""}
+  <div class="muted" style="margin-top:4px;font-size:12px">「班级成绩分析」的优秀线按所选<b>方向线</b>取值，前N名=年级维度切片（<b>方向内年级前N</b> 或 年级总榜前N，二选一显示，默认<b>方向内</b>，并列同分同名次全部保留）；统计范围固定为<b>当前班级</b>（默认班主任本人班级）。</div></details>`:""}
   <div class="flex">
     <button class="btn primary" data-act="${modal?"saveLinesModal":"saveLines"}">${isG?"保存全局默认线":"保存本考试划线覆盖"}</button>
     ${!isG?`<button class="btn" data-act="${modal?"clearExamLinesModal":"clearExamLines"}" data-id="${scope}">清除本考试自定义线（改用全局默认）</button>`:""}
@@ -3985,12 +4002,13 @@ ACTIONS.saveLines=async()=>{
     if(ct!=null)st.critBands.te=ct;
     st.bands=$("#lnBands").value.split(/[,，\s]+/).map(Number).filter(v=>v>0);
     st.zeroAsMissing=$("#lnZero").checked;
-    /* v99 班级分析统计口径：方向默认历史；N 值非法回退 20 并提示（V4） */
+    /* v100 班级分析统计口径：方向默认历史、口径=方向内/年级总榜；N 值非法回退 20 并提示（V4） */
     const ad=$("#anaDir");
     if(ad){
       const n=Number(($("#anaTopN")||{}).value);
       const okN=Number.isInteger(n)&&n>=1&&n<=100;
-      st.anaCfg={dir:ad.value==="物理"?"物理":"历史",topN:okN?n:20,tie:!!($("#anaTie")||{}).checked};
+      const ab=$("#anaBase");
+      st.anaCfg={dir:ad.value==="物理"?"物理":"历史",topN:okN?n:20,topBase:ab&&ab.value==="grade"?"grade":"dir"};
       if(!okN)toast("前N名 N 值需为 1–100 的整数，已回退默认 20");
     }
     await saveMeta("settings",st);toast("全局默认线已保存");render();return;
