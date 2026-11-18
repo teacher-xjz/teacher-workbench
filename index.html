@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v86";
+window.APP_VERSION="v87";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5558,7 +5558,11 @@ function rosterAt(date){
     });
     let clsNow=p.cls,status="在读";
     if(cur){
-      status=transferStatus(p.name);
+      /* 状态也按基准日期推导（与 clsNow 同源），不用全局最新——将来复学记录不会污染历史回放 */
+      status=(()=>{switch(cur.type){
+        case "quit":return "已退学";case "suspend":return "休学";case "out_borrow":return "借读外校";
+        case "in_borrow":return "借读生";case "cls_move":return "现读"+(cur.to||"新班");
+        case "dir_ph":return "现属历史类";case "dir_hp":return "现属物理类";default:return "在读";}})();
       if(cur.type==="cls_move")clsNow=normClsNum(cur.to)||"";
       else if(cur.type==="quit"||cur.type==="out_borrow")clsNow="";
     }
@@ -5586,7 +5590,7 @@ function jwTransfer(){
     <select class="searchbox" id="trTypeSel" style="max-width:150px">${typeOpts}</select>
     <select class="searchbox" id="trClsSel" style="max-width:100px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${fCls===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>
     <input class="searchbox" placeholder="搜索姓名/原因…" value="${escA(State.trQ||"")}" id="trSearch" style="max-width:160px">
-    <button class="btn" data-act="rosterExport">⬇️ 导出应考名单</button>
+    <button class="btn" data-act="rosterExport" title="按异动台账回放到基准日期（默认今天），导出下次考试参考名单，只有姓名/班级两列">⬇️ 导出应考名单</button>
     <button class="btn primary" data-act="transferNew">＋ 新增异动</button></h3>
     <div class="notice blue"><b>状态总览（按每生最新记录推导，共 ${pool.length} 人）：</b>${stHtml||"暂无异动记录，全部在读"}</div>
     ${trace?`<div class="notice blue"><b>📜 历史追溯：${escA(trace)}</b>（按时间正序，共 ${list.length} 条）<span class="spacer"></span><button class="btn sm" data-act="transferBack">↩ 退出追溯</button></div>`:""}
@@ -5753,50 +5757,55 @@ ACTIONS.examRosterCheck=id=>{
     <div class="card"><h4 style="margin:4px 0">🔀 调班后班级与名单不一致——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：名单"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
     `<button class="btn primary" data-act="closeModal">知道了</button>`);
 };
-/* ===== 导出应考名单（v86）：按考试日期回放（rosterAt），只导出「姓名 / 班级」两列 =====
-   口径：选一场考试 → 用异动台账回放该考试日期的应考名单 → 休学者在休学日起从名单消失、
-   复学/转班按时间线算对；名单池=考试库 rows 并集 ∪ 名册，缺考生保留。只导姓名班级两列，不含任何其它信息。 */
-function buildRosterExport(examId){
-  const e=examById(examId)||currentExam();
-  if(!e)return null;
-  const snap=rosterAt(e.date);
+/* ===== 导出应考名单（v87）：面向「下一次考试」，按日期回放（rosterAt），只两列 =====
+   考试库只录已考完的考试，下拉选考试永远选不出"下一次"——改为直接指定基准日期（默认今天）：
+   异动台账回放到该日，凡休学/退学/借读外校已生效者自动不在名单；已知下次考试日期或
+   考前将有异动生效时，把日期改成考试日即可。名单池=考试库 rows 并集 ∪ 名册，缺考生保留。 */
+function buildRosterExport(date){
+  const ds=String(date||todayStr());
+  if(!ds)return null;
+  const snap=rosterAt(ds);
   /* 只保留应考在读（status==="在读"）：休学/退学/借读外校等在该日期不计入应考名单 */
   const on=snap.filter(p=>p.status==="在读");
   const sorted=on.slice().sort((a,b)=>String(a.cls||"zz").localeCompare(String(b.cls||"zz"),"zh")||
     String(a.name||"").localeCompare(String(b.name||""),"zh"));
   const rows=sorted.map(p=>[p.name,String(p.cls||"")]);
   const excluded=snap.filter(p=>p.status!=="在读");
-  return{exam:e,head:["姓名","班级"],rows,total:rows.length,excluded:excluded.map(p=>({name:p.name,status:p.status}))};
+  return{date:ds,head:["姓名","班级"],rows,total:rows.length,excluded:excluded.map(p=>({name:p.name,status:p.status}))};
 }
-function doRosterExport(examId){
-  const P=buildRosterExport(examId);
-  if(!P)return toast("暂无考试，无法导出名单");
-  if(!P.total)return toast("该场考试无应考学生");
+function doRosterExport(date){
+  const P=buildRosterExport(date);
+  if(!P)return toast("请先选择基准日期");
+  if(!P.total)return toast("该日期无应考学生");
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet([P.head,...P.rows]);
   ws["!cols"]=[{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws,"应考名单");
-  XLSX.writeFile(wb,"应考名单_"+P.exam.name+"_"+todayStr()+".xlsx");
-  toast(`已导出「${P.exam.name}」应考名单 ${P.total} 人（姓名+班级两列）`);
+  XLSX.writeFile(wb,"下次考试参考名单_截至"+P.date+".xlsx");
+  toast(`已导出截至 ${P.date} 的应考名单 ${P.total} 人（姓名+班级两列）`);
 }
-/* 导出面板：选考试 → 预览人数与被排除者 → 导出 */
+/* 导出面板：选基准日期（默认今天）→ 预览人数与被排除者 → 导出 */
 ACTIONS.rosterExport=()=>{
-  const exs=examsSorted();
-  if(!exs.length)return toast("暂无考试，无法导出名单");
-  const cur=currentExam();
-  const opts=exs.map(e=>`<option value="${e.id}"${e&&e.id===cur.id?" selected":""}>${esc(e.name)}（${esc(e.date||"")}）</option>`).join("");
-  openModal("导出应考名单",`
-    <div class="notice blue">按所选考试的<b>日期</b>回放应考名单（依据异动台账）：休学/退学等学生从其生效日起自动不出现在名单中，之前的考试仍在。导出文件<b>只含「姓名、班级」两列</b>。</div>
-    <div class="frow"><div class="field" style="flex:2"><label>选择考试</label><select id="reExam">${opts}</select></div></div>
+  const today=todayStr();
+  openModal("导出应考名单（下次考试参考）",`
+    <div class="notice blue">名单=<b>异动台账回放到基准日期</b>后的在读学生：休学/退学等学生从其生效日起自动不出现在名单中。文件<b>只含「姓名、班级」两列</b>，用于编排下一次考试。<b>默认今天</b>；若已知下次考试日期，或考前还有异动要生效，请把日期改为考试日。</div>
+    <div class="frow"><div class="field" style="flex:1.2"><label>基准日期（该日应考状态）</label><input type="date" id="reDate" value="${escA(today)}"></div>
+    <div class="field" style="flex:2"><label>快捷</label>
+      <button class="btn sm" id="reToday" style="margin-right:6px">截至今天</button>
+      <span class="muted">直接导出=默认今天；改日期后预览自动刷新</span></div></div>
     <div id="rePreview"></div>`,
     `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="reSave">⬇️ 导出名单</button>`);
-  const sel=$("#reExam"),prev=$("#rePreview");
+  const sel=$("#reDate"),prev=$("#rePreview");
   const refresh=()=>{
     const P=buildRosterExport(sel.value);
     if(!P){prev.innerHTML="";return;}
-    prev.innerHTML=`<div class="notice">「${esc(P.exam.name)}」（${escA(P.exam.date||"")}）：<b>应考 ${P.total} 人</b>${P.excluded.length?` · 按异动排除 ${P.excluded.length} 人（${P.excluded.slice(0,8).map(x=>escA(x.name)+"·"+escA(x.status)).join("、")}${P.excluded.length>8?" 等":""}）`:""}</div>`;
+    /* 班级分布一行，方便编排考场 */
+    const byCls={};P.rows.forEach(r=>{const c=r[1]||"未分班";byCls[c]=(byCls[c]||0)+1;});
+    const dist=Object.entries(byCls).sort((a,b)=>Number(a[0])-Number(b[0])).map(([c,n])=>c+"班"+n).join(" · ");
+    prev.innerHTML=`<div class="notice"><b>截至 ${escA(P.date)}：应考 ${P.total} 人</b>${P.excluded.length?` · 按异动排除 ${P.excluded.length} 人（${P.excluded.slice(0,8).map(x=>escA(x.name)+"·"+escA(x.status)).join("、")}${P.excluded.length>8?" 等":""}）`:"（无排除）"}<div class="muted" style="margin-top:4px">${escA(dist)}</div></div>`;
   };
   sel.onchange=refresh;refresh();
+  $("#reToday").onclick=()=>{sel.value=today;refresh();};
   $("#reSave").onclick=()=>{doRosterExport(sel.value);closeModal();};
 };
 /* 子页注册：见 jw/jw_data.js 的 JW_GROUPS（学生组["transfer","异动记录"]）与 renderJw 的路由表；
