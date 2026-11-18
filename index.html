@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v96";
+window.APP_VERSION="v97";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -450,6 +450,20 @@ const DEF_SETTINGS={school:"四川省平昌县第二中学",grade:"高2025级",c
 function settings(){const s=Object.assign({},DEF_SETTINGS,State.meta.settings||{});
   for(const k of["full","pass","exc","critical","dpass","dexc","dtotal","critBands"])s[k]=Object.assign({},DEF_SETTINGS[k],(State.meta.settings||{})[k]);
   return s;}
+/* ================= 名字纠错（v97 集中管理） =================
+   规则统一存 State.meta.settings.nameAlias（{错写:正确}），随设置云同步；
+   「教务→数据出入口」面板可视化管理（增/删/应用到全库）。
+   内置 DEFAULT_NAME_ALIAS 兜底（历次核实的口径，勿删）；用户规则叠加其上。
+   normNameAlias() 在所有人名入库入口调用（成绩导入/名册导入/学生信息表导入/CRUD 手工录入），
+   只做写法归一：trim 去空白后精确匹配整名，正确名字一律不动；链式规则自动解析（≤3跳防环）。 */
+const DEFAULT_NAME_ALIAS={"颜娇":"颜姣","吴诗雨":"吴诗语","王伊柠":"王洢柠"};
+function aliasMap(){return Object.assign({},DEFAULT_NAME_ALIAS,(State.meta.settings||{}).nameAlias||{});}
+function normNameAlias(n){
+  let s=String(n||"").replace(/\s+/g,"");if(!s)return s;
+  const m=aliasMap();
+  for(let i=0;i<3&&m[s];i++)s=m[s];
+  return s;
+}
 /* ================= 路由与导航 ================= */
 const ACTIONS={};
 /* v81 模块化：NAVS/路由不再写死，由各模块文件通过 AppModule() 注册（按 order 排序）。
@@ -708,6 +722,8 @@ function openCrudModal(btn){
       else obj[f.k]=el.value.trim();
       if(f.req&&!obj[f.k]){toast("请填写："+f.label);return;}
     }
+    /* v97 名字纠错：学生名册手工录入/编辑时也按规则归一写法 */
+    if(store==="students"&&obj.name)obj.name=normNameAlias(obj.name);
     await putRec(store,obj);closeModal();toast("已保存");render();
   };
 }
@@ -1433,6 +1449,7 @@ async function doRosterImport(){
       rec[t]=v;
     });
     if(!rec.name)continue;
+    rec.name=normNameAlias(rec.name); /* v97 名字纠错：名册导入写法归一 */
     if(!rec.cls&&st.clsCode)rec.cls=st.clsCode;
     const key=rec.name+"|"+(rec.cls||"");
     let ex=State.data.students.find(s=>s.name+"|"+(s.cls||"")===key)||State.data.students.find(s=>s.name===rec.name&&(!s.cls||!rec.cls));
@@ -1452,12 +1469,11 @@ async function doRosterImport(){
   render();
 }
 
-/* ================= v82 学生信息表导入（官方无表头固定列位格式） ================= */
-/* 适用上级下发的《平昌县高2025级学生信息表》类表格：无表头、第1行即数据，
+/* ================= v82 学生信息表导入（官方无表头固定列位格式） =================
+   适用上级下发的《平昌县高2025级学生信息表》类表格：无表头、第1行即数据，
    按内容特征自动识别姓名/性别/身份证/现住址（姓名左侧两列）/户籍（左侧四列）列。
-   合并口径与通用名册导入一致：按姓名匹配，已存在只补空缺（住址/性别），新的追加。 */
-const NAME_ALIAS={"颜娇":"颜姣","吴诗雨":"吴诗语","王伊柠":"王洢柠"};
-function normNameAlias(n){const s=String(n||"").replace(/\s+/g,"");return NAME_ALIAS[s]||s;}
+   合并口径与通用名册导入一致：按姓名匹配，已存在只补空缺（住址/性别），新的追加。
+   v97：normNameAlias 下沉 core.js（规则集中管理，见「数据出入口→名字纠错规则」），此处只调用。 */
 function parseInfoGrid(grid){
   const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
   if(!rows.length)throw new Error("空表格");
@@ -2820,7 +2836,7 @@ async function doImport(){
       const raw=row[ci];const v=raw==null?"":String(raw).trim();
       if(t==="ignore"||v==="")return;
       if(t==="cls")rec.cls=v.replace(/^(高[一二三])?0*/,"").replace(/班$/,"")||v;
-      else if(t==="name")rec.name=v;
+      else if(t==="name")rec.name=normNameAlias(v); /* v97 名字纠错：成绩导入写法归一 */
       else if(t==="sid")rec.sid=v;else if(t==="kid")rec.kid=v;
       else if(t==="total")rec.total=v;
       else if(t==="gradeRank")rec.gradeRank=v;else if(t==="clsRank")rec.clsRank=v;
@@ -5908,8 +5924,75 @@ function jwDataio(){
       <button class="btn" data-act="ioGoSet">⚙️ 去设置 → 同步与备份</button>
     </div>
     <div class="muted" style="margin:6px 0 0 4px">全量备份/恢复、GitHub 同步配置都在设置页，此处仅为入口指引。</div>
+    ${aliasCard()}
   </div>`;
 }
+/* ================= 名字纠错规则（v97 集中管理） =================
+   规则={错写:正确}，存 State.meta.settings.nameAlias（随设置云同步）+ 内置兜底。
+   导入（成绩/名册/学生信息表）与名册手工录入自动归一；存量数据用「应用到全库」一次性修正。 */
+function aliasCard(){
+  const rules=Object.entries(aliasMap());
+  const user=(State.meta.settings||{}).nameAlias||{};
+  return `<div style="margin-top:18px;padding-top:12px;border-top:1px dashed var(--line)">
+    <h3>📝 名字纠错规则 <span class="muted" style="font-size:12px">（写法归一：发现「XX」实为「YY」的笔误就加一条，全局生效）</span></h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">
+      ${rules.map(([f,t])=>`<span class="chip" style="font-size:12px">${escA(f)} → <b>${escA(t)}</b>${user[f]?` <a href="javascript:void(0)" data-act="aliasDel" data-k="${escA(f)}" style="color:var(--red);margin-left:2px">✕</a>`:' <span class="muted" style="font-size:11px">内置</span>'}</span>`).join("")||'<span class="muted">暂无规则</span>'}
+    </div>
+    <div class="frow" style="gap:8px;align-items:flex-end">
+      <div class="field" style="flex:.8"><label>错写（表里出现的写法）</label><input id="alFrom" placeholder="如：颜娇"></div>
+      <div class="field" style="flex:.8"><label>正确（应统一为）</label><input id="alTo" placeholder="如：颜姣"></div>
+      <div class="field" style="flex:.4"><button class="btn" data-act="aliasAdd">＋ 加规则</button></div>
+      <div class="field" style="flex:.6"><button class="btn primary" data-act="aliasApply">🛠 应用到全库</button></div>
+    </div>
+    <div class="muted" style="margin:4px 0 0 4px">规则立即对后续导入生效；「应用到全库」把已入库数据（学生名册/成绩行/异动/值日/家长联系）里的错写一次性修正并云同步——只精确匹配整个名字，正确名字不受影响。内置规则为历次核实的口径，不提供删除。</div>`;
+}
+ACTIONS.aliasAdd=async()=>{
+  const f=($("#alFrom").value||"").trim(),t=($("#alTo").value||"").trim();
+  if(!f||!t)return toast("错写与正确写法都要填");
+  if(f===t)return toast("两条写法相同，不需要规则");
+  const eff=aliasMap();
+  if(eff[t])return toast(`「${t}」已是某条规则的错写（会形成链），请先理清再添加`);
+  if(Object.values(eff).includes(f))return toast(`「${f}」已是某条规则的正确写法，不需要再加`);
+  const s=Object.assign({},State.meta.settings||{});
+  s.nameAlias=Object.assign({},s.nameAlias||{},{[f]:t});
+  await saveMeta("settings",s);
+  toast(`规则已保存：${f} → ${t}（后续导入自动生效，随云同步）`);
+  render();
+};
+ACTIONS.aliasDel=async key=>{
+  const cur=(State.meta.settings||{}).nameAlias||{};
+  if(!cur[key])return;
+  if(!confirm(`删除自定义规则「${key} → ${cur[key]}」？\n（已按它修正过的数据不会回退；内置规则不受影响）`))return;
+  const s=Object.assign({},State.meta.settings||{});
+  delete s.nameAlias[key];
+  await saveMeta("settings",s);
+  toast("规则已删除");render();
+};
+/* 应用到全库：先统计后确认再写回；扫描 students.name / exams rows[].name /
+   transfers.name / duties.name（、分隔逐个）/ contacts.student；链式规则与 normNameAlias 同源解析 */
+ACTIONS.aliasApply=async()=>{
+  const M=aliasMap();
+  const fix=n=>{let s=String(n||"").replace(/\s+/g,"");if(!s)return n;for(let i=0;i<3&&M[s];i++)s=M[s];return s;};
+  const c={stu:0,exRows:0,exams:0,tr:0,duty:0,ct:0};
+  (State.data.students||[]).forEach(s=>{if(fix(s.name)!==s.name)c.stu++;});
+  (State.data.exams||[]).forEach(e=>{let n0=0;(e.rows||[]).forEach(r=>{if(fix(r.name)!==r.name)n0++;});if(n0){c.exRows+=n0;c.exams++;}});
+  (State.data.transfers||[]).forEach(t=>{if(fix(t.name)!==t.name)c.tr++;});
+  (State.data.duties||[]).forEach(d=>{if(String(d.name||"").split(/[,，、]/).some(x=>fix(x)!==x.trim()))c.duty++;});
+  (State.data.contacts||[]).forEach(x=>{if(fix(x.student)!==x.student)c.ct++;});
+  const total=c.stu+c.exRows+c.tr+c.duty+c.ct;
+  if(!total)return toast("全库扫描完成：没有需要修正的名字 ✓");
+  const ruleTxt=Object.entries(M).map(([f,t])=>f+"→"+t).join("，");
+  if(!confirm(`按 ${Object.keys(M).length} 条规则（${ruleTxt}）扫描：\n· 学生名册 ${c.stu} 人\n· 成绩行 ${c.exRows} 处（涉及 ${c.exams} 场考试）\n· 异动记录 ${c.tr} 条\n· 值日安排 ${c.duty} 条\n· 家长联系 ${c.ct} 条\n共 ${total} 处需要修正。将直接改写并云同步（不可撤销，建议先在设置里做一次全量备份）。确定执行？`))return;
+  for(const s of State.data.students){const n=fix(s.name);if(n&&n!==s.name){s.name=n;await putRec("students",s);}}
+  for(const e of State.data.exams){let ch=false;(e.rows||[]).forEach(r=>{const n=fix(r.name);if(n&&n!==r.name){r.name=n;ch=true;}});if(ch)await putRec("exams",e);}
+  for(const t of State.data.transfers||[]){const n=fix(t.name);if(n&&n!==t.name){t.name=n;await putRec("transfers",t);}}
+  for(const d of State.data.duties||[]){const parts=String(d.name||"").split(/([,，、])/);let ch=false;
+    for(let i=0;i<parts.length;i+=2){const n=fix(parts[i]);if(n&&n!==parts[i].trim()){parts[i]=n;ch=true;}}
+    if(ch){d.name=parts.join("");await putRec("duties",d);}}
+  for(const x of State.data.contacts||[]){const n=fix(x.student);if(n&&n!==x.student){x.student=n;await putRec("contacts",x);}}
+  render();
+  toast(`全库修正完成：学生 ${c.stu} · 成绩行 ${c.exRows}（${c.exams}场考试）· 异动 ${c.tr} · 值日 ${c.duty} · 家长联系 ${c.ct}，共 ${total} 处（已云同步）`);
+};
 /* 在浏览器内即时生成上传模板（与交付的 学生信息上传模板.xlsx 同口径：三表+说明，无下拉校验——SheetJS 社区版不支持写校验，说明页已列枚举） */
 ACTIONS.ioTemplate=()=>{
   const wb=XLSX.utils.book_new();
