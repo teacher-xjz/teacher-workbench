@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v87";
+window.APP_VERSION="v88";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5609,7 +5609,15 @@ function jwTransfer(){
 jwTransfer.after=()=>{
   const t=$("#trTypeSel");if(t)t.onchange=()=>{State.trType=t.value;renderKeep();};
   const c=$("#trClsSel");if(c)c.onchange=()=>{State.trCls=c.value;renderKeep();};
-  const s=$("#trSearch");if(s)s.oninput=()=>{State.trQ=s.value;renderKeep();const i=$("#trSearch");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}};
+  /* IME 安全：中文输入法合成期间（compositionstart~end）不重渲染，选字完成后再应用——
+     原实现每个 input 事件都 renderKeep() 销毁重建输入框，中文打一半拼音就被截断。 */
+  const s=$("#trSearch");
+  if(s){
+    let composing=false;
+    s.addEventListener("compositionstart",()=>composing=true);
+    s.addEventListener("compositionend",()=>{composing=false;State.trQ=s.value;renderKeep();const i=$("#trSearch");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}});
+    s.oninput=()=>{if(!composing){State.trQ=s.value;renderKeep();const i=$("#trSearch");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}}};
+  }
 }
 /* ---------- 学生资料卡：搜索选中后展示，确认是本人再标记异动 ---------- */
 function transferStuCard(name){
@@ -5706,7 +5714,8 @@ function transferForm(rec){
     });
   };
   q.oninput=renderList;
-  q.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();const first=list.querySelector(".stu-hit");if(first)first.click();}};
+  /* 回车选第一个：输入法选字回车（isComposing/229）不算，避免打中文时误选学生 */
+  q.onkeydown=e=>{if(e.isComposing||e.keyCode===229)return;if(e.key==="Enter"){e.preventDefault();const first=list.querySelector(".stu-hit");if(first)first.click();}};
   $("#trType").onchange=fill;
   showCard();
   $("#trSave").onclick=async()=>{
