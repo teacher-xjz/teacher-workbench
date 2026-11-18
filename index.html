@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v89";
+window.APP_VERSION="v90";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -999,7 +999,7 @@ const CRUDCFG={
     {k:"phone",label:"本人电话",w:1},{k:"father",label:"父亲",w:.8},{k:"fatherPhone",label:"父亲电话",w:1},
     {k:"mother",label:"母亲",w:.8},{k:"motherPhone",label:"母亲电话",w:1},
     {k:"address",label:"家庭住址",w:2},{k:"idcard",label:"身份证号",w:1.4},
-    {k:"status",label:"在读状态",type:"select",opts:["在读","休学","借读外校","离班"],w:.8},
+    {k:"status",label:"在读状态",type:"select",opts:["在读","休学","借读外校","借读生","旁听","已离校"],w:.8},
     {k:"note",label:"备注",type:"textarea",w:2}],
     cols:[{label:"学号",k:"sid"},{label:"姓名",k:"name"},{label:"性别",k:"sex",ctr:1},{label:"班级",k:"cls",ctr:1},
       {label:"住宿",k:"boarding",ctr:1},{label:"父亲",k:"father"},{label:"父亲电话",k:"fatherPhone"},
@@ -5569,6 +5569,14 @@ function rosterAt(date){
       if(cur.type==="cls_move")clsNow=normClsNum(cur.to)||"";
       else if(cur.type==="resume")clsNow=normClsNum(cur.to)||clsNow;
       else if(cur.type==="quit"||cur.type==="out_borrow"||cur.type==="transfer_out")clsNow="";
+    }else if(ds>=todayStr()){
+      /* v90 名册状态兜底：无异动记录、且回放基准=今天或未来时，采用名册「在读状态」。
+         约定：历史离校者（如22班）不补异动台账，直接在名册标「已离校」；以后的新异动才进台账。
+         匹配：同名唯一→直接用；重名→按班级消歧（考试行班级是旧班号时，靠同名唯一性兜住）。 */
+      const cands=(State.data.students||[]).filter(x=>String(x.name||"").trim()===p.name);
+      const hit=cands.length===1?cands[0]:cands.find(x=>normClsNum(x.cls)===normClsNum(p.cls));
+      const st=String((hit||{}).status||"").trim();
+      if(st&&st!=="在读")status=st;
     }
     return{name:p.name,cls:p.cls,absent:p.absent,clsNow,status,inPool:!!cur};
   });
@@ -5755,8 +5763,12 @@ ACTIONS.examRosterCheck=id=>{
   const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
   /* 应考在读，但不在考试名单 */
   const missing=snap.filter(p=>p.status==="在读"&&!names.has(p.name));
-  /* 在考试名单，但状态是退学/休学/借读外校/已转校 */
-  const extra=rows.filter(r=>["已退学","休学","借读外校","已转校"].includes(transferStatus(String(r.name||"").trim())));
+  /* 在考试名单，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断 */
+  const BAD=["已退学","休学","借读外校","已转校","已离校"];
+  const extra=rows.filter(r=>{
+    const sp=snap.find(x=>x.name===String(r.name||"").trim());
+    return sp&&BAD.includes(sp.status);
+  });
   /* 班级与快照不符（调班后未更新名单） */
   const moved=rows.filter(r=>{
     const p=snap.find(x=>x.name===String(r.name||"").trim());
