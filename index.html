@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v84";
+window.APP_VERSION="v85";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -993,7 +993,7 @@ const TEACHER_SEED=[
 
 /* ================= CRUD 配置 ================= */
 const CRUDCFG={
-  students:{title:"学生名册",tools:`<button class="btn" data-act="rosterImport">📥 导入Excel</button><button class="btn" data-act="infoImport">🏫 导入学生信息表</button>`,fields:[
+  students:{title:"学生名册",tools:`<button class="btn" data-act="rosterImport">📥 导入Excel</button><button class="btn" data-act="infoImport">🏫 导入学生信息表</button><button class="btn" data-act="rosterExport">⬇️ 导出应考名单</button>`,fields:[
     {k:"sid",label:"学号",w:1},{k:"name",label:"姓名",req:1,w:1},{k:"sex",label:"性别",type:"select",opts:["男","女"],w:.6},
     {k:"cls",label:"班级",w:.6},{k:"boarding",label:"住宿情况",type:"select",opts:["通校","住校","女生公寓","男生公寓","走读","其他"],w:.8},
     {k:"phone",label:"本人电话",w:1},{k:"father",label:"父亲",w:.8},{k:"fatherPhone",label:"父亲电话",w:1},
@@ -5751,6 +5751,44 @@ ACTIONS.examRosterCheck=id=>{
     <div class="card"><h4 style="margin:4px 0">❓ 应考在读、但不在考试名单——${missing.length} 人</h4><div>${lis(missing,p=>escA(p.name)+(p.cls?"（"+escA(p.cls)+"班）":""))}</div></div>
     <div class="card"><h4 style="margin:4px 0">🔀 调班后班级与名单不一致——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：名单"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
     `<button class="btn primary" data-act="closeModal">知道了</button>`);
+};
+/* ===== 导出应考名单（v85）：名册 + 异动状态列，休学等人保留但标注，不删行 =====
+   状态取自异动台账实时推导（transferStatus），而非名册 status 字段——
+   因为异动不自动改名册状态（v83 约定），必须按 latestTransfer 推导才反映最新休学/退学等。 */
+function buildRosterExport(){
+  const students=(State.data.students||[]).slice();
+  /* 名册班级筛选：若当前名册页选了某班，只导出该班；否则全部 */
+  const f=State.f_students||"";
+  const list=f?students.filter(s=>String(s.cls)===f):students;
+  const sorted=list.slice().sort((a,b)=>String(a.cls||"zz").localeCompare(String(b.cls||"zz"),"zh")||
+    String(a.sid||"").localeCompare(String(b.sid||""),"zh")||String(a.name||"").localeCompare(String(b.name||""),"zh"));
+  /* 表头：学号 姓名 性别 班级 住宿 本人电话 父亲 父电话 母亲 母电话 住址 + 异动状态 + 备注 */
+  const head=["学号","姓名","性别","班级","住宿","本人电话","父亲","父亲电话","母亲","母亲电话","家庭住址","异动状态","备注"];
+  const note=["说明：异动状态取自「教务→学生→异动记录」台账实时推导；休学/退学/借读外校等学生仍保留在本表，仅在此列标注，请使用时留意。"];
+  const rows=sorted.map(s=>{
+    const nm=String(s.name||"").trim();
+    const st=nm?transferStatus(nm):"在读";
+    const lt=nm?latestTransfer(nm):null;
+    const statusCell=st==="在读"?"在读":st+(lt&&lt.date?"（"+lt.date+"起）":"");
+    return [s.sid||"",nm,s.sex||"",s.cls||"",s.boarding||"",s.phone||"",
+      s.father||"",s.fatherPhone||"",s.mother||"",s.motherPhone||"",s.address||"",
+      statusCell,s.note||""];
+  });
+  /* 统计标注人数，供提示 */
+  const marked=rows.filter(r=>r[11]!=="在读").length;
+  return{head,note,rows,marked,total:rows.length,clsFilter:f};
+}
+ACTIONS.rosterExport=()=>{
+  const P=buildRosterExport();
+  if(!P.total)return toast("名册为空，无可导出学生");
+  const wb=XLSX.utils.book_new();
+  const aoa=[P.head,...P.rows,[],[...P.note]];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"]=[{wch:10},{wch:10},{wch:6},{wch:6},{wch:12},{wch:14},{wch:9},{wch:14},{wch:9},{wch:14},{wch:34},{wch:20},{wch:20}];
+  XLSX.utils.book_append_sheet(wb,ws,"应考名单");
+  const tag=P.clsFilter?P.clsFilter+"班":"全年级";
+  XLSX.writeFile(wb,"应考名单_"+tag+"_"+todayStr()+".xlsx");
+  toast(`已导出 ${tag} 应考名单（${P.total} 人${P.marked?"，其中 "+P.marked+" 人标注意动状态":""}）`);
 };
 /* 子页注册：见 jw/jw_data.js 的 JW_GROUPS（学生组["transfer","异动记录"]）与 renderJw 的路由表；
    ACTIONS 均为全局挂载，无需额外注册。 */
