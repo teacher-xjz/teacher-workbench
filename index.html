@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v97";
+window.APP_VERSION="v98";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5809,17 +5809,23 @@ function rosterCheckResult(exam){
   const snap=rosterAt(exam.date);
   const rows=exam.rows||[];
   const names=new Set(rows.map(r=>String(r.name||"").trim()));
-  const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
+  /* v98：缺考行=无成绩或全 0（对齐统计口径"单科0分=缺考、总分0=全缺考"） */
+  const scoreVals=r=>Object.values(r.s||{}).filter(v=>v!=null&&v!=="");
+  const isAbsentRow=r=>!scoreVals(r).some(v=>Number(v)!==0);
+  const absent=rows.filter(isAbsentRow);
   /* 应缺考名单（v93 排除法）：非 BAD 状态（含转班后"现读X班"、借读生）都应出现在考试里 */
   const missing=snap.filter(p=>!NOT_EXAM.includes(p.status)&&!names.has(p.name));
-  /* 在成绩行里，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断 */
+  /* 在成绩行里且有实际成绩，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断。
+     v98：全0缺考行不算（人没考，与"不在应考状态"一致，不算疑点） */
   const BAD=["已退学","休学","借读外校","已转校","已离校"];
   const extra=rows.filter(r=>{
+    if(isAbsentRow(r))return false;
     const sp=snap.find(x=>x.name===String(r.name||"").trim());
     return sp&&BAD.includes(sp.status);
   });
-  /* 班级与快照不符（调班后未更新名单） */
+  /* 班级与快照不符（调班后未更新名单）；缺考行全0不参与统计，同样跳过 */
   const moved=rows.filter(r=>{
+    if(isAbsentRow(r))return false;
     const p=snap.find(x=>x.name===String(r.name||"").trim());
     return p&&p.clsNow&&/^现读/.test(p.status)&&p.clsNow!==String(r.cls||"");
   });
@@ -5831,8 +5837,8 @@ ACTIONS.examRosterCheck=id=>{
   const snap=C.snap,rows=C.rows,absent=C.absent,missing=C.missing,extra=C.extra,moved=C.moved;
   const lis=(arr,f)=>arr.length?arr.slice(0,30).map(f).join("、")+(arr.length>30?` 等${arr.length}人`:""):"<b>无 ✓</b>";
   openModal(`考后核对 · ${esc(e.name)}（${escA(e.date||"")}）`,`
-    <div class="notice blue">对账依据=<b>异动时间线回放（${escA(e.date||"")}当天的应考状态）</b>。名单库共 ${snap.length} 人；本次考试名单 ${rows.length} 人，其中缺考（无成绩）${absent.length} 人。核对后先修异动台账/补缺考行，再点「考后核对」复查。</div>
-    <div class="card"><h4 style="margin:4px 0">⚠️ 成绩行里有、但按台账已不在应考状态（退学/休学/借读外校）——${extra.length} 人</h4><div>${lis(extra,r=>escA(r.name)+"（"+escA(r.cls)+"班）")}</div></div>
+    <div class="notice blue">对账依据=<b>异动时间线回放（${escA(e.date||"")}当天的应考状态）</b>。名单库共 ${snap.length} 人；本次考试名单 ${rows.length} 人，其中缺考（全0/无成绩）${absent.length} 人。核对后先修异动台账/补缺考行，再点「考后核对」复查。</div>
+    <div class="card"><h4 style="margin:4px 0">⚠️ 有实际成绩、但按台账已不在应考状态（退学/休学/借读外校/已离校）——${extra.length} 人</h4><div>${lis(extra,r=>escA(r.name)+"（"+escA(r.cls)+"班）")}</div><div class="muted" style="margin-top:4px">全0缺考行不算此项（人没考，与不在应考状态一致）。</div></div>
     <div class="card"><h4 style="margin:4px 0">❓ 应考在读、但成绩行里没有——${missing.length} 人</h4><div>${lis(missing,p=>escA(p.name)+(p.cls?"（"+escA(p.cls)+"班）":""))}</div></div>
     <div class="card"><h4 style="margin:4px 0">🔀 调班后成绩挂错班（班级统计会算错）——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：成绩行"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
     `<button class="btn primary" data-act="closeModal">知道了</button>`);
