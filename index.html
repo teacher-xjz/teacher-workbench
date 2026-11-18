@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v88";
+window.APP_VERSION="v89";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -5491,10 +5491,13 @@ ACTIONS.bzrReportExport=()=>{
 /* ================= 学生异动记录（v83） =================
    台账 + 时间线模型：异动只追加不改历史，任何日期的应考状态由 rosterAt() 按时间线回放推导。
    名单基准 = 考试库全部考试 rows 并集（天然含缺考行）∪ 学生名册。 */
+/* v89：移除 物理转历史/历史转物理（转科已由「班级调整」承载，且云端无存量记录）；
+   新增 转校（学籍正式转走，区别于借读转出——学籍仍在我校）、复学（补全休学生命周期）、其他（兜底）。 */
 const TRANSFER_TYPES=[
-  ["dir_ph","物理类转历史类"],["dir_hp","历史类转物理类"],["cls_move","班级调整"],
+  ["cls_move","班级调整"],
   ["in_borrow","外校学生到我校借读"],["out_borrow","我校学生到外校借读"],
-  ["suspend","休学"],["quit","退学"],
+  ["transfer_out","转校"],["suspend","休学"],["resume","复学"],["quit","退学"],
+  ["other","其他"],
 ];
 const TRANSFER_LABEL={};TRANSFER_TYPES.forEach(t=>TRANSFER_LABEL[t[0]]=t[1]);
 /* 应考名单池：考试库 rows 并集（含缺考）∪ 名册；缺考=该生在某场考试有行但无任何成绩 */
@@ -5525,7 +5528,7 @@ function latestTransfer(name){
   });
   return best;
 }
-/* 当前状态推导 */
+/* 当前状态推导（v89：resume→在读；transfer_out→已转校；转科类型已移除） */
 function transferStatus(name){
   const t=latestTransfer(name);
   if(!t)return "在读";
@@ -5533,10 +5536,9 @@ function transferStatus(name){
     case "quit":return "已退学";
     case "suspend":return "休学";
     case "out_borrow":return "借读外校";
+    case "transfer_out":return "已转校";
     case "in_borrow":return "借读生";
     case "cls_move":return "现读"+(t.to||"新班");
-    case "dir_ph":return "现属历史类";
-    case "dir_hp":return "现属物理类";
     default:return "在读";
   }
 }
@@ -5558,13 +5560,15 @@ function rosterAt(date){
     });
     let clsNow=p.cls,status="在读";
     if(cur){
-      /* 状态也按基准日期推导（与 clsNow 同源），不用全局最新——将来复学记录不会污染历史回放 */
+      /* 状态按基准日期推导（与 clsNow 同源）：休学→复学的时间线可正确回到在读 */
       status=(()=>{switch(cur.type){
         case "quit":return "已退学";case "suspend":return "休学";case "out_borrow":return "借读外校";
-        case "in_borrow":return "借读生";case "cls_move":return "现读"+(cur.to||"新班");
-        case "dir_ph":return "现属历史类";case "dir_hp":return "现属物理类";default:return "在读";}})();
+        case "in_borrow":return "借读生";case "transfer_out":return "已转校";
+        case "cls_move":return "现读"+(cur.to||"新班");
+        default:return "在读";}})();
       if(cur.type==="cls_move")clsNow=normClsNum(cur.to)||"";
-      else if(cur.type==="quit"||cur.type==="out_borrow")clsNow="";
+      else if(cur.type==="resume")clsNow=normClsNum(cur.to)||clsNow;
+      else if(cur.type==="quit"||cur.type==="out_borrow"||cur.type==="transfer_out")clsNow="";
     }
     return{name:p.name,cls:p.cls,absent:p.absent,clsNow,status,inPool:!!cur};
   });
@@ -5575,7 +5579,7 @@ function jwTransfer(){
   const pool=rosterPool();
   /* 状态总览 */
   const stCount={};
-  pool.forEach(p=>{const s=transferStatus(p.name);const k=/^现读|现属/.test(s)?(s.startsWith("现读")?"转班":"转方向"):s;stCount[k]=(stCount[k]||0)+1;});
+  pool.forEach(p=>{const s=transferStatus(p.name);const k=/^现读/.test(s)?"转班":s;stCount[k]=(stCount[k]||0)+1;});
   const stHtml=Object.entries(stCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="chip">${escA(k)} ${v}</span>`).join(" ");
   /* 筛选 */
   const fType=State.trType||"",fCls=State.trCls||"",q=(State.trQ||"").toLowerCase(),trace=State.trTrace||"";
@@ -5677,12 +5681,12 @@ function transferForm(rec){
     const p=selName?pool.find(x=>x.name===selName):null;
     const clsTxt=p&&p.cls?p.cls+"班":"";
     let from="",to="";
-    if(t==="dir_ph"){from="物理类";to="历史类";}
-    else if(t==="dir_hp"){from="历史类";to="物理类";}
-    else if(t==="cls_move"){from=clsTxt;to="";}
+    if(t==="cls_move"){from=clsTxt;to="";}
     else if(t==="in_borrow"){from="外校";to="我校（借读）";}
     else if(t==="out_borrow"){from="我校";to="外校（借读）";}
+    else if(t==="transfer_out"){from=clsTxt;to="";}
     else if(t==="suspend"){from=clsTxt;to="休学";}
+    else if(t==="resume"){from="休学";to=clsTxt;}
     else if(t==="quit"){from=clsTxt;to="已退学";}
     $("#trFrom").value=curEdit&&rec.type===t?(rec.from||from):from;
     $("#trTo").value=curEdit&&rec.type===t?(rec.to||to):to;
@@ -5751,8 +5755,8 @@ ACTIONS.examRosterCheck=id=>{
   const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
   /* 应考在读，但不在考试名单 */
   const missing=snap.filter(p=>p.status==="在读"&&!names.has(p.name));
-  /* 在考试名单，但状态是退学/休学/借读外校 */
-  const extra=rows.filter(r=>["已退学","休学","借读外校"].includes(transferStatus(String(r.name||"").trim())));
+  /* 在考试名单，但状态是退学/休学/借读外校/已转校 */
+  const extra=rows.filter(r=>["已退学","休学","借读外校","已转校"].includes(transferStatus(String(r.name||"").trim())));
   /* 班级与快照不符（调班后未更新名单） */
   const moved=rows.filter(r=>{
     const p=snap.find(x=>x.name===String(r.name||"").trim());
