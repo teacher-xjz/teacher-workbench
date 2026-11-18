@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v81";
+window.APP_VERSION="v83";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -408,7 +408,7 @@ function copyText(t){if(navigator.clipboard){navigator.clipboard.writeText(t).th
 function fallbackCopy(t){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("已复制到剪贴板");}catch(e){toast("复制失败，请手动复制");}ta.remove();}
 /* ================= IndexedDB ================= */
 const DB={
-  name:"teacherBoard",ver:2,db:null,stores:["students","duties","activities","contacts","docs","archive","projects","projTasks","achievements","jyacts","todos","notes","events","exams","examplan","invigilate","teachers","files","arrangements"],
+  name:"teacherBoard",ver:3,db:null,stores:["students","duties","activities","contacts","docs","archive","projects","projTasks","achievements","jyacts","todos","notes","events","exams","examplan","invigilate","teachers","files","arrangements","transfers"],
   open(){return new Promise((res,rej)=>{
     if(this.db)return res(this.db);
     const rq=indexedDB.open(this.name,this.ver);
@@ -619,7 +619,14 @@ ACTIONS.closeModal=closeModal;
 /* ================= 通用 CRUD ================= */
 function crudView(store,cfg){
   const q=(State["q_"+store]||"").toLowerCase();
-  return `<div class="card"><h3>${cfg.title}<span class="spacer"></span>${cfg.tools||""}
+  /* 学生名册：班级筛选下拉（全年级名册共用一库） */
+  let clsFilter="";
+  if(store==="students"){
+    const clss=[...new Set(State.data.students.map(s=>String(s.cls||"")).filter(Boolean))]
+      .sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
+    clsFilter=clss.length>1?`<select class="searchbox" id="stuClsFilter" style="max-width:120px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${State.f_students===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>`:"";
+  }
+  return `<div class="card"><h3>${cfg.title}<span class="spacer"></span>${cfg.tools||""}${clsFilter}
     ${cfg.noSearch?"":`<input class="searchbox" placeholder="搜索…" value="${escA(State["q_"+store]||"")}" data-search="${store}">`}
     <button class="btn primary" data-act="crudAdd" data-store="${store}">＋ 新增</button></h3>
     ${crudBody(store,cfg,q)}
@@ -629,6 +636,7 @@ function crudBody(store,cfg,q){
   q=(q!==undefined?q:(State["q_"+store]||"")).toLowerCase();
   let rows=State.data[store].slice();
   if(q){rows=rows.filter(r=>cfg.fields.some(f=>String(r[f.k]||"").toLowerCase().includes(q)));}
+  if(store==="students"&&State.f_students){rows=rows.filter(r=>String(r.cls||"")===State.f_students);}
   const cols=cfg.cols;
   // 列头排序：State.csort_<store>={k,dir}；未设置时用配置默认
   const cs=State["csort_"+store];
@@ -672,6 +680,10 @@ document.addEventListener("input",e=>{
   renderKeep();const inp=$(`[data-search="${s.dataset.search}"]`);if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
 });
 document.addEventListener("click",e=>{const b=e.target.closest("[data-act='crudAdd'],[data-act='crudEdit']");if(!b)return;openCrudModal(b);});
+/* 学生名册班级筛选 */
+document.addEventListener("change",e=>{
+  if(e.target.id==="stuClsFilter"){State.f_students=e.target.value;renderKeep();}
+});
 function openCrudModal(btn){
   const store=btn.dataset.store,id=btn.dataset.id;
   const cfg=CRUDCFG[store];if(!cfg)return;
@@ -981,18 +993,18 @@ const TEACHER_SEED=[
 
 /* ================= CRUD 配置 ================= */
 const CRUDCFG={
-  students:{title:"学生名册",tools:`<button class="btn" data-act="rosterImport">📥 导入Excel</button>`,fields:[
-    {k:"name",label:"姓名",req:1,w:1},{k:"sex",label:"性别",type:"select",opts:["男","女"],w:.6},
-    {k:"cls",label:"班级",w:.6},{k:"sid",label:"学号",w:1},
-    {k:"boarding",label:"住宿情况",type:"select",opts:["通校","住校","女生公寓","男生公寓","走读","其他"],w:.8},
-    {k:"address",label:"家庭住址",w:2},
+  students:{title:"学生名册",tools:`<button class="btn" data-act="rosterImport">📥 导入Excel</button><button class="btn" data-act="infoImport">🏫 导入学生信息表</button>`,fields:[
+    {k:"sid",label:"学号",w:1},{k:"name",label:"姓名",req:1,w:1},{k:"sex",label:"性别",type:"select",opts:["男","女"],w:.6},
+    {k:"cls",label:"班级",w:.6},{k:"boarding",label:"住宿情况",type:"select",opts:["通校","住校","女生公寓","男生公寓","走读","其他"],w:.8},
     {k:"phone",label:"本人电话",w:1},{k:"father",label:"父亲",w:.8},{k:"fatherPhone",label:"父亲电话",w:1},
     {k:"mother",label:"母亲",w:.8},{k:"motherPhone",label:"母亲电话",w:1},
+    {k:"address",label:"家庭住址",w:2},{k:"idcard",label:"身份证号",w:1.4},
+    {k:"status",label:"在读状态",type:"select",opts:["在读","休学","借读外校","离班"],w:.8},
     {k:"note",label:"备注",type:"textarea",w:2}],
-    cols:[{label:"姓名",k:"name"},{label:"性别",k:"sex",ctr:1},{label:"班级",k:"cls",ctr:1},
-      {label:"住宿",k:"boarding",ctr:1},{label:"家庭住址",k:"address"},{label:"父亲",k:"father"},{label:"父亲电话",k:"fatherPhone"},
+    cols:[{label:"学号",k:"sid"},{label:"姓名",k:"name"},{label:"性别",k:"sex",ctr:1},{label:"班级",k:"cls",ctr:1},
+      {label:"住宿",k:"boarding",ctr:1},{label:"父亲",k:"father"},{label:"父亲电话",k:"fatherPhone"},
       {label:"母亲",k:"mother"},{label:"母亲电话",k:"motherPhone"},{label:"本人电话",k:"phone"},
-      {label:"学号",k:"sid"},{label:"备注",k:"note"}]},
+      {label:"家庭住址",k:"address"},{label:"身份证号",k:"idcard"},{label:"在读状态",k:"status",ctr:1},{label:"备注",k:"note"}]},
   duties:{title:"班委与值日安排",fields:[
     {k:"role",label:"职务/任务",req:1,w:1},{k:"name",label:"姓名",req:1,w:.8},
     {k:"day",label:"时间/星期",type:"select",opts:["每日","周一","周二","周三","周四","周五","周六","随时"],w:.8},{k:"note",label:"备注",w:2}],
@@ -1319,10 +1331,14 @@ AppModule({id:"home",icon:"🏠",label:"首页",order:1,render:renderHome});
 
 /* ================= 学生名册 Excel 导入 ================= */
 const ROSTER_KNOWN={"姓名":"name","性别":"sex","班级":"cls","学号":"sid","学籍号":"sid","考号":"kid",
+  "身份证号":"idcard","身份证":"idcard","证件号码":"idcard",
+  "家庭住址":"address","住址":"address","家庭地址":"address","现居住地址":"address","现住址":"address","详细地址":"address",
   "父亲":"father","母亲":"mother","本人联系电话":"phone","本人电话":"phone","联系电话":"@parent",
   "父亲电话":"fatherPhone","母亲电话":"motherPhone","父亲联系电话":"fatherPhone","母亲联系电话":"motherPhone",
-  "通校/住校生":"boarding","通校住校":"boarding","住宿情况":"boarding","住宿":"boarding","备注":"note","序号":"idx"};
-const ROSTER_OPTS=[["ignore","忽略"],["name","姓名 *"],["sex","性别"],["cls","班级"],["sid","学号"],["kid","考号"],
+  "通校/住校生":"boarding","通校住校":"boarding","住宿情况":"boarding","住宿":"boarding",
+  "在读状态":"status","状态":"status","备注":"note","序号":"idx"};
+const ROSTER_OPTS=[["ignore","忽略"],["name","姓名 *"],["address","家庭住址"],["sex","性别"],["cls","班级"],["sid","学号"],["kid","考号"],
+  ["idcard","身份证号"],["status","在读状态"],
   ["father","父亲姓名"],["fatherPhone","父亲电话"],["mother","母亲姓名"],["motherPhone","母亲电话"],
   ["phone","本人电话"],["boarding","住宿情况"],["note","备注"],["idx","序号"]];
 let RImp=null;
@@ -1418,7 +1434,7 @@ async function doRosterImport(){
     let ex=State.data.students.find(s=>s.name+"|"+(s.cls||"")===key)||State.data.students.find(s=>s.name===rec.name&&(!s.cls||!rec.cls));
     if(ex){
       let changed=false;
-      for(const k of["sex","cls","sid","kid","boarding","phone","father","fatherPhone","mother","motherPhone","note"]){
+      for(const k of["sex","cls","sid","kid","idcard","status","boarding","address","phone","father","fatherPhone","mother","motherPhone","note"]){
         if(rec[k]&&String(ex[k]||"")!==rec[k]){ex[k]=rec[k];changed=true;}
       }
       if(changed){await putRec("students",ex);updated++;}
@@ -1430,6 +1446,165 @@ async function doRosterImport(){
   if(added+updated===0)toast("没有识别到新数据（可能已全部导入过）");
   else toast(`导入完成：新增 ${added} 名，更新 ${updated} 名`);
   render();
+}
+
+/* ================= v82 学生信息表导入（官方无表头固定列位格式） ================= */
+/* 适用上级下发的《平昌县高2025级学生信息表》类表格：无表头、第1行即数据，
+   按内容特征自动识别姓名/性别/身份证/现住址（姓名左侧两列）/户籍（左侧四列）列。
+   合并口径与通用名册导入一致：按姓名匹配，已存在只补空缺（住址/性别），新的追加。 */
+const NAME_ALIAS={"颜姣":"颜娇","吴诗语":"吴诗雨","王伊柠":"王洢柠"};
+function normNameAlias(n){const s=String(n||"").replace(/\s+/g,"");return NAME_ALIAS[s]||s;}
+function parseInfoGrid(grid){
+  const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
+  if(!rows.length)throw new Error("空表格");
+  const NC=Math.max(...rows.map(r=>(r||[]).length));
+  const stat=[];
+  for(let c=0;c<NC;c++)stat.push({name:0,id:0,phone:0,sex:0,total:0,uniq:new Set()});
+  rows.forEach(r=>{for(let c=0;c<NC;c++){const v=(r||[])[c];if(v==null||String(v).trim()==="")return;
+    const s=stat[c];s.total++;const t=String(v).replace(/\s+/g,"");
+    if(/^1\d{10}$/.test(t))s.phone++;
+    else if(/^\d{17}[\dXx]$/.test(t))s.id++;
+    else if(t==="男"||t==="女")s.sex++;
+    if(/^[\u4e00-\u9fa5·]{1,14}$/.test(t))s.name++;
+    s.uniq.add(t);
+  }});
+  /* 姓名列候选：汉字比例高且几乎每行不同（排除乡镇/村等高重复列） */
+  const nameQ=[];
+  stat.forEach((s,c)=>{
+    if(s.total<rows.length*0.5||s.id>0||s.phone>0)return;
+    const hanRatio=s.name/Math.max(s.total,1),uniqRatio=s.uniq.size/Math.max(s.total,1);
+    if(hanRatio>=0.6&&uniqRatio>=0.7)nameQ.push({c,sc:s.total+uniqRatio*rows.length});
+  });
+  if(!nameQ.length)throw new Error("未识别到「姓名」列：请确认是无表头的学生信息表（第1行即学生数据）");
+  const nearCol=fn=>{for(let c=0;c<NC;c++){if(fn(stat[c]))return c;}return -1;};
+  /* 性别列唯一无歧义，先锁它；姓名列取候选中离性别列最近的 */
+  const sexCol=nearCol(s=>s.sex>=rows.length*0.5&&s.total>=rows.length*0.5);
+  nameQ.sort((a,b)=>{
+    if(sexCol>=0){const da=Math.abs(a.c-sexCol),db=Math.abs(b.c-sexCol);if(da!==db)return da-db;}
+    return b.sc-a.sc;
+  });
+  const nameCol=nameQ[0].c;
+  const findCol=fn=>{for(let off=1;off<NC;off++){for(const c of[nameCol-off,nameCol+off]){if(c>=0&&c<NC&&fn(stat[c]))return c;}}return -1;};
+  const idCol=findCol(s=>s.id>=rows.length*0.5);
+  const textCol=c=>c>=0&&c<NC&&stat[c].total>=rows.length*0.5&&stat[c].id===0&&stat[c].phone===0;
+  /* 官方格式：现住址=姓名左侧两列（街道+详细），户籍=再往左四列（县/乡镇/村/组） */
+  const addrA=textCol(nameCol-2)?nameCol-2:-1,addrB=textCol(nameCol-1)?nameCol-1:-1;
+  const hjCols=[nameCol-6,nameCol-5,nameCol-4,nameCol-3].filter(textCol);
+  const out=[];
+  rows.forEach(r=>{
+    const name=normNameAlias(r[nameCol]);
+    if(!name)return;
+    const addr=[addrA,addrB].filter(c=>c>=0).map(c=>String(r[c]==null?"":r[c]).trim()).filter(Boolean).join(" ");
+    const hj=hjCols.map(c=>String(r[c]==null?"":r[c]).trim()).filter(Boolean).join("");
+    out.push({name,sex:sexCol>=0?String(r[sexCol]==null?"":r[sexCol]).trim():"",
+      sid:idCol>=0?String(r[idCol]==null?"":r[idCol]).replace(/\s+/g,""):"",
+      addr:addr||hj,hj});
+  });
+  return{rows:out,nameCol,sexCol,idCol,addrA,addrB,hjCols,n:out.length};
+}
+let IInfo=null;
+/* 班级识别：sheet 名「15班」「15」「高一15班」→「15」；识别不了返回空 */
+function clsFromSheetName(nm){
+  const s=String(nm||"").trim();
+  let m=s.match(/(\d{1,3})\s*班\s*$/);if(m)return String(Number(m[1]));
+  if(/^\d{1,2}$/.test(s))return String(Number(s));
+  return "";
+}
+/* 网格中的班级列：过半行是「15班」这类带「班」字的小数字 */
+function findClsCol(rows){
+  const NC=Math.max(...rows.map(r=>(r||[]).length));
+  for(let c=0;c<NC;c++){
+    let hit=0;
+    rows.forEach(r=>{const v=String((r||[])[c]==null?"":r[c]).trim();if(/^\d{1,2}班$/.test(v))hit++;});
+    if(hit>=rows.length*0.5)return c;
+  }
+  return -1;
+}
+ACTIONS.infoImport=()=>{
+  IInfo=null;
+  openModal("导入学生信息表（官方格式 · 支持全年级）",`
+    <div class="notice blue">适用于上级下发的<b>无表头</b>学生信息表（第1行直接是学生数据，如《平昌县高2025级学生信息表》）。<b>全年级可整个工作簿一次导入：一个班一个工作表，工作表名含班号（如「15班」「15」「高一15班」）即自动识别班级；识别不了的可在下方预览里逐表指定。</b>自动按内容识别姓名、性别、身份证、现住址（姓名左侧两列）、户籍（左侧四列）列。导入按「班级+姓名」匹配：已存在的学生<b>只补空缺</b>的家庭住址/性别/班级（电话等已有信息不动），新的学生追加。字形变体（颜姣→颜娇、吴诗语→吴诗雨、王伊柠→王洢柠）自动纠正。</div>
+    <div class="frow"><div class="field"><label>学生信息表文件（.xlsx / .xls，可含多个班的 sheet；.csv 单表按当前班级导入）</label><input type="file" id="infoFile" accept=".xlsx,.xls,.csv,.tsv"></div></div>
+    <div id="infoLog" class="muted"></div>`,
+    `<button class="btn" data-act="closeModal">取消</button>`);
+  $("#infoFile").onchange=async ev=>{
+    const f=ev.target.files[0];if(!f)return;
+    $("#infoLog").textContent="正在解析…";
+    try{
+      const st=settings();
+      let sheets=[];
+      if(/\.csv|\.txt$/i.test(f.name)){
+        const txt=await f.text();
+        const lines=txt.replace(/\ufeff/g,"").split(/\r?\n/).filter(l=>l.trim());
+        const delim=lines[0].includes("\t")?"\t":",";
+        const grid=lines.map(l=>l.split(delim).map(c=>c.replace(/^"(.*)"$/s,"$1").replace(/""/g,'"').trim()));
+        sheets.push({name:f.name,p:parseInfoGrid(grid),cls:st.clsCode||"",locked:true});
+      }else{
+        const buf=await f.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        for(const nm of wb.SheetNames){
+          const grid=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:null});
+          const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
+          if(!rows.length)continue;
+          let cls=clsFromSheetName(nm);
+          const ccol=cls?"":findClsCol(rows);
+          if(!cls&&ccol>=0){const v=rows.map(r=>String(r[ccol]==null?"":r[ccol]).trim()).find(x=>/^\d{1,2}班$/.test(x));if(v)cls=String(Number(v.replace("班","")));}
+          sheets.push({name:nm,p:parseInfoGrid(grid),cls,ccol});
+        }
+        if(!sheets.length)throw new Error("工作簿中没有含数据的 sheet");
+      }
+      /* 班级选项池：sheet识别值 + 现有名册班级 + 当前班级 */
+      const pool=[...new Set([
+        ...sheets.map(s=>s.cls).filter(Boolean),
+        ...State.data.students.map(s=>String(s.cls||"")).filter(Boolean),
+        st.clsCode||""
+      ].filter(Boolean))].sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
+      /* 预估导入效果 */
+      let hit=0;const news=[];
+      sheets.forEach(s=>s.p.rows.forEach(r=>{
+        const ex=State.data.students.find(x=>x.name===r.name&&(x.cls||"")===(s.cls||""))
+          ||State.data.students.find(x=>x.name===r.name&&(!x.cls||!s.cls));
+        if(ex)hit++;else news.push(r.name);
+      }));
+      IInfo={sheets};
+      const total=sheets.reduce((a,s)=>a+s.p.n,0);
+      $("#infoLog").innerHTML=`
+      <div class="notice blue">共 <b>${sheets.length}</b> 个工作表、<b>${total}</b> 名学生：匹配现有名册 <b>${hit}</b> 名（只补空缺住址/性别/班级），新增 <b>${news.length}</b> 名${news.length?`（${escA(news.slice(0,8).join("、"))}${news.length>8?"…":""}）`:""}。<b>请核对每个表的班级</b>，不对就改下拉框。</div>
+      <table class="tb"><thead><tr><th>工作表</th><th>人数</th><th>识别到</th><th>班级</th></tr></thead><tbody>
+      ${sheets.map((s,i)=>`<tr><td>${escA(s.name)}</td><td class="ctr">${s.p.n}</td><td class="ctr">姓名第${s.p.nameCol+1}列${s.p.sexCol>=0?"·性别":""}${s.p.idCol>=0?"·身份证":""}${(s.p.addrA>=0||s.p.addrB>=0||s.p.hjCols.length)?"·住址":""}</td>
+        <td><select class="searchbox" data-isheet="${i}" style="max-width:110px"><option value=""${s.cls?"":" selected"}>不指定</option>${pool.map(c=>`<option value="${escA(c)}"${s.cls===c?" selected":""}>${escA(c)}班</option>`).join("")}</select></td></tr>`).join("")}
+      </tbody></table>
+      <div class="twrap" style="max-height:220px;overflow-y:auto;margin-top:8px"><table class="tb"><thead><tr><th>工作表</th><th>姓名</th><th>性别</th><th>家庭住址</th></tr></thead><tbody>
+      ${sheets.flatMap(s=>s.p.rows.slice(0,5).map(r=>`<tr><td>${escA(s.name)}</td><td>${escA(r.name)}</td><td>${escA(r.sex||"—")}</td><td>${escA(r.addr||"—")}</td></tr>`)).join("")}
+      </tbody></table></div>
+      <div class="flex" style="margin-top:8px"><button class="btn primary" id="infoDo">开始导入</button></div>`;
+      document.querySelectorAll("[data-isheet]").forEach(sel=>{sel.onchange=()=>{IInfo.sheets[Number(sel.dataset.isheet)].cls=sel.value;};});
+      $("#infoDo").onclick=doInfoImport;
+    }catch(err){$("#infoLog").innerHTML=`<span style="color:var(--red)">解析失败：${esc(err.message||err)}</span>`;}
+  };
+};
+async function doInfoImport(){
+  if(!IInfo)return;
+  let added=0,updated=0;
+  for(const sh of IInfo.sheets){
+    const cls=sh.cls||"";
+    for(const r of sh.p.rows){
+      const ex=State.data.students.find(s=>s.name===r.name&&(s.cls||"")===(cls||""))
+        ||State.data.students.find(s=>s.name===r.name&&(!s.cls||!cls));
+      if(ex){
+        let changed=false;
+        if(r.addr&&!ex.address){ex.address=r.addr;changed=true;}
+        if(r.sex&&!ex.sex){ex.sex=r.sex;changed=true;}
+        if(cls&&!ex.cls){ex.cls=cls;changed=true;}
+        if(changed){await putRec("students",ex);updated++;}
+      }else{
+        await putRec("students",{id:uid(),name:r.name,cls,sex:r.sex||"",address:r.addr||"",note:"学生信息表导入",s:{}});
+        added++;
+      }
+    }
+  }
+  closeModal();render();
+  toast(`学生信息表导入完成：更新 ${updated} 名、新增 ${added} 名`);
 }
 
 /* ================= 班主任 ================= */
@@ -2177,7 +2352,7 @@ AppModule({id:"set",icon:"⚙️",label:"设置",order:6,render:renderSet});
 const JW_GROUPS=[
   {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"],["tmap","教师任课"]]},
   {key:"ana",name:"📊 分析",pages:[["overview","年级总览"],["classes","班级对比"],["subject","单科分析"],["teachers","教师对比"]]},
-  {key:"stu",name:"👨‍🎓 学生",pages:[["students","学生查询"],["watch","重点关注"],["trend","趋势追踪"]]},
+  {key:"stu",name:"👨‍🎓 学生",pages:[["students","学生查询"],["transfer","异动记录"],["watch","重点关注"],["trend","趋势追踪"]]},
   {key:"kb",name:"📝 考务",pages:[["plan","考试日程"],["arrange","考场编排"]]},
 ];
 const JW_TABS=JW_GROUPS.flatMap(g=>g.pages);
@@ -2187,7 +2362,7 @@ function renderJw(){
   if(sub==="lines"){sub="manage";State.sub.jw="manage";}
   const f={
     manage:jwManage,overview:jwOverview,classes:jwClasses,subject:jwSubject,teachers:jwTeachers,
-    students:jwStudents,watch:jwWatch,trend:jwTrend,plan:jwPlan,tmap:jwTmap,arrange:jwArrange,
+    students:jwStudents,transfer:jwTransfer,watch:jwWatch,trend:jwTrend,plan:jwPlan,tmap:jwTmap,arrange:jwArrange,
   }[sub];
   renderJw.after=f&&f.after;
   const grp=JW_GROUPS.find(g=>g.pages.some(p=>p[0]===sub))||JW_GROUPS[0];
@@ -2434,6 +2609,7 @@ function jwManage(){
       <span class="spacer"></span>
       <button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>
       <button class="btn sm" data-act="examLinesModal" data-id="${e.id}">📐 划线覆盖${e.lines?"（已自定义）":""}</button>
+      <button class="btn sm" data-act="examRosterCheck" data-id="${e.id}">🔍 名单校验</button>
       <button class="btn sm danger" data-act="delExam" data-id="${e.id}">删除</button></div>`).join("")
     :`<div class="empty"><div class="big">📭</div>还没有导入任何考试</div>`}
   </div>`;
@@ -5311,6 +5487,218 @@ ACTIONS.bzrReportExport=()=>{
   download(`考试分析报告_${cls}班_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
   toast("已导出分析数据（含口径与来源），可据此生成 PPT");
 };
+
+/* ================= 学生异动记录（v83） =================
+   台账 + 时间线模型：异动只追加不改历史，任何日期的应考状态由 rosterAt() 按时间线回放推导。
+   名单基准 = 考试库全部考试 rows 并集（天然含缺考行）∪ 学生名册。 */
+const TRANSFER_TYPES=[
+  ["dir_ph","物理类转历史类"],["dir_hp","历史类转物理类"],["cls_move","班级调整"],
+  ["in_borrow","外校学生到我校借读"],["out_borrow","我校学生到外校借读"],
+  ["suspend","休学"],["quit","退学"],
+];
+const TRANSFER_LABEL={};TRANSFER_TYPES.forEach(t=>TRANSFER_LABEL[t[0]]=t[1]);
+/* 应考名单池：考试库 rows 并集（含缺考）∪ 名册；缺考=该生在某场考试有行但无任何成绩 */
+function rosterPool(){
+  const map=new Map();
+  (State.data.exams||[]).forEach(e=>(e.rows||[]).forEach(r=>{
+    const nm=String(r.name||"").trim();if(!nm)return;
+    let cur=map.get(nm);
+    if(!cur){cur={name:nm,cls:String(r.cls||""),absent:true,exams:0};map.set(nm,cur);}
+    cur.exams++;if(!cur.cls)cur.cls=String(r.cls||"");
+    const has=!!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!==""));
+    if(has)cur.absent=false;
+  }));
+  (State.data.students||[]).forEach(s=>{
+    const nm=String(s.name||"").trim();if(!nm)return;
+    let cur=map.get(nm);
+    if(!cur){cur={name:nm,cls:String(s.cls||""),absent:true,exams:0};map.set(nm,cur);}
+    cur.inRoster=true;if(!cur.cls)cur.cls=String(s.cls||"");
+  });
+  return [...map.values()].sort((a,b)=>String(a.cls||"zz").localeCompare(String(b.cls||"zz"),"zh")||a.name.localeCompare(b.name,"zh"));
+}
+/* 某生最近一条异动（按 date，再按 _ut） */
+function latestTransfer(name){
+  let best=null;
+  (State.data.transfers||[]).forEach(t=>{
+    if(t.name!==name)return;
+    if(!best||String(t.date||"")>String(best.date||"")||(String(t.date||"")===String(best.date||"")&&(t._ut||0)>(best._ut||0)))best=t;
+  });
+  return best;
+}
+/* 当前状态推导 */
+function transferStatus(name){
+  const t=latestTransfer(name);
+  if(!t)return "在读";
+  switch(t.type){
+    case "quit":return "已退学";
+    case "suspend":return "休学";
+    case "out_borrow":return "借读外校";
+    case "in_borrow":return "借读生";
+    case "cls_move":return "现读"+(t.to||"新班");
+    case "dir_ph":return "现属历史类";
+    case "dir_hp":return "现属物理类";
+    default:return "在读";
+  }
+}
+/* 班级串归一化为班号数字："15班"/"15"/"高一15班"→"15" */
+function normClsNum(s){
+  const t=String(s||"").trim();
+  let m=t.match(/(\d{1,3})\s*班/);if(m)return String(Number(m[1]));
+  m=t.match(/\d{1,2}/);if(m)return String(Number(m[0]));
+  return t;
+}
+/* 名单快照：date 当天应考名单（时间线回放；反复调班自动算对） */
+function rosterAt(date){
+  const ds=String(date||"9999-12-31");
+  return rosterPool().map(p=>{
+    let cur=null;
+    (State.data.transfers||[]).forEach(t=>{
+      if(t.name!==p.name||String(t.date||"")>ds)return;
+      if(!cur||String(t.date||"")>String(cur.date||"")||(String(t.date||"")===String(cur.date||"")&&(t._ut||0)>(cur._ut||0)))cur=t;
+    });
+    let clsNow=p.cls,status="在读";
+    if(cur){
+      status=transferStatus(p.name);
+      if(cur.type==="cls_move")clsNow=normClsNum(cur.to)||"";
+      else if(cur.type==="quit"||cur.type==="out_borrow")clsNow="";
+    }
+    return{name:p.name,cls:p.cls,absent:p.absent,clsNow,status,inPool:!!cur};
+  });
+}
+/* ---------- 页面 ---------- */
+function jwTransfer(){
+  const recs=(State.data.transfers||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||""))||(b._ut||0)-(a._ut||0));
+  const pool=rosterPool();
+  /* 状态总览 */
+  const stCount={};
+  pool.forEach(p=>{const s=transferStatus(p.name);const k=/^现读|现属/.test(s)?(s.startsWith("现读")?"转班":"转方向"):s;stCount[k]=(stCount[k]||0)+1;});
+  const stHtml=Object.entries(stCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span class="chip">${escA(k)} ${v}</span>`).join(" ");
+  /* 筛选 */
+  const fType=State.trType||"",fCls=State.trCls||"",q=(State.trQ||"").toLowerCase(),trace=State.trTrace||"";
+  const clss=[...new Set(recs.map(r=>r.cls).filter(Boolean))].sort((a,b)=>Number(a)-Number(b)||String(a).localeCompare(b));
+  let list=recs;
+  if(trace)list=list.filter(r=>r.name===trace);
+  if(fType)list=list.filter(r=>r.type===fType);
+  if(fCls)list=list.filter(r=>String(r.cls||"")===fCls);
+  if(q)list=list.filter(r=>[r.name,r.from,r.to,r.reason,r.note,r.date].some(v=>String(v||"").toLowerCase().includes(q)));
+  const typeOpts=`<option value="">全部类型</option>${TRANSFER_TYPES.map(t=>`<option value="${t[0]}"${fType===t[0]?" selected":""}>${t[1]}</option>`).join("")}`;
+  return `<div class="card"><h3>🔀 学生异动记录<span class="sub">台账只追加不改历史 · 考试名单按时间线回放（rosterAt）</span><span class="spacer"></span>
+    <select class="searchbox" id="trTypeSel" style="max-width:150px">${typeOpts}</select>
+    <select class="searchbox" id="trClsSel" style="max-width:100px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${fCls===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>
+    <input class="searchbox" placeholder="搜索姓名/原因…" value="${escA(State.trQ||"")}" id="trSearch" style="max-width:160px">
+    <button class="btn primary" data-act="transferNew">＋ 新增异动</button></h3>
+    <div class="notice blue"><b>状态总览（按每生最新记录推导，共 ${pool.length} 人）：</b>${stHtml||"暂无异动记录，全部在读"}</div>
+    ${trace?`<div class="notice blue"><b>📜 历史追溯：${escA(trace)}</b>（按时间正序，共 ${list.length} 条）<span class="spacer"></span><button class="btn sm" data-act="transferBack">↩ 退出追溯</button></div>`:""}
+    ${list.length?`<div class="twrap tscr"><table class="tb"><thead><tr><th>时间</th><th>学生</th><th>班级</th><th>类型</th><th>变动前 → 变动后</th><th>原因</th><th>备注</th><th class="ctr">操作</th></tr></thead><tbody>
+      ${(trace?list.slice().reverse():list).map(r=>`<tr><td>${escA(r.date||"—")}</td>
+        <td><a href="javascript:void(0)" data-act="transferTrace" data-name="${escA(r.name)}" style="color:var(--blue)"><b>${escA(r.name)}</b></a> <span class="muted">${escA(transferStatus(r.name))}</span></td>
+        <td class="ctr">${escA(r.cls||"—")}</td>
+        <td>${escA(TRANSFER_LABEL[r.type]||r.type)}</td>
+        <td>${escA(r.from||"—")} → <b>${escA(r.to||"—")}</b></td>
+        <td>${escA(r.reason||"—")}</td>
+        <td>${escA(r.note||"—")}</td>
+        <td class="ctr" style="white-space:nowrap"><button class="btn sm" data-act="transferEdit" data-id="${r.id}">编辑</button> <button class="btn sm danger" data-act="transferDel" data-id="${r.id}">删除</button></td></tr>`).join("")}
+    </tbody></table></div><div class="muted" style="margin-top:8px">共 ${list.length} 条异动</div>`
+    :`<div class="empty"><div class="big">🔀</div>${trace?"该生暂无异动记录":"暂无异动记录，点击右上角「＋ 新增异动」添加"}</div>`}</div>`;
+}
+jwTransfer.after=()=>{
+  const t=$("#trTypeSel");if(t)t.onchange=()=>{State.trType=t.value;renderKeep();};
+  const c=$("#trClsSel");if(c)c.onchange=()=>{State.trCls=c.value;renderKeep();};
+  const s=$("#trSearch");if(s)s.oninput=()=>{State.trQ=s.value;renderKeep();const i=$("#trSearch");if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}};
+}
+/* ---------- 新增/编辑弹窗 ---------- */
+function transferForm(rec){
+  const pool=rosterPool();
+  const isEdit=!!rec;
+  rec=rec||{};
+  const selName=rec.name||"";
+  const opts=pool.map(p=>{
+    const st=transferStatus(p.name);
+    const tag=(p.absent?"【缺考】":"")+(st!=="在读"?"·"+st:"");
+    return `<option value="${escA(p.name)}"${p.name===selName?" selected":""}>${p.cls?"("+escA(p.cls)+"班)":""}${escA(p.name)}${tag?" "+escA(tag):""}</option>`;
+  }).join("");
+  openModal(isEdit?"编辑异动记录":"新增异动记录",`
+    <div class="notice blue">学生名单=考试库应考名单（<b>含缺考学生</b>，已标注）∪ 名册。类型选定后「变动前/后」自动预填，可改。<b>调班/休学后若再变动，请新增一条记录</b>（不要改旧记录），考试名单按时间线回放才正确。</div>
+    <div class="frow">
+      <div class="field" style="flex:1.2"><label>学生（班级·姓名，含缺考/异动状态）</label><select id="trName">${opts}</select></div>
+      <div class="field" style="flex:1"><label>异动类型</label><select id="trType">${TRANSFER_TYPES.map(t=>`<option value="${t[0]}"${rec.type===t[0]?" selected":""}>${t[1]}</option>`).join("")}</select></div>
+      <div class="field" style="flex:.8"><label>发生时间</label><input type="date" id="trDate" value="${escA(rec.date||new Date().toISOString().slice(0,10))}"></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label>变动前</label><input id="trFrom" value="${escA(rec.from||"")}"></div>
+      <div class="field"><label>变动后</label><input id="trTo" value="${escA(rec.to||"")}"></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label>原因</label><input id="trReason" value="${escA(rec.reason||"")}" placeholder="如：随父母工作调动 / 身体原因"></div>
+      <div class="field"><label>备注</label><input id="trNote" value="${escA(rec.note||"")}"></div>
+    </div>`,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="trSave">保存</button>`);
+  const fill=()=>{
+    const name=$("#trName").value,t=$("#trType").value;
+    const p=rosterPool().find(x=>x.name===name);
+    const clsTxt=p&&p.cls?p.cls+"班":"";
+    let from="",to="";
+    if(t==="dir_ph"){from="物理类";to="历史类";}
+    else if(t==="dir_hp"){from="历史类";to="物理类";}
+    else if(t==="cls_move"){from=clsTxt;to="";}
+    else if(t==="in_borrow"){from="外校";to="我校（借读）";}
+    else if(t==="out_borrow"){from="我校";to="外校（借读）";}
+    else if(t==="suspend"){from=clsTxt;to="休学";}
+    else if(t==="quit"){from=clsTxt;to="已退学";}
+    $("#trFrom").value=isEdit&&rec.type===t?(rec.from||from):from;
+    $("#trTo").value=isEdit&&rec.type===t?(rec.to||to):to;
+  };
+  $("#trType").onchange=fill;
+  if(!isEdit)fill();else{$("#trFrom").value=rec.from||"";$("#trTo").value=rec.to||"";}
+  $("#trSave").onclick=async()=>{
+    const name=$("#trName").value,type=$("#trType").value,date=$("#trDate").value;
+    if(!name)return toast("请选择学生");
+    if(!date)return toast("请填写发生时间");
+    const obj={id:rec.id||uid(),name,type,date,
+      cls:(rosterPool().find(x=>x.name===name)||{}).cls||rec.cls||"",
+      from:$("#trFrom").value.trim(),to:$("#trTo").value.trim(),
+      reason:$("#trReason").value.trim(),note:$("#trNote").value.trim()};
+    await putRec("transfers",obj);
+    closeModal();render();
+    toast(isEdit?"异动记录已更新":"异动记录已添加（自动跨设备同步）");
+  };
+}
+ACTIONS.transferNew=()=>transferForm(null);
+ACTIONS.transferEdit=id=>{const r=(State.data.transfers||[]).find(x=>x.id===id);if(r)transferForm(r);};
+ACTIONS.transferDel=async id=>{
+  const r=(State.data.transfers||[]).find(x=>x.id===id);if(!r)return;
+  if(!confirm(`删除 ${r.name} 的这条异动记录？（${r.date} ${TRANSFER_LABEL[r.type]||r.type}）\n建议用「编辑更正」代替删除，保留台账完整性。`))return;
+  await delRec("transfers",id);render();toast("已删除（注意：删除不跨设备传播）");
+};
+ACTIONS.transferTrace=name=>{State.trTrace=name;render();};
+ACTIONS.transferBack=()=>{State.trTrace="";render();};
+document.addEventListener("change",e=>{if(e.target.id==="trName"||e.target.id==="trType"){}});
+/* ---------- 考试名单校验（名单快照应用） ---------- */
+ACTIONS.examRosterCheck=id=>{
+  const e=examById(id);if(!e)return;
+  const snap=rosterAt(e.date);
+  const rows=e.rows||[];
+  const names=new Set(rows.map(r=>String(r.name||"").trim()));
+  const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
+  /* 应考在读，但不在考试名单 */
+  const missing=snap.filter(p=>p.status==="在读"&&!names.has(p.name));
+  /* 在考试名单，但状态是退学/休学/借读外校 */
+  const extra=rows.filter(r=>["已退学","休学","借读外校"].includes(transferStatus(String(r.name||"").trim())));
+  /* 班级与快照不符（调班后未更新名单） */
+  const moved=rows.filter(r=>{
+    const p=snap.find(x=>x.name===String(r.name||"").trim());
+    return p&&p.clsNow&&/^现读/.test(p.status)&&p.clsNow!==String(r.cls||"");
+  });
+  const lis=(arr,f)=>arr.length?arr.slice(0,30).map(f).join("、")+(arr.length>30?` 等${arr.length}人`:""):"<b>无 ✓</b>";
+  openModal(`名单校验 · ${esc(e.name)}（${escA(e.date||"")}）`,`
+    <div class="notice blue">名单依据=<b>异动时间线回放（${escA(e.date||"")}当天的应考状态）</b>。名单库共 ${snap.length} 人；本次考试名单 ${rows.length} 人，其中缺考（无成绩）${absent.length} 人。</div>
+    <div class="card"><h4 style="margin:4px 0">⚠️ 名单里有、但已不在应考状态（退学/休学/借读外校）——${extra.length} 人</h4><div>${lis(extra,r=>escA(r.name)+"（"+escA(r.cls)+"班）")}</div></div>
+    <div class="card"><h4 style="margin:4px 0">❓ 应考在读、但不在考试名单——${missing.length} 人</h4><div>${lis(missing,p=>escA(p.name)+(p.cls?"（"+escA(p.cls)+"班）":""))}</div></div>
+    <div class="card"><h4 style="margin:4px 0">🔀 调班后班级与名单不一致——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：名单"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
+    `<button class="btn primary" data-act="closeModal">知道了</button>`);
+};
+/* 子页注册：见 jw/jw_data.js 的 JW_GROUPS（学生组["transfer","异动记录"]）与 renderJw 的路由表；
+   ACTIONS 均为全局挂载，无需额外注册。 */
 
 /* ==================== v79 一键生成汇报 PPT（浏览器内直接出，无AI） ==================== */
 /* 原则：所有数字 100% 来自 buildGradePack()（与页面显示同一套统计函数），本模块只做
