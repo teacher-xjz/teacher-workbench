@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v95";
+window.APP_VERSION="v96";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1456,7 +1456,7 @@ async function doRosterImport(){
 /* 适用上级下发的《平昌县高2025级学生信息表》类表格：无表头、第1行即数据，
    按内容特征自动识别姓名/性别/身份证/现住址（姓名左侧两列）/户籍（左侧四列）列。
    合并口径与通用名册导入一致：按姓名匹配，已存在只补空缺（住址/性别），新的追加。 */
-const NAME_ALIAS={"颜姣":"颜娇","吴诗雨":"吴诗语","王伊柠":"王洢柠"};
+const NAME_ALIAS={"颜娇":"颜姣","吴诗雨":"吴诗语","王伊柠":"王洢柠"};
 function normNameAlias(n){const s=String(n||"").replace(/\s+/g,"");return NAME_ALIAS[s]||s;}
 function parseInfoGrid(grid){
   const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
@@ -2615,7 +2615,7 @@ function jwManage(){
       <span class="spacer"></span>
       <button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>
       <button class="btn sm" data-act="examLinesModal" data-id="${e.id}">📐 划线覆盖${e.lines?"（已自定义）":""}</button>
-      <button class="btn sm" data-act="examRosterCheck" data-id="${e.id}">🔍 名单校验</button>
+      <button class="btn sm" data-act="examRosterCheck" data-id="${e.id}">🔍 考后核对</button>
       <button class="btn sm danger" data-act="delExam" data-id="${e.id}">删除</button></div>`).join("")
     :`<div class="empty"><div class="big">📭</div>还没有导入任何考试</div>`}
   </div>`;
@@ -2857,8 +2857,16 @@ async function doImport(){
   await putRec("exams",exam);
   State.currentExamId=exam.id;
   closeModal();
-  toast(`成功导入 ${rows.length} 名学生，${exam.subjects.length} 个科目`+(impWarn.length?`；⚠ ${impWarn.length} 名学生外语多列成绩不一致（已取外语列）：${impWarn.slice(0,3).join("、")}${impWarn.length>3?"…":""}`:""));
+  /* v96 考后核对前置：导入完成立刻对账——有疑点直接弹核对面板，无异常只提示通过 */
+  const C=rosterCheckResult(exam);
+  const impMsg=`成功导入 ${rows.length} 名学生，${exam.subjects.length} 个科目`+(impWarn.length?`；⚠ ${impWarn.length} 名学生外语多列成绩不一致（已取外语列）：${impWarn.slice(0,3).join("、")}${impWarn.length>3?"…":""}`:"");
   go("jw","overview");
+  if(C.n){
+    toast(`${impMsg}；考后核对发现 ${C.n} 处疑点（应考没考 ${C.missing.length} · 不该考已考 ${C.extra.length} · 班级不符 ${C.moved.length}）`);
+    ACTIONS.examRosterCheck(exam.id);
+  }else{
+    toast(impMsg+"；考后核对通过：应考名单与成绩行一致 ✓");
+  }
 }
 /* ---------- 年级总览 ---------- */
 /* 各班上线/临界人数（唯一口径）：卡片汇总与「各班上线人数」图都从这里取数，避免两处算法漂移（v52） */
@@ -5778,17 +5786,17 @@ ACTIONS.transferDel=async id=>{
 ACTIONS.transferTrace=name=>{State.trTrace=name;render();};
 ACTIONS.transferBack=()=>{State.trTrace="";render();};
 document.addEventListener("change",e=>{if(e.target.id==="trName"||e.target.id==="trType"){}});
-/* ---------- 考试名单校验（名单快照应用） ---------- */
-ACTIONS.examRosterCheck=id=>{
-  const e=examById(id);if(!e)return;
-  const snap=rosterAt(e.date);
-  const rows=e.rows||[];
+/* ---------- 考后核对（v96 由「名单校验」更名并前置到成绩导入流程） ----------
+   定位：考后对账——台账推断的应考名单 vs 实际成绩行，抓三类错：
+   ①该考没考（异动漏录/编排漏人）②不该考却考了（台账日期错/成绩挂错）③转班后成绩挂错班（班级统计会算错）。 */
+function rosterCheckResult(exam){
+  const snap=rosterAt(exam.date);
+  const rows=exam.rows||[];
   const names=new Set(rows.map(r=>String(r.name||"").trim()));
   const absent=rows.filter(r=>!(r.total||Object.values(r.s||{}).some(v=>v!=null&&v!=="")));
-  /* 应考在读，但不在考试名单 */
   /* 应缺考名单（v93 排除法）：非 BAD 状态（含转班后"现读X班"、借读生）都应出现在考试里 */
   const missing=snap.filter(p=>!NOT_EXAM.includes(p.status)&&!names.has(p.name));
-  /* 在考试名单，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断 */
+  /* 在成绩行里，但状态异常（退学/休学/借读外校/已转校/已离校）——按回放快照判断 */
   const BAD=["已退学","休学","借读外校","已转校","已离校"];
   const extra=rows.filter(r=>{
     const sp=snap.find(x=>x.name===String(r.name||"").trim());
@@ -5799,12 +5807,18 @@ ACTIONS.examRosterCheck=id=>{
     const p=snap.find(x=>x.name===String(r.name||"").trim());
     return p&&p.clsNow&&/^现读/.test(p.status)&&p.clsNow!==String(r.cls||"");
   });
+  return{snap,rows,absent,missing,extra,moved,n:extra.length+missing.length+moved.length};
+}
+ACTIONS.examRosterCheck=id=>{
+  const e=examById(id);if(!e)return;
+  const C=rosterCheckResult(e);
+  const snap=C.snap,rows=C.rows,absent=C.absent,missing=C.missing,extra=C.extra,moved=C.moved;
   const lis=(arr,f)=>arr.length?arr.slice(0,30).map(f).join("、")+(arr.length>30?` 等${arr.length}人`:""):"<b>无 ✓</b>";
-  openModal(`名单校验 · ${esc(e.name)}（${escA(e.date||"")}）`,`
-    <div class="notice blue">名单依据=<b>异动时间线回放（${escA(e.date||"")}当天的应考状态）</b>。名单库共 ${snap.length} 人；本次考试名单 ${rows.length} 人，其中缺考（无成绩）${absent.length} 人。</div>
-    <div class="card"><h4 style="margin:4px 0">⚠️ 名单里有、但已不在应考状态（退学/休学/借读外校）——${extra.length} 人</h4><div>${lis(extra,r=>escA(r.name)+"（"+escA(r.cls)+"班）")}</div></div>
-    <div class="card"><h4 style="margin:4px 0">❓ 应考在读、但不在考试名单——${missing.length} 人</h4><div>${lis(missing,p=>escA(p.name)+(p.cls?"（"+escA(p.cls)+"班）":""))}</div></div>
-    <div class="card"><h4 style="margin:4px 0">🔀 调班后班级与名单不一致——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：名单"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
+  openModal(`考后核对 · ${esc(e.name)}（${escA(e.date||"")}）`,`
+    <div class="notice blue">对账依据=<b>异动时间线回放（${escA(e.date||"")}当天的应考状态）</b>。名单库共 ${snap.length} 人；本次考试名单 ${rows.length} 人，其中缺考（无成绩）${absent.length} 人。核对后先修异动台账/补缺考行，再点「考后核对」复查。</div>
+    <div class="card"><h4 style="margin:4px 0">⚠️ 成绩行里有、但按台账已不在应考状态（退学/休学/借读外校）——${extra.length} 人</h4><div>${lis(extra,r=>escA(r.name)+"（"+escA(r.cls)+"班）")}</div></div>
+    <div class="card"><h4 style="margin:4px 0">❓ 应考在读、但成绩行里没有——${missing.length} 人</h4><div>${lis(missing,p=>escA(p.name)+(p.cls?"（"+escA(p.cls)+"班）":""))}</div></div>
+    <div class="card"><h4 style="margin:4px 0">🔀 调班后成绩挂错班（班级统计会算错）——${moved.length} 人</h4><div>${lis(moved,r=>escA(r.name)+"：成绩行"+escA(r.cls)+"班，应读"+escA((snap.find(x=>x.name===r.name)||{}).clsNow||"")+"班")}</div></div>`,
     `<button class="btn primary" data-act="closeModal">知道了</button>`);
 };
 /* ===== 导出应考名单（v87）：面向「下一次考试」，按日期回放（rosterAt），只两列 =====
