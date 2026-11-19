@@ -32,6 +32,16 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 #topbar .brandver{display:block;font-size:10px;font-weight:400;opacity:.75;line-height:1.3;margin-top:1px}
 #topbar .brand small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px}
 #topbar .datebox{margin-left:auto;font-size:13px;opacity:.92;text-align:right}
+/* v111 顶栏全局学生搜索（任何页面按 / 唤起，候选直达学生档案卡） */
+#topbar .gsearch{position:relative}
+#gsq{width:200px;padding:6px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:13px;outline:none}
+#gsq::placeholder{color:rgba(255,255,255,.72)}
+#gsq:focus{background:rgba(255,255,255,.26)}
+#gsList{position:absolute;top:112%;right:0;width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.18);display:none;z-index:80;overflow:hidden}
+.gs-hit{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#0f172a}
+.gs-hit:hover{background:#eff6ff}
+.gs-none{padding:9px 12px;font-size:12px}
+@media(max-width:600px){#gsq{width:120px}#gsList{width:230px}}
 #cloudChip{flex:0 0 auto;font-size:12px}
 #nav{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:49}
 #nav .inner{max-width:1200px;margin:0 auto;padding:0 8px;display:flex;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
@@ -272,6 +282,7 @@ canvas.chart{width:100%;display:block}
   <span id="cloudChip"></span>
   <button id="projBtn" class="projbtn" data-act="projToggle">📺 投屏模式</button>
   <div class="datebox" id="dateBox"></div>
+  <div class="gsearch"><input id="gsq" placeholder="🔍 搜学生（按 /）" autocomplete="off"><div id="gsList"></div></div>
 </div></div>
 <button id="projIdle" data-act="projGoFull" style="display:none">🖥️ 回到全屏</button>
 <div id="nav"><div class="inner" id="navInner"></div></div>
@@ -400,7 +411,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v110";
+window.APP_VERSION="v111";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -558,6 +569,9 @@ const Lock={
 function go(route,sub){
   /* v80：全局统计口径收口到「设置→成绩统计口径」，旧深链 jw/lines 自动改道 */
   if(route==="jw"&&sub==="lines"){route="set";sub="lines";}
+  /* v111 导航精简改道：移除页签的旧深链自动跳到替代页面（功能零损失） */
+  if(route==="jw"&&sub==="students"){route="bzr";sub="profile";} /* 学生查询 → 学生档案（查人统一入口） */
+  if(route==="bzr"&&sub==="students"){sub="profile";}            /* 只读名册 → 学生档案 */
   if(route==="set"&&Lock.has()&&!Lock.unlocked()){Lock.prompt();return;}
   State.route=route;if(sub)State.sub[route]=sub;render();
 }
@@ -740,7 +754,10 @@ document.addEventListener("change",e=>{
 function openCrudModal(btn){
   const store=btn.dataset.store,id=btn.dataset.id;
   const cfg=CRUDCFG[store];if(!cfg)return;
-  const rec=id?State.data[store].find(x=>x.id===id):{};
+  /* v111：支持预填新增（档案页搜索无结果时「新增该学生」带姓名/班级跳入） */
+  let prefill=null;
+  if(btn.dataset.prefill){try{prefill=JSON.parse(btn.dataset.prefill);}catch(e){}}
+  const rec=id?State.data[store].find(x=>x.id===id):Object.assign({},prefill||{});
   // 新增时自动带当前日期/时间
   const defaults={};
   if(!id){cfg.fields.forEach(f=>{
@@ -760,8 +777,43 @@ function openCrudModal(btn){
     }
     /* v97 名字纠错：学生名册手工录入/编辑时也按规则归一写法 */
     if(store==="students"&&obj.name)obj.name=normNameAlias(obj.name);
+    /* v111：改名=全库联动（历次成绩行/异动/值日/沟通记录一并更名 + 自动登记纠错规则） */
+    if(store==="students"&&id&&rec.name&&obj.name&&obj.name!==rec.name){
+      const n=await propagateStudentRename(rec.name,obj.name,obj.cls,rec.cls);
+      await putRec(store,obj);closeModal();render();
+      toast(n?`已保存并全库联动：${n} 处「${rec.name}」同步更名（含历次成绩行），纠错规则已自动登记`:"已保存（该姓名在其他记录中无关联条目）");
+      return;
+    }
     await putRec(store,obj);closeModal();toast("已保存");render();
   };
+}
+/* v111 改名全库联动：按「姓名精确相等 + 班级一致（或记录无班级）」匹配，避免误伤同名不同班的学生。
+   成绩行/异动/值日(、分隔逐个)/沟通记录/旧家长联系里的名字一并更新；并自动登记 nameAlias 规则
+   （旧写法→新写法），以后导入成绩表遇到旧写法自动归一——「看到哪改到哪，改完全局生效」。 */
+async function propagateStudentRename(oldName,newName,clsNew,clsOld){
+  const inCls=c=>{if(c==null||c==="")return true;
+    const a=normClsNum(c);return [clsNew,clsOld].some(k=>k!=null&&k!==""&&(String(c)===String(k)||a===normClsNum(k)));};
+  let n=0;
+  for(const e of State.data.exams){let ch=false;(e.rows||[]).forEach(r=>{
+    if(r.name===oldName&&inCls(r.cls)){r.name=newName;ch=true;n++;}});
+    if(ch)await putRec("exams",e);}
+  for(const t of State.data.transfers||[]){
+    if(t.name===oldName&&inCls(t.cls)){t.name=newName;t._ut=Date.now();await putRec("transfers",t);n++;}}
+  for(const d of State.data.duties||[]){
+    if(String(d.name||"").split(/[,，、]/).map(x=>x.trim()).includes(oldName)){
+      d.name=String(d.name).split(/([,，、])/).map(p=>p.trim()===oldName?newName:p).join("");
+      await putRec("duties",d);n++;}}
+  for(const x of State.data.comm||[]){
+    if(!x.deleted&&x.name===oldName&&inCls(x.cls)){x.name=newName;x._ut=Date.now();await putRec("comm",x);n++;}}
+  for(const x of State.data.contacts||[]){
+    if(x.student===oldName){x.student=newName;await putRec("contacts",x);n++;}}
+  try{
+    const s=Object.assign({},State.meta.settings||{});
+    if(!s.nameAlias)s.nameAlias={};
+    if(!s.nameAlias[oldName]&&!Object.values(s.nameAlias).includes(oldName)){
+      s.nameAlias[oldName]=newName;await saveMeta("settings",s);}
+  }catch(e){}
+  return n;
 }
 function fHtml(f,val){
   const id="mf_"+f.k,lab=`<label for="${id}">${f.label}${f.req?" *":""}</label>`;
@@ -1175,6 +1227,60 @@ const CRUDCFG={
 };
 function stTag(s){const m={"撰写中":"t-orange","待审核":"t-blue","已申报":"t-blue","申报中":"t-blue","已立项":"t-green","中期检查":"t-purple","待结题":"t-orange","已完成":"t-green","已获奖":"t-green","已结题":"t-green","未获奖":"t-gray"};return `<span class="tag ${m[s]||"t-gray"}">${esc(s||"—")}</span>`;}
 
+/* ================= v111 顶栏全局学生搜索 =================
+   任何模块任何页面都能搜学生：输入姓名（模糊+名字纠错口径）→ 候选下拉
+   （同名显示班级消歧）→ 点选/回车直达「班主任→学生档案」的档案卡。
+   查人是跨身份（班主任/年级）的高频动作，不隶属任何单一模块，故放顶栏全局。 */
+function gsMatches(q){
+  const s=String(q||"").trim();
+  if(!s)return [];
+  const qn=(typeof normNameAlias==="function"?normNameAlias(s):s).toLowerCase();
+  return State.data.students.filter(x=>{
+    const n=String(x.name||"").toLowerCase();
+    return n.includes(qn)||n.includes(s.toLowerCase());
+  }).slice(0,8);
+}
+function gsGo(id){
+  const st=State.data.students.find(x=>x.id===id);if(!st)return;
+  if(typeof profRemember==="function")profRemember(id);
+  State.bzrSelId=id;State.bzrQ="";
+  const inp=document.getElementById("gsq");if(inp)inp.value="";
+  const l=document.getElementById("gsList");if(l)l.style.display="none";
+  go("bzr","profile");
+}
+function gsInit(){
+  const inp=document.getElementById("gsq"),list=document.getElementById("gsList");
+  if(!inp||!list||inp._gsInit)return;
+  inp._gsInit=true;
+  const hide=()=>{setTimeout(()=>{list.style.display="none";},150);};
+  const renderList=()=>{
+    const q=inp.value;
+    if(!String(q).trim()){list.style.display="none";return;}
+    const m=gsMatches(q);
+    list.innerHTML=m.length
+      ?m.map(x=>`<div class="gs-hit" data-id="${x.id}"><b>${esc(x.name)}</b><span class="muted" style="font-size:12px">${escA(clsLabel(String(x.cls||"")))||"—"}${x.status&&x.status!=="在读"?" · "+escA(x.status):""}</span></div>`).join("")
+      :`<div class="gs-none muted">没有匹配的学生——可到「班主任 → 学生档案」用名单条查找</div>`;
+    list.style.display="block";
+    list.querySelectorAll(".gs-hit").forEach(el=>el.addEventListener("mousedown",e=>{e.preventDefault();gsGo(el.dataset.id);}));
+  };
+  inp.addEventListener("input",renderList);
+  inp.addEventListener("focus",renderList);
+  inp.addEventListener("blur",hide);
+  inp.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){e.preventDefault();const first=list.querySelector(".gs-hit");if(first)gsGo(first.dataset.id);}
+    if(e.key==="Escape"){inp.value="";list.style.display="none";inp.blur();}
+  });
+}
+/* 快捷键 /：非输入焦点时按斜杠直接聚焦搜索框 */
+document.addEventListener("keydown",e=>{
+  if(e.key!=="/")return;
+  const t=e.target;
+  if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"||t.isContentEditable))return;
+  const inp=document.getElementById("gsq");
+  if(inp){e.preventDefault();inp.focus();}
+});
+gsInit();
+
 /* ================= 首页 ================= */
 function collectAgenda(){
   const items=[];
@@ -1261,8 +1367,9 @@ function cdInline(count,color,pct,sub){
   <div class="cd-track" style="height:7px"><div class="cd-fill" style="width:${Math.round(pct*100)}%;background:${color}"></div></div>
   <span class="tl-cdsub">${sub}</span>`;
 }
-/* ===== v108：班级课表绿条（方案A）——"今天的课"卡片顶部一行压平：
-   正在上（科目·教师·时段）+ 下节（距开始），下方个人课时间轴完全不动。
+/* ===== v108→v111 班级课表绿条（方案A + 全程常驻）——"今天的课"卡片顶部一行压平：
+   覆盖当前时刻的节次永远显示（上课有课值=正在上；课间/未排课=显示节次名称），
+   右侧挂下一节（距开始），数据有空洞也不会整段消失；今天课上完才隐藏。
    数据源=State.meta.classSched（班主任班级课表），无课表/今天没课时整条隐藏 ===== */
 function homeClsBarHtml(){
   const g=State.meta.classSched;
@@ -1271,13 +1378,20 @@ function homeClsBarHtml(){
   const today=SCHED_DAYS[(new Date().getDay()+6)%7];
   const val=p=>String((g[today]&&g[today][p.k])||"").trim();
   const periods=schedPeriods();
-  const nowP=periods.find(p=>{const r=schedRangeOf(p.time);return p.type==="class"&&r&&nm>=r[0]&&nm<=r[1];});
-  const nextP=periods.filter(p=>p.type==="class").find(p=>{const r=schedRangeOf(p.time);return r&&r[0]>nm&&val(p);});
+  /* 今天班级课表一格课都没有 → 整条隐藏（避免空课表整天显示"未排课"） */
+  if(!periods.some(p=>p.type==="class"&&val(p)))return "";
+  /* v111：找覆盖当前时刻的节次（含课间/休息行），不再只认"正在上的有课节次" */
+  const curP=periods.find(p=>{const r=schedRangeOf(p.time);return r&&nm>=r[0]&&nm<=r[1];});
+  const nowP=(curP&&curP.type==="class"&&val(curP))?curP:null;
+  const nextP=periods.filter(p=>p.type==="class"&&p!==nowP).find(p=>{const r=schedRangeOf(p.time);return r&&r[0]>nm&&val(p);});
   const fmt=p=>{const a=val(p).split(/\s+/);return a[0]+(a[1]?" · "+a[1]:"");};
   let inner="";
-  if(nowP&&val(nowP)){
-    const r=schedRangeOf(nowP.time);
+  if(nowP){
     inner+=`<span style="flex:none">正在上 <b style="color:${subjColor(val(nowP).split(/\s+/)[0])}">${esc(fmt(nowP))}</b> <span class="muted">${esc(nowP.time||"")}</span></span>`;
+  }else if(curP){
+    /* v111 常驻：课间/当前节次未排课也显示，不再开天窗 */
+    const tail=curP.type==="class"?" · 未排课":"";
+    inner+=`<span style="flex:none">当前：${esc(curP.t||"")}${esc(tail)} <span class="muted">${esc(curP.time||"")}</span></span>`;
   }
   if(nextP){
     const r=schedRangeOf(nextP.time);
@@ -1318,13 +1432,16 @@ function homeTlHtml(){
       ${cd?`<div class="tl-cd">${cd}</div>`:""}</div>`;
   }).join("")+`</div>`;
 }
-setInterval(()=>{ /* 每 30 秒静默刷新首页课程时间轴 + 班级课表绿条（元素不存在则跳过） */
+/* v111：刷新逻辑抽成函数——30 秒定时 + 回到前台（visibilitychange）立即各刷一次。
+   后台标签页浏览器会把定时器降频甚至冻结，切回来瞬间显示旧状态（绿条"一段时间没显示"的根因） */
+function homeSchedRefresh(){
   const cb=document.getElementById("homeClsBarBox");
   if(cb)cb.innerHTML=homeClsBarHtml();
   const el=document.getElementById("homeTlBox");
-  if(!el||!window._homeCdItems)return;
-  el.innerHTML=homeTlHtml();
-},30000);
+  if(el&&window._homeCdItems)el.innerHTML=homeTlHtml();
+}
+setInterval(homeSchedRefresh,30000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)homeSchedRefresh();});
 /* 问候横条：所有主页面顶部共用（v61） */
 function heroBar(){
   const today=todayStr();
@@ -1362,8 +1479,9 @@ function renderHome(){
     const d=Math.min(...[p.midDate,p.endDate].filter(Boolean).map(daysFromToday).filter(x=>x!=null&&x>=0).map(x=>x),999);
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
-  /* v105 快捷入口：修 kb→plan 深链 bug；加入学生档案；按使用频率排序 */
-  const qn=[["gr","todos","⏰","待办事项"],["bzr","sched","🏫","班级课表"],["bzr","profile","👤","学生档案"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","students","🔍","学生查询"],["jw","plan","🗓","考试日程"],["gr","events","📅","日程"]];
+  /* v105 快捷入口：修 kb→plan 深链 bug；加入学生档案；按使用频率排序
+     v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册 */
+  const qn=[["gr","todos","⏰","待办事项"],["bzr","sched","🏫","班级课表"],["bzr","profile","👤","学生档案"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","roster","👥","学生名册"],["jw","plan","🗓","考试日程"],["gr","events","📅","日程"]];
   return `
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
@@ -1750,21 +1868,19 @@ async function doInfoImport(){
 }
 
 /* ================= 班主任 ================= */
-/* v105 信息架构：9 页签平铺 → 「日常/班务/成绩」三组两级导航（复用教务 grouptabs 交互）；
-   旧「家长联系」页签与 v104「沟通记录」功能重复，入口合并（旧记录在沟通记录页一键迁移） */
+/* v105 信息架构：9 页签平铺 → 分组两级导航；v111 班务组并入日常、只读名册页移除
+   （查人看板=学生档案页，名册增删改=年级→学生名册，同一库自动联动） */
 const BZR_GROUPS=[
-  {key:"daily",name:"📅 日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"]]},
-  {key:"cls",name:"👥 班务",pages:[["students","学生名册"],["duties","班委与值日"],["activities","班会与活动"]]},
+  {key:"daily",name:"📅 日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"],["duties","班委与值日"],["activities","班会与活动"]]},
   {key:"score",name:"📈 成绩",pages:[["score","班级成绩分析"],["report","分析报告"]]},
 ];
 const BZR_TABS=BZR_GROUPS.flatMap(g=>g.pages);
 function renderBzr(){
   let sub=State.sub.bzr||"profile"; /* v110：默认打开学生档案（最常用），班级课表由首页绿条+页签兜底 */
   if(sub==="contacts"){sub="comm";State.sub.bzr="comm";} /* v105 旧深链：家长联系 → 沟通记录 */
+  if(sub==="students"){sub="profile";State.sub.bzr="profile";} /* v111 旧深链：只读名册 → 学生档案（查人看板） */
   const f={
-    sched:()=>`<div class="card"><h3>🏫 班级课表 · ${esc(settings().cls)}<span class="sub">蓝色列=今天 · 自动定位当前课程</span><span class="spacer"></span><button class="btn primary" data-act="schedImport">📥 Excel课表导入</button></h3><div class="notice blue">导入学校的 Excel 课表后，将自动写入班级课表，并同步到「个人 → 个人课表」（只保留含自己姓名的课）。也可随时点个人课表页的「从班级课表同步」重新提取。</div>${schedTable("classSched",{highlight:true,locate:true})}</div>`,
-    /* v91 定位收口：班主任模块=本班调阅，只读；名册增删改入口在「教务→学生→学生名册」（同一库，自动联动） */
-    students:()=>crudView("students",CRUDCFG.students,{readOnly:true,cls:"15"}),
+    sched:()=>`<div class="card"><h3>🏫 班级课表 · ${esc(settings().cls)}<span class="sub">蓝色列=今天 · 自动定位当前课程</span><span class="spacer"></span><a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">📥 课表 Excel 导入入口已收口到「设置→资料上传」→</a></h3><div class="notice blue">导入学校的 Excel 课表后，将自动写入班级课表，并同步到「个人 → 个人课表」（只保留含自己姓名的课）。也可随时点个人课表页的「从班级课表同步」重新提取。</div>${schedTable("classSched",{highlight:true,locate:true})}</div>`,
     duties:()=>crudView("duties",CRUDCFG.duties),
     activities:()=>crudView("activities",CRUDCFG.activities),
     profile:()=>bzrProfileView(),
@@ -2319,13 +2435,13 @@ function bzrProfileView(){
     .filter(s=>!auto||s.id!==auto.id);
   return `<div class="card"><h3>📇 学生档案<span class="sub">输姓名调阅 · 为全年级预留（班级可切换）</span><span class="spacer"></span>
     <select class="searchbox" id="profCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>
-    <button class="btn" data-act="profImport">📥 导入家长信息</button></h3>
+    <a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">📥 批量导入入口 →</a></h3>
     <div style="display:flex;gap:8px;margin-bottom:10px"><input id="profQ" placeholder="输入学生姓名（支持部分字）" value="${escA(State.bzrQ||"")}" style="max-width:280px">
     ${(q||State.bzrSelId)?`<button class="btn sm" data-act="profClear" title="清空搜索与选中，回到默认名单">✕ 清空</button>`:""}
     <span class="muted" style="align-self:center">${q?esc(sc==="all"?"全年级":sc+"班")+" · "+matched.length+" 人匹配":""}</span></div>
     ${recent.length?profChipRow("🕘 最近查看：",recent.slice(0,8),auto&&auto.id,true):""}
     ${chips.length?profChipRow(chipLabel,chips,auto&&auto.id,q?sc==="all":false):""}
-    ${matched.length===0&&q?`<div class="empty"><div class="big">🔍</div>${escA(State.bzrQ)}：${esc(sc==="all"?"全年级":sc+"班")}名册中没有匹配的学生　${sc!=="all"?`<a href="javascript:void(0)" data-act="profAllScope">去全年级找</a>`:""}</div>`:""}
+    ${matched.length===0&&q?`<div class="empty"><div class="big">🔍</div>${escA(State.bzrQ)}：${esc(sc==="all"?"全年级":sc+"班")}名册中没有匹配的学生　${sc!=="all"?`<a href="javascript:void(0)" data-act="profAllScope">去全年级找</a>　`:""}<button class="btn sm primary" data-act="profQuickAdd" data-prefill='${escA(JSON.stringify({name:String(State.bzrQ||"").trim(),cls:sc!=="all"?sc:""}))}'>＋ 新增该学生（姓名已预填）</button></div>`:""}
     ${auto?profileCard(auto):""}
   </div>`;
 }
@@ -2365,6 +2481,7 @@ function profileCard(st){
         <div style="font-size:14px;font-weight:600">${esc(st.name)} <span class="tag t-green" style="font-size:11px">${esc(status)}</span></div>
         <div style="font-size:12px;color:#64748b;margin-top:1px">${escA((st.cls||"—")+"班")} · ${esc(st.sex||"—")} · ${esc(birthFromId(st.idcard)||"—")} · ${esc(dirTxt||"—")} · ${esc(st.boarding||"—")}</div>
       </div>
+      <button class="btn sm" data-act="profEdit" data-id="${st.id}">✏️ 编辑</button>
       <button class="btn sm primary" data-act="commPanel" data-name="${escA(st.name)}" data-cls="${escA(st.cls||"")}">＋ 记录沟通</button>
       <button class="btn sm" data-act="profPrint">🖨 打印</button>
     </div>
@@ -2681,6 +2798,19 @@ ACTIONS.commExport=()=>{
 };
 /* ===== 交互事件 ===== */
 ACTIONS.profPick=id=>{profRemember(id);State.bzrSelId=id;renderKeep();};
+/* v111 档案卡编辑：看到哪改到哪——复用名册同一套 CRUD 编辑弹窗（同一库同一条记录）；
+   若改了姓名，保存时自动全库联动（见 core.js propagateStudentRename） */
+ACTIONS.profEdit=(id,el)=>{
+  const sid=el&&el.dataset.id;
+  if(!sid||!State.data.students.find(x=>x.id===sid))return;
+  openCrudModal({dataset:{store:"students",id:sid}});
+};
+/* v111 搜索无结果快捷新增：姓名/班级预填，直接进新增弹窗 */
+ACTIONS.profQuickAdd=(id,el)=>{
+  let prefill={};
+  try{prefill=JSON.parse(el.dataset.prefill||"{}");}catch(e){}
+  openCrudModal({dataset:{store:"students",id:"",prefill:JSON.stringify(prefill)}});
+};
 ACTIONS.profClear=()=>{State.bzrQ="";State.bzrSelId=null;renderKeep();};
 ACTIONS.profAllScope=()=>{State.bzrCls="all";renderKeep();};
 ACTIONS.profPrint=()=>{
@@ -2929,6 +3059,7 @@ AppModule({id:"gr",icon:"👤",label:"个人",order:5,render:renderGr});
 /* ================= 设置（v80 页签化：全局设置统一收口） ================= */
 const SET_TABS=[
   ["basic","🏫 基本信息"],
+  ["upload","📤 资料上传"],
   ["lines","📐 成绩统计口径"],
   ["sync","☁️ 同步与备份"],
   ["periods","⏰ 作息时间表"],
@@ -2960,10 +3091,29 @@ function setTabSync(){
       <input type="file" id="importFile" accept=".json" style="display:none">
     </div></div>`;
 }
+/* v111 作息时间连续性检查：首页绿条/课表定位按这里的节次时间判定，
+   时间填错（重叠/格式错）会导致"上课了绿条却不开"或判定错节次——保存前自动体检 */
+function periodsCheckTxt(){
+  const ps=schedPeriods();
+  const parsed=ps.map(p=>({p,r:p.time?schedRangeOf(p.time):null}));
+  const issues=[];
+  const bad=parsed.filter(x=>x.p.time&&!x.r).map(x=>`${x.p.t}（${x.p.time}）`);
+  if(bad.length)issues.push(`时间格式无法解析：${bad.join("、")}（应写成 8:10—8:50）`);
+  const okd=parsed.filter(x=>x.r).sort((a,b)=>a.r[0]-b.r[0]);
+  for(let i=1;i<okd.length;i++){
+    if(okd[i].r[0]<okd[i-1].r[1])issues.push(`时间重叠：${okd[i-1].p.t}（${okd[i-1].p.time}）与 ${okd[i].p.t}（${okd[i].p.time}）`);
+  }
+  if(!okd.length)issues.push("没有任何节次填了时间，绿条/课表定位将不可用");
+  const first=okd[0],last=okd[okd.length-1];
+  return issues.length
+    ?`<div class="notice" style="border-left:3px solid var(--orange,#f59e0b);margin-top:8px">⚠️ 发现 ${issues.length} 个问题：<br>· ${issues.map(escA).join("<br>· ")}</div>`
+    :`<div class="muted" style="margin-top:8px">✅ 时间体检通过：${okd.length} 个节次从 ${escA(first.p.time)} 到 ${escA(last.p.time)} 无重叠、无格式错误。首页绿条按这些时间判定"正在上/下节"，若与实际作息有出入（如实际 8:10 上课、这里填了 8:00），请在此修正。</div>`;
+}
 function setTabPeriods(){
   return `<div class="card"><h3>⏰ 作息时间表（节次结构）</h3>
     <div class="notice blue">每行一条：「课|名称|时间」或「休|名称|时间」。“课”为上课时段（课表格子），“休”为休息/活动（整行提示，如课间操、午休）。<b>注意：调整行顺序会导致已填课表错位，建议只改名称/时间。</b></div>
     <div class="field"><textarea id="stPeriods" style="min-height:200px">${escA(periodsText())}</textarea></div>
+    ${periodsCheckTxt()}
     <div class="flex"><button class="btn primary" data-act="savePeriods">保存节次结构</button><button class="btn" data-act="resetPeriods">恢复默认作息</button></div></div>`;
 }
 function setTabSecure(){
@@ -2989,7 +3139,7 @@ function setTabSecure(){
 }
 function renderSet(){
   const tab=State.sub.set||"basic";
-  const map={basic:setTabBasic,lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
+  const map={basic:setTabBasic,upload:(typeof setTabUpload==="function"?setTabUpload:setTabBasic),lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
   const body=(map[tab]||setTabBasic)();
   return `<div class="subtabs">${SET_TABS.map(t=>`<div class="stab${tab===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+body;
 }
@@ -3072,12 +3222,46 @@ ACTIONS.resetPeriods=async()=>{
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
 AppModule({id:"set",icon:"⚙️",label:"设置",order:6,render:renderSet});
 
-/* ================= 教务模块 ================= */
+/* ================= v111 设置 → 资料上传（全站导入收口） =================
+   定位：所有需要"上传/导入"的资料统一从这里进——成绩、课表、名册、学生信息表、
+   家长信息、教师任课；各原页面不再放导入按钮。底层流程（弹窗向导/合并口径/
+   名字纠错）全部复用原 ACTIONS，本页只做入口收拢，零逻辑改动。 */
+function setTabUpload(){
+  const nStu=State.data.students.length,nEx=State.data.exams.length;
+  const card=(icon,title,desc,btns)=>`
+    <div style="background:var(--card2,#f8fafc);border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px">
+      <div style="font-size:13.5px;font-weight:600;margin-bottom:3px">${icon} ${title}</div>
+      <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:9px">${desc}</div>
+      <div class="flex" style="gap:8px">${btns}</div>
+    </div>`;
+  return `<div class="card"><h3>📤 资料上传 <span class="sub">全站所有「导入/上传」的统一入口</span></h3>
+    <div class="notice blue">需要进入工作台的资料都在这一页上传，按弹窗指引完成即可。导入规则全站一致：<b>姓名写法自动纠错</b>、按「姓名+班级」匹配去重（已有信息只更新、不会重复）。当前库：学生 ${nStu} 人 · 考试 ${nEx} 场。</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px">
+    ${card("📊","考试成绩","支持 .xlsx / .xls / .csv：自动定位表头、识别选科列与排名列。导入后自动进「年级→考试与成绩」。",`<button class="btn primary" data-act="importStart">＋ 导入考试成绩</button>`)}
+    ${card("🏫","课表（班级+个人）","导入学校 Excel 课表：写入班级课表，并按「我的姓名」自动提取个人课表（驱动首页绿条与今日课程）。",`<button class="btn primary" data-act="schedImport">📥 导入 Excel 课表</button>`)}
+    ${card("👥","学生名册","首次建库 / 整体更新用；支持联系簿等常见格式，自动定位表头与双电话列。日常零星增减请直接在「年级→学生名册」新增/编辑。",`<button class="btn" data-act="ioTemplate">📄 下载填写模板</button><button class="btn primary" data-act="rosterImport">📥 导入名册 Excel</button>`)}
+    ${card("🏫","学生信息表（全年级基础信息）","官方无表头固定列位格式：补学号、住址、性别等档案字段；支持一个文件多个班的 sheet，逐班导入。",`<button class="btn primary" data-act="infoImport">🏫 导入学生信息表</button>`)}
+    ${card("👪","家长联系信息","读《学生成绩管理系统》类表格的「学生信息表」sheet：父亲/母亲姓名与电话按「姓名+班级」匹配更新，导入前逐行预览变更。",`<button class="btn primary" data-act="profImport">📥 导入家长信息</button>`)}
+    ${card("👩‍🏫","教师任课对照","从学校任课表 Excel 复制后粘贴导入：按「班级+科目」原位更新，不产生重复；驱动教师维度对比。",`<button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button>`)}
+    </div>
+    <div class="muted" style="margin-top:10px">💡 批量纠正整班信息（比如换了一版信息表）也走上面的「名册/学生信息表」导入——合并口径天然只补空缺、按名更新。单个人改信息请直接用「班主任→学生档案」的 ✏️ 编辑（保存即全站生效）。</div>
+  </div>
+  <div class="card"><h3>💾 整份备份与恢复</h3>
+    <div class="notice blue">备份/恢复是系统级操作，与日常资料导入不同：<b>导出全部数据</b>得到 JSON 备份文件（含课表/名册/成绩/沟通全部数据），<b>导入备份文件</b>会覆盖当前设备全部数据（换机迁移用）。日常云同步配置在「同步与备份」页签。</div>
+    <div class="flex">
+      <button class="btn primary" data-act="exportAll">⬇ 导出全部数据（备份文件）</button>
+      <button class="btn" data-act="importAll">⬆ 导入备份文件（覆盖恢复）</button>
+      <button class="btn" data-go="set" data-sub="sync">☁️ 去云同步设置 →</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+    </div></div>`;
+}
+
+/* ================= 年级模块（v111：「教务」正名「年级」——三身份导航：班主任/年级/教科室） ================= */
 /* 两级导航：大标签分组 → 子页签；选中组由当前子页自动反推（深链/其他模块跳转无需关心组） */
 const JW_GROUPS=[
-  {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"],["tmap","教师任课"],["dataio","数据出入口"]]},
+  {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"],["tmap","教师任课"],["dataio","数据导出与纠错"]]},
   {key:"ana",name:"📊 分析",pages:[["overview","年级总览"],["classes","班级对比"],["subject","单科分析"],["teachers","教师对比"]]},
-  {key:"stu",name:"👨‍🎓 学生",pages:[["students","学生查询"],["roster","学生名册"],["transfer","异动记录"],["watch","重点关注"],["trend","趋势追踪"]]},
+  {key:"stu",name:"👨‍🎓 学生",pages:[["roster","学生名册"],["transfer","异动记录"],["watch","重点关注"],["trend","趋势追踪"]]},
   {key:"kb",name:"📝 考务",pages:[["plan","考试日程"],["arrange","考场编排"]]},
 ];
 const JW_TABS=JW_GROUPS.flatMap(g=>g.pages);
@@ -3085,9 +3269,11 @@ function renderJw(){
   let sub=State.sub.jw||"manage";
   /* v80：全局统计口径收口到「设置→成绩统计口径」；旧深链 jw/lines 自动改道 */
   if(sub==="lines"){sub="manage";State.sub.jw="manage";}
+  /* v111：学生查询页移除（查人统一走班主任学生档案页，全局搜索直达）；旧深链自动改道 */
+  if(sub==="students"){State.route="bzr";State.sub.bzr="profile";State.sub.jw="manage";return bzrProfileView();}
   const f={
     manage:jwManage,overview:jwOverview,classes:jwClasses,subject:jwSubject,teachers:jwTeachers,
-    students:jwStudents,roster:()=>crudView("students",CRUDCFG.students),transfer:jwTransfer,
+    roster:()=>crudView("students",CRUDCFG.students),transfer:jwTransfer,
     watch:jwWatch,trend:jwTrend,plan:jwPlan,tmap:jwTmap,arrange:jwArrange,dataio:jwDataio,
   }[sub];
   renderJw.after=f&&f.after;
@@ -3326,9 +3512,8 @@ function subSel(subjects,cur,attr){
 /* ---------- 考试管理 ---------- */
 function jwManage(){
   const exs=examsSorted().slice().reverse();
-  return `<div class="card"><h3>📥 导入考试成绩<span class="sub">支持 .xlsx / .xls / .csv，自动识别表头与选科列</span></h3>
-    <div class="flex"><button class="btn primary" data-act="importStart">＋ 导入新考试成绩</button>
-    <span class="muted">格式参考：序号 / 姓名 / 班级 / 学号 / 考号 / 各科分数 / 总分 / 排名，表头可在任意行</span></div></div>
+  return `<div class="card"><h3>🗂 考试与成绩<span class="sub">导入入口已收口到「设置→资料上传」</span><span class="spacer"></span><a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">＋ 去导入考试成绩 →</a></h3>
+    <div class="muted">支持 .xlsx / .xls / .csv，自动识别表头与选科列（序号 / 姓名 / 班级 / 学号 / 考号 / 各科分数 / 总分 / 排名，表头可在任意行）。</div></div>
   <div class="card"><h3>🗂 已导入的考试（${exs.length}）</h3>
     ${exs.length?exs.map(e=>`<div style="background:#f8fafc;border-radius:10px;padding:10px 14px;margin-bottom:10px" class="flex">
       <div><b>${esc(e.name)}</b> <span class="muted">${esc(e.date||"")} · ${e.rows.length} 名学生 · 科目：${(e.subjects||[]).map(esc).join("、")||"—"}${e.zeroAsMissing?" · 0分视为缺考":""}</span></div>
@@ -4118,7 +4303,7 @@ jwStudents.after=()=>{
 };
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"jw",icon:"📊",label:"教务",order:4,render:renderJw});
+AppModule({id:"jw",icon:"📊",label:"年级",order:4,render:renderJw});
 
 /* ================= 重点关注名单 ================= */
 /* 临界生分两类概念：本科临界（锚本科线）/ 特控临界（锚特控线）；总分按方向、各科按科目（方向科再分方向） */
@@ -4373,11 +4558,11 @@ function jwPlan(){
 }
 /* ---- 任课对照（独立页） ---- */
 function jwTmap(){
-  return `<div class="card"><h3>👩‍🏫 班级任课教师对照表<span class="sub">用于"教师维度对比"；支持从学校任课表批量导入</span><span class="spacer"></span>
+  return `<div class="card"><h3>👩‍🏫 班级任课教师对照表<span class="sub">用于"教师维度对比"；批量导入入口在「设置→资料上传」</span><span class="spacer"></span>
     <button class="btn" data-act="headSetup">👨‍👩‍👧 班主任设置</button>
     <button class="btn" data-act="teachersDedupe">🧹 一键去重</button>
-    <button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button></h3>
-    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动推荐用「批量粘贴导入」（原位更新，不会产生重复，教师换人才清班主任勾选）。发现重复记录时点「一键去重」。设置班主任用「班主任设置」，一个面板全班选完。<b>只当班主任、不任文化课的教师</b>（如体育班班主任）：点下方「手动增加教师」，科目选「班主任（无任课科目）」并勾选班主任即可。</div>
+    <a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">📋 批量粘贴导入 →</a></h3>
+    <div class="notice blue"><b>怎么调整任课？</b>每行 = 一个「班级+科目」的任课教师。教师请假由他人代课时，点该行右侧「编辑」把教师姓名改成代课教师即可，"教师对比"立即按新对照统计；长期变动推荐用「设置→资料上传→教师任课」的批量粘贴导入（原位更新，不会产生重复，教师换人才清班主任勾选）。发现重复记录时点「一键去重」。设置班主任用「班主任设置」，一个面板全班选完。<b>只当班主任、不任文化课的教师</b>（如体育班班主任）：点下方「手动增加教师」，科目选「班主任（无任课科目）」并勾选班主任即可。</div>
     ${crudBody("teachers",CRUDCFG.teachers)}
     <div style="margin-top:10px"><button class="btn primary" data-act="crudAdd" data-store="teachers">➕ 手动增加教师</button><span class="muted" style="margin-left:10px">体育班班主任等无文化课科目的教师也可录入：科目选「班主任（无任课科目）」</span></div></div>`;
 }
@@ -6627,23 +6812,15 @@ ACTIONS.rosterExport=()=>{
 /* 子页注册：见 jw/jw_data.js 的 JW_GROUPS（学生组["transfer","异动记录"]）与 renderJw 的路由表；
    ACTIONS 均为全局挂载，无需额外注册。 */
 
-/* ================= 数据出入口面板（v91） =================
-   定位：全工作台「学生数据」导入/导出的统一收口，按用途分类，
-   替代散落在名册页/异动页的多个按钮。考试类导出仍在各自分析页（有语境）。
-   子页注册：JW_GROUPS 数据组 ["dataio","数据出入口"]（见 jw_data.js） */
+/* ================= 数据导出与纠错面板（v91 建，v111 更名收口） =================
+   定位：全工作台「学生数据」导出的统一收口 + 名字纠错规则管理。
+   导入类入口 v111 全部收进「设置→资料上传」，本页只留导出与纠错。
+   子页注册：JW_GROUPS 数据组 ["dataio","数据导出与纠错"]（见 jw_data.js） */
 function jwDataio(){
   const nStu=State.data.students.length,nTr=(State.data.transfers||[]).length;
   return `<div class="card">
-    <h3>🔀 数据出入口</h3>
-    <div class="notice blue">统一收口学生相关数据的导入与导出。<b>考试成绩类</b>导出仍在各自页面：「考试与成绩」页导出全年级分析数据包、分析报告页导出汇报数据。</div>
-
-    <h3 style="margin-top:14px">📥 导入 <span class="muted" style="font-size:12px">（全年级学生名册与异动，Excel）</span></h3>
-    <div class="frow" style="gap:10px;flex-wrap:wrap">
-      <button class="btn" data-act="ioTemplate">📄 下载填写模板</button>
-      <button class="btn" data-act="rosterImport">📥 导入名册Excel</button>
-      <button class="btn" data-act="infoImport">🏫 导入学生信息表</button>
-    </div>
-    <div class="muted" style="margin:6px 0 0 4px">首次建库/整体更新用「名册Excel」；补学号住址等档案信息用「学生信息表」；日常零星异动请直接在「异动记录」页新增，不要整表重导。</div>
+    <h3>🔀 数据导出与纠错</h3>
+    <div class="notice blue">本页负责<b>导出</b>与<b>名字纠错</b>；所有「导入/上传」入口已统一收进「设置 → 📤 资料上传」。<b>考试成绩类</b>导出仍在各自页面：「考试与成绩」页导出全年级分析数据包、分析报告页导出汇报数据。</div>
 
     <h3 style="margin-top:14px">📤 导出 <span class="muted" style="font-size:12px">（当前库：学生 ${nStu} 人 · 异动 ${nTr} 条）</span></h3>
     <div class="frow" style="gap:10px;flex-wrap:wrap">
@@ -6652,9 +6829,9 @@ function jwDataio(){
     </div>
     <div class="muted" style="margin:6px 0 0 4px">应考名单=按基准日期回放（在异动记录页也可导出，只含姓名/班级两列）；全年级学生信息=双表 Excel：①在班学生花名册（全字段）②异动台账（含已离校/休学等全部记录），供年级领导掌握全局。</div>
 
-    <h3 style="margin-top:14px">🔄 备份 <span class="muted" style="font-size:12px">（系统级，全数据）</span></h3>
+    <h3 style="margin-top:14px">💾 备份 <span class="muted" style="font-size:12px">（系统级，全数据）</span></h3>
     <div class="frow" style="gap:10px;flex-wrap:wrap">
-      <button class="btn" data-act="ioGoSet">⚙️ 去设置 → 同步与备份</button>
+      <a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:13px;color:var(--blue)">⚙️ 去设置 → 资料上传（备份/恢复）</a>
     </div>
     <div class="muted" style="margin:6px 0 0 4px">全量备份/恢复、GitHub 同步配置都在设置页，此处仅为入口指引。</div>
     ${aliasCard()}
@@ -6726,7 +6903,8 @@ ACTIONS.aliasApply=async()=>{
   render();
   toast(`全库修正完成：学生 ${c.stu} · 成绩行 ${c.exRows}（${c.exams}场考试）· 异动 ${c.tr} · 值日 ${c.duty} · 家长联系 ${c.ct}，共 ${total} 处（已云同步）`);
 };
-/* 在浏览器内即时生成上传模板（与交付的 学生信息上传模板.xlsx 同口径：三表+说明，无下拉校验——SheetJS 社区版不支持写校验，说明页已列枚举） */
+/* 在浏览器内即时生成上传模板（v111：只剩学生名单+说明两表——异动不再走模板，
+   存量已于 v94-v98 处理完毕，日常零星异动直接在「年级→异动记录」手动新增） */
 ACTIONS.ioTemplate=()=>{
   const wb=XLSX.utils.book_new();
   const ws1=XLSX.utils.aoa_to_sheet([
@@ -6736,23 +6914,11 @@ ACTIONS.ioTemplate=()=>{
   ]);
   ws1["!cols"]=[{wch:6},{wch:10},{wch:6},{wch:26},{wch:20},{wch:12},{wch:24}];
   XLSX.utils.book_append_sheet(wb,ws1,"学生名单");
-  const ws2=XLSX.utils.aoa_to_sheet([
-    ["序号","姓名","身份证号（重名必填）","异动类型","异动日期","原班级","现班级/去向","说明"],
-    ["示例","王五","510000200903030033","休学","2026-11-18","15","休学","生病"],
-    ["示例","王五","510000200903030033","复学","2026-12-01","15","15","返校"],
-    ["示例","赵六","510000200904040044","学籍转入","2026-11-18","","16","从西南中学正式转入"],
-  ]);
-  ws2["!cols"]=[{wch:6},{wch:10},{wch:24},{wch:12},{wch:14},{wch:10},{wch:16},{wch:20}];
-  XLSX.utils.book_append_sheet(wb,ws2,"异动记录");
   const ws3=XLSX.utils.aoa_to_sheet([
     ["填写说明"],
     ["1. 学生名单：一人一行；班级填纯数字（15，不写15班）；在校状态可选：在读/休学/借读外校/借读生/旁听/已离校。"],
-    ["2. 异动记录：一次异动一行；异动类型可选：学籍转入/借读转入/转班/学籍转出/借读外校/退学/休学/复学/其他。"],
-    ["3. 异动日期统一 2026-11-18 格式；只记得月份可写 2026-09。"],
-    ["4. 「现班级/去向」：转班填新班号；学籍转入填转入班级；休学填「休学」；退学/学籍转出填去向；复学填回的班级。"],
-    ["5. 学籍转入=正式转入我校（学籍+人一起来，区别于借读转入：借读生学籍在他校）；学籍转出=学籍正式转走（区别于借读外校：学籍仍在我校）。"],
-    ["6. 重名学生的名单行与异动行都务必填身份证号。"],
-    ["7. 同一人多次异动写多行，按时间顺序。"],
+    ["2. 重名学生的名单行务必填身份证号。"],
+    ["3. 学生异动不走模板：存量已处理完毕，日常零星异动请直接在工作台「年级 → 学生 → 异动记录」手动新增。"],
   ]);
   ws3["!cols"]=[{wch:90}];
   XLSX.utils.book_append_sheet(wb,ws3,"填写说明");
