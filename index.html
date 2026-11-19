@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v100";
+window.APP_VERSION="v101";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -6536,13 +6536,17 @@ const Sync={
     finally{if(t)clearTimeout(t);}
   },
   async ghFetch(url,opts){
-    try{return await this._fetch1(url,opts);}
-    catch(e){
-      if(this._isNetErr(e&&e.message||e)){
-        await new Promise(r=>setTimeout(r,3000));
-        return await this._fetch1(url,opts);
+    /* v101：国内直连 GitHub 偶发抽风（DNS 冷解析/TLS 握手尖峰实测可达 7–15 秒），网络类错误最多重试 3 次（间隔 3s/8s），全部失败才抛出 */
+    const waits=[3000,8000];
+    for(let i=0;;i++){
+      try{return await this._fetch1(url,opts);}
+      catch(e){
+        if(i<waits.length&&this._isNetErr(e&&e.message||e)){
+          await new Promise(r=>setTimeout(r,waits[i]));
+          continue;
+        }
+        throw e;
       }
-      throw e;
     }
   },
   _isNetErr(s){return /超时|无法访问|Failed to fetch|NetworkError|Load failed|fetch/i.test(String(s||""));},
@@ -6928,7 +6932,7 @@ const Sync={
     const sz=this._ghSizes;
     const fmt=n=>(!n?"—":(n>=1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB"));
     return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
-    <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有）　·　数据版本 <b>${this.rev}</b>　·　成绩版本 <b>${this.examsRev()}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b></div>
+    <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有）　·　数据版本 <b>${this.rev}</b>　·　成绩版本 <b>${this.examsRev()}</b>　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b>　·　令牌尾号 <b title="用于与令牌文件比对，确认本机缓存的是不是最新令牌">${esc((c.token||"").slice(-6))}</b></div>
     <div class="muted" style="font-size:12px;margin-bottom:4px">云端占用：主数据 <b>${fmt(sz&&sz.main)}</b>　·　成绩 <b>${fmt(sz&&sz.exams)}</b>${sz&&sz.repo?`　·　仓库合计 <b>${(sz.repo/1024).toFixed(1)} MB</b>`:""}${sz?"":`（点「🗂 云端备份管理」查看）`}</div>
     ${errBox}
     <div class="flex" style="margin-top:6px">
