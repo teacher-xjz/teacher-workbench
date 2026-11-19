@@ -393,7 +393,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v108";
+window.APP_VERSION="v109";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7003,11 +7003,18 @@ const Sync={
   examsRev(){return +(localStorage.getItem("tbExamsRev")||0)||0;},
   setExamsRev(n){try{localStorage.setItem("tbExamsRev",String(n||0));}catch(e){}},
   examsChanged(){this.examsDirty=true;this._setExamsDirtyFlag(true);this.noteChange();},
-  /* ===== v60 启动提速：云端文件指纹缓存（sha 没变 → 整份跳过下载） ===== */
+  /* ===== v60 启动提速：云端文件指纹缓存（sha 没变 → 整份跳过下载） =====
+     v109 关键修正：区分「下载过」(tbCloudSha) 与「应用过」(tbCloudApplied)。
+     只用下载指纹判跳过曾把"已下载但被 rev 门禁丢弃"的云端更新永久吞掉
+     （补填数据下不到设备的根因）——跳过下载必须以"应用过该指纹"为准。 */
   _cachedSha(){try{return localStorage.getItem("tbCloudSha")||null;}catch(e){return null;}},
   _saveSha(v){if(v)this.ghSha=v;try{localStorage.setItem("tbCloudSha",v||"");}catch(e){}},
+  _cachedApplied(){try{return localStorage.getItem("tbCloudApplied")||null;}catch(e){return null;}},
+  _saveApplied(v){try{localStorage.setItem("tbCloudApplied",v||"");}catch(e){}},
   _cachedShaEx(){try{return localStorage.getItem("tbCloudShaEx")||null;}catch(e){return null;}},
   _saveShaEx(v){if(v)this.ghShaEx=v;try{localStorage.setItem("tbCloudShaEx",v||"");}catch(e){}},
+  _cachedAppliedEx(){try{return localStorage.getItem("tbCloudAppliedEx")||null;}catch(e){return null;}},
+  _saveAppliedEx(v){try{localStorage.setItem("tbCloudAppliedEx",v||"");}catch(e){}},
   _examsDirtyFlag(){try{return localStorage.getItem("tbExamsDirty")==="1";}catch(e){return false;}},
   _setExamsDirtyFlag(on){try{on?localStorage.setItem("tbExamsDirty","1"):localStorage.removeItem("tbExamsDirty");}catch(e){}},
   async init(){
@@ -7017,10 +7024,11 @@ const Sync={
       this.ghConn=true;this.status="sync";this.updateChip();
       try{
         /* v60 启动提速：先问两个文件的"指纹"（几百字节），与上次一致就整份跳过下载；
-           指纹变了才拉正文合并。页面在 boot() 里已用本机数据先行渲染，这里不阻塞打开。 */
+           指纹变了才拉正文合并。页面在 boot() 里已用本机数据先行渲染，这里不阻塞打开。
+           v109：跳过判断必须比对「应用过」的指纹（v60 误用下载指纹，见 _cachedApplied 注释） */
         const sm=await this._statFile(this.FILENAME).catch(()=>null);
         const se=await this._statFile(this.EXAMFILE).catch(()=>null);
-        const mainSkip=!!(sm&&sm.sha&&this._cachedSha()&&sm.sha===this._cachedSha());
+        const mainSkip=!!(sm&&sm.sha&&this._cachedApplied()&&sm.sha===this._cachedApplied());
         let changed=false,exReplaced=false;
         if(mainSkip){
           this._saveSha(sm.sha);
@@ -7034,6 +7042,7 @@ const Sync={
             this.rev=Math.max(this.rev||0,got.payload.rev||0);
             await this.persistAll();
           }
+          this._saveApplied(got.sha); /* v109：本机已与云端这份内容完成合并对齐 */
           this.status="on";this.lastSync=new Date();
           exReplaced=await this._syncExamsOnInit(got.payload,se);
           if(changed)this._ghNote(); // 本机有较新改动 → 合并后上传
@@ -7063,7 +7072,7 @@ const Sync={
     if(statEx===undefined){
       try{statEx=await this._statFile(this.EXAMFILE);}catch(e){statEx=null;}
     }
-    if(statEx&&statEx.sha&&this._cachedShaEx()&&statEx.sha===this._cachedShaEx()){
+    if(statEx&&statEx.sha&&this._cachedAppliedEx()&&statEx.sha===this._cachedAppliedEx()){
       this.ghShaEx=statEx.sha; /* 云端成绩自上次同步后没变，本机已对齐，不下载 */
       if(this._examsDirtyFlag())this.examsDirty=true;
       return false;
@@ -7082,9 +7091,10 @@ const Sync={
         State.data.exams=ge.payload.exams||[];
         this.setExamsRev(pr);
         await this.persistAll();
+        this._saveAppliedEx(ge.sha); /* v109：已应用 */
         return true;
       }
-      if(lr>pr){this.examsDirty=true;this._setExamsDirtyFlag(true);}
+      if(lr>pr){this.examsDirty=true;this._setExamsDirtyFlag(true);this._saveAppliedEx(ge.sha);} /* 本机较新待上传，上传后指纹自换 */
       return false;
     }
     /* 云端还没有成绩文件：从旧版主数据里迁移（v50 之前成绩混在主文件里） */
@@ -7213,7 +7223,7 @@ const Sync={
   ghReadExams(){return this._readPayload(this.EXAMFILE,"teacherBoardExams","云端成绩");},
   async ghWrite(p){
     const ns=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据");
-    if(ns)this._saveSha(ns);
+    if(ns){this._saveSha(ns);this._saveApplied(ns);} /* v109：自己上传的内容即已应用 */
     this.lastSync=new Date();this.status="on";this.remotePending=null;this.updateChip();
     return true;
   },
@@ -7299,7 +7309,8 @@ const Sync={
       try{
         const got=await this.ghRead();this.ghSha=got.sha;
         if(got.payload&&got.payload.rev>(this.rev||0)){
-          this.remotePending=got.payload;this.status="on";this.updateChip("⚠️ 其他设备已更新，点此加载");return;
+          this.remotePending=got.payload;this.remotePendingSha=got.sha; /* v109 带指纹 */
+          this.status="on";this.updateChip("⚠️ 其他设备已更新，点此加载");return;
         }
         await this._ghDoPush();
       }catch(e){
@@ -7316,7 +7327,7 @@ const Sync={
     this.rev=(this.rev||0)+1;
     const p={app:"teacherBoard",device:this.device,rev:this.rev,savedAt:new Date().toISOString(),meta:this.metaClean(),data:this.cleanData()};
     const ns=await this._writeFile(this.FILENAME,p,this.ghSha,"工作台数据");
-    if(ns)this._saveSha(ns);
+    if(ns){this._saveSha(ns);this._saveApplied(ns);} /* v109：自己上传的内容即已应用 */
     if(this.examsDirty)await this._pushExams();
     await this.persistAll();
     clearTimeout(this._rt);
@@ -7326,7 +7337,7 @@ const Sync={
     const rev=this.examsRev()+1;
     const p={app:"teacherBoardExams",device:this.device,rev:rev,savedAt:new Date().toISOString(),exams:this.cleanExams()};
     const ns=await this._writeFile(this.EXAMFILE,p,this.ghShaEx,"成绩数据");
-    if(ns)this._saveShaEx(ns);
+    if(ns){this._saveShaEx(ns);this._saveAppliedEx(ns);} /* v109：自己上传的内容即已应用 */
     this.setExamsRev(rev);
     this.examsDirty=false;this._setExamsDirtyFlag(false);
   },
@@ -7410,7 +7421,7 @@ const Sync={
           const got=await this.ghRead();this._saveSha(got.sha);
           const p=got.payload;
           if(p&&p.rev>(this.rev||0)){
-            this.remotePending=p;
+            this.remotePending=p;this.remotePendingSha=got.sha; /* v109 带指纹，应用后记「已应用」 */
             this.updateChip("⚠️ 其他设备已更新，点此加载");
             if(this.status==="sync"||this.status==="off")this.status="on";
           }else if(p&&p.rev===(this.rev||0)&&p.rev>0){
@@ -7418,13 +7429,14 @@ const Sync={
                → 静默合并兜底（_ut 新者胜、幂等安全），避免内容更新被 sha 缓存永久吞掉 */
             const changed=await this.applyPayload(p,true);
             await this.persistAll();
+            this._saveApplied(got.sha); /* v109：已应用 */
             if(changed){
               this.noteChange();
               toast("🔄 云端数据有外部更新，已自动合并");
               const r=State.route||"";
               if(["home","bzr","jw","jw2","gr","set"].includes(r))render();
             }
-          }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){this.remotePending=null;this.updateChip();}
+          }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){this.remotePending=null;this.remotePendingSha=null;this.updateChip();}
         }
         const se=await this._statFile(this.EXAMFILE);
         if(se&&se.sha&&se.sha!==this.ghShaEx){
@@ -7452,7 +7464,8 @@ const Sync={
   async loadRemote(){
     if(!this.remotePending)return;
     const changed=await this.applyPayload(this.remotePending,true);
-    this.remotePending=null;
+    this._saveApplied(this.remotePendingSha||null); /* v109：点加载=真正应用，记指纹 */
+    this.remotePending=null;this.remotePendingSha=null;
     try{await this._syncExamsOnInit(null);}catch(e){}
     this.updateChip();toast(changed?"已合并云端最新数据（并上传本地较新改动）":"已加载云端最新数据");render();
     if(changed||this.examsDirty)this.noteChange();
@@ -7614,7 +7627,7 @@ ACTIONS.ghUploadNow=async()=>{
     const got=await Sync.ghRead();
     Sync.ghSha=got.sha;
     if(got.payload&&got.payload.rev>(Sync.rev||0)){
-      Sync.remotePending=got.payload;Sync.status="on";Sync.updateChip("⚠️ 其他设备已更新，点此加载");
+      Sync.remotePending=got.payload;Sync.remotePendingSha=got.sha;Sync.status="on";Sync.updateChip("⚠️ 其他设备已更新，点此加载");
       toast("云端有其他设备的新数据（版本"+got.payload.rev+"），已提示加载，未执行上传覆盖");render();return;
     }
     if(got.payload)await Sync.applyPayload(got.payload,true); // 先合并云端，再叠加本机改动
