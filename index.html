@@ -393,7 +393,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v107";
+window.APP_VERSION="v108";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1254,6 +1254,33 @@ function cdInline(count,color,pct,sub){
   <div class="cd-track" style="height:7px"><div class="cd-fill" style="width:${Math.round(pct*100)}%;background:${color}"></div></div>
   <span class="tl-cdsub">${sub}</span>`;
 }
+/* ===== v108：班级课表绿条（方案A）——"今天的课"卡片顶部一行压平：
+   正在上（科目·教师·时段）+ 下节（距开始），下方个人课时间轴完全不动。
+   数据源=State.meta.classSched（班主任班级课表），无课表/今天没课时整条隐藏 ===== */
+function homeClsBarHtml(){
+  const g=State.meta.classSched;
+  if(!g)return "";
+  const nm=schedNowMinutes();
+  const today=SCHED_DAYS[(new Date().getDay()+6)%7];
+  const val=p=>String((g[today]&&g[today][p.k])||"").trim();
+  const periods=schedPeriods();
+  const nowP=periods.find(p=>{const r=schedRangeOf(p.time);return p.type==="class"&&r&&nm>=r[0]&&nm<=r[1];});
+  const nextP=periods.filter(p=>p.type==="class").find(p=>{const r=schedRangeOf(p.time);return r&&r[0]>nm&&val(p);});
+  const fmt=p=>{const a=val(p).split(/\s+/);return a[0]+(a[1]?" · "+a[1]:"");};
+  let inner="";
+  if(nowP&&val(nowP)){
+    const r=schedRangeOf(nowP.time);
+    inner+=`<span style="flex:none">正在上 <b style="color:${subjColor(val(nowP).split(/\s+/)[0])}">${esc(fmt(nowP))}</b> <span class="muted">${esc(nowP.time||"")}</span></span>`;
+  }
+  if(nextP){
+    const r=schedRangeOf(nextP.time);
+    if(inner)inner+=`<span style="color:#86efac;flex:none">｜</span>`;
+    inner+=`<span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">下节 <b>${esc(fmt(nextP))}</b> <span class="muted">${cdHM(r[0])} 开始</span></span>`;
+  }
+  if(!inner)return "";
+  return `<div id="homeClsBar" style="display:flex;align-items:center;gap:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:7px 12px;margin-bottom:10px;font-size:12.5px;color:#166534;max-width:100%">
+    <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"")))}课表</span>${inner}</div>`;
+}
 function homeTlHtml(){
   const items=window._homeCdItems||[];
   const parse=t=>{const m=/(\d{1,2}):(\d{2})[—–-](\d{1,2}):(\d{2})/.exec(t||"");return m?[+m[1]*60+ +m[2],+m[3]*60+ +m[4]]:null;};
@@ -1284,7 +1311,9 @@ function homeTlHtml(){
       ${cd?`<div class="tl-cd">${cd}</div>`:""}</div>`;
   }).join("")+`</div>`;
 }
-setInterval(()=>{ /* 每 30 秒静默刷新首页课程时间轴（元素不存在则跳过） */
+setInterval(()=>{ /* 每 30 秒静默刷新首页课程时间轴 + 班级课表绿条（元素不存在则跳过） */
+  const cb=document.getElementById("homeClsBarBox");
+  if(cb)cb.innerHTML=homeClsBarHtml();
   const el=document.getElementById("homeTlBox");
   if(!el||!window._homeCdItems)return;
   el.innerHTML=homeTlHtml();
@@ -1338,7 +1367,8 @@ function renderHome(){
       ${!overdue.length&&!todayTodos.length?`<div class="empty">今天没有到期事项 ✨</div>`:""}
     </div>
     <div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}<span class="muted"> · 已结束的自动收起</span></span>
-      <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="mysched">个人课表 →</button></h3>
+      <span class="spacer"></span><button class="btn sm" data-go="bzr" data-sub="sched">班级课表 →</button><button class="btn sm" data-go="gr" data-sub="mysched">个人课表 →</button></h3>
+      <div id="homeClsBarBox">${homeClsBarHtml()}</div>
       <div id="homeTlBox">${homeTlHtml()}</div>
     </div>
   </div>
@@ -7383,6 +7413,17 @@ const Sync={
             this.remotePending=p;
             this.updateChip("⚠️ 其他设备已更新，点此加载");
             if(this.status==="sync"||this.status==="off")this.status="on";
+          }else if(p&&p.rev===(this.rev||0)&&p.rev>0){
+            /* v108：rev 相同但内容变了（外部脚本/工具直接推送云端，未走工作台上传）
+               → 静默合并兜底（_ut 新者胜、幂等安全），避免内容更新被 sha 缓存永久吞掉 */
+            const changed=await this.applyPayload(p,true);
+            await this.persistAll();
+            if(changed){
+              this.noteChange();
+              toast("🔄 云端数据有外部更新，已自动合并");
+              const r=State.route||"";
+              if(["home","bzr","jw","jw2","gr","set"].includes(r))render();
+            }
           }else if(this.remotePending&&p&&p.rev<=(this.rev||0)){this.remotePending=null;this.updateChip();}
         }
         const se=await this._statFile(this.EXAMFILE);
