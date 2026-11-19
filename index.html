@@ -41,6 +41,10 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 .gs-hit{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#0f172a}
 .gs-hit:hover{background:#eff6ff}
 .gs-none{padding:9px 12px;font-size:12px}
+/* v112 扁平导航图标（描边 SVG，单色随主题） */
+.ico{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-right:4px}
+#nav .tab .icon .ico{width:16px;height:16px;vertical-align:-3.5px;margin-right:0}
+.qi .ico{width:17px;height:17px;vertical-align:-3.5px;margin-right:0}
 @media(max-width:600px){#gsq{width:120px}#gsList{width:230px}}
 #cloudChip{flex:0 0 auto;font-size:12px}
 #nav{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:49}
@@ -411,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v112";
+window.APP_VERSION="v113";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -578,7 +582,7 @@ function go(route,sub){
 function goSub(sub){State.sub[State.route]=sub;render();}
 function render(keepScroll){
   const nav=$("#navInner");
-  nav.innerHTML=NAVS.map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${n.icon}</span>${n.label}</div>`).join("");
+  nav.innerHTML=NAVS.map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${ico(n.icon)}</span>${n.label}</div>`).join("");
   const v=App.routes[State.route];
   $("#main").innerHTML=(typeof heroBar==="function"?heroBar():"")+(v?v():"");
   const av=v&&v.after?v.after:null;
@@ -1127,6 +1131,35 @@ const TEACHER_SEED=[
  ["21","语文","张徳民"],["21","数学","夏捷"],["21","外语","谢仁红"],["21","物理","黄鹰"],["21","政治","张丽"],["21","历史","郎巧玲"],["21","地理","刘光辉"],
 ];
 
+/* ================= v112 扁平图标库 =================
+   全站导航图标统一为描边式扁平 SVG（stroke=currentColor，随主题配色），
+   替代 emoji（Windows 下 👤/👨‍🎓 渲染成实心黑像，观感差）。
+   ico(key)：命中 ICO 字典返回 SVG；未命中原样返回（兼容旧 emoji/测试桩）。 */
+const ICO={
+  home:'<path d="M4 11.2 12 4l8 7.2"/><path d="M6.2 9.8V20h4.6v-5.2h2.4V20h4.6V9.8"/>',
+  school:'<path d="M12 3.5 3 8l9 4.5L21 8l-9-4.5z"/><path d="M6.5 10.3v5.2c0 1.6 2.6 3 5.5 3s5.5-1.4 5.5-3v-5.2"/><path d="M21 8.6V14"/>',
+  lab:'<path d="M9.5 3h5"/><path d="M10 3.5v5.5l-4.8 8.8A2 2 0 0 0 7 21h10a2 2 0 0 0 1.8-3.2L14 9V3.5"/><path d="M8.2 14.5h7.6"/>',
+  grade:'<path d="M4 20h16"/><rect x="5.5" y="10" width="3.4" height="7.5" rx="1"/><rect x="10.3" y="4.5" width="3.4" height="13" rx="1"/><rect x="15.1" y="13" width="3.4" height="4.5" rx="1"/>',
+  user:'<circle cx="12" cy="8" r="3.6"/><path d="M5 20c1.2-3.3 4-5.1 7-5.1s5.8 1.8 7 5.1"/>',
+  users:'<circle cx="9" cy="8.5" r="3.1"/><path d="M3.4 19.5c.9-2.8 3.1-4.4 5.6-4.4s4.7 1.6 5.6 4.4"/><path d="M15.6 5.8a3.1 3.1 0 1 1 .6 6.1"/><path d="M17 14.5c2 .6 3.4 2.1 4 4.6"/>',
+  cog:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/>',
+  cal:'<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10.2h17"/><path d="M8 3v4M16 3v4"/>',
+  upload:'<path d="M12 14.5V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/><path d="M4 14.5v4A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-4"/>',
+  sliders:'<path d="M5 4.5v5.5M5 14v5.5M12 4.5v3M12 11.5v8M19 4.5v9M19 17.5v2"/><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="9.5" r="1.9"/><circle cx="19" cy="15.5" r="1.9"/>',
+  cloud:'<path d="M7 18.5a4.2 4.2 0 0 1-.6-8.35A5.6 5.6 0 0 1 17.3 8a4.3 4.3 0 0 1-.5 8.5z"/>',
+  clock:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.4 2"/>',
+  lock:'<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><circle cx="12" cy="15.5" r="1.3"/>',
+  inbox:'<path d="M4 13.2h4.4l1.6 2.6h4l1.6-2.6H20"/><path d="M6.2 4.5h11.6L20 13.2v6.3H4v-6.3l2.2-8.7z"/>',
+  pie:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5V12l6.2 5.6"/>',
+  clip:'<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 4.8a3 3 0 0 1 6 0"/><path d="M8.8 10.5h6.4M8.8 14h6.4M8.8 17.5h4"/>',
+  check:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.3 12.3l2.6 2.7 5-5.6"/>',
+};
+function ico(k,cls){
+  const p=ICO[k];
+  if(!p)return k||"";
+  return `<svg class="ico${cls?" "+cls:""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+}
+
 /* ================= CRUD 配置 ================= */
 const CRUDCFG={
   /* v91：导入按钮收进「教务→数据出入口」面板，名册页只留搜索/筛选/新增，减少按钮堆砌 */
@@ -1480,10 +1513,11 @@ function renderHome(){
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
   /* v105 快捷入口：修 kb→plan 深链 bug；加入学生档案；按使用频率排序
-     v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册 */
-  const qn=[["gr","todos","⏰","待办事项"],["bzr","sched","🏫","班级课表"],["bzr","profile","👤","学生档案"],["bzr","score","📈","班级成绩"],["jw","overview","📊","年级总览"],["jw","roster","👥","学生名册"],["jw","plan","🗓","考试日程"],["gr","events","📅","日程"]];
+     v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册
+     v112：图标扁平化（ico 键），⚠️ 离线版变换 4e 锚点同步维护 */
+  const qn=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
   return `
-  <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${q[2]}</span>${q[3]}</button>`).join("")}</div>
+  <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${ico(q[2])}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
     <div class="card"><h3>⏰ 待办事项 <span class="sub">${overdue.length?`<span class="tag t-red">${overdue.length} 项逾期</span>`:""}今天 ${todayTodos.length} 项</span>
       <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="todos">全部待办 →</button></h3>
@@ -1587,7 +1621,7 @@ ACTIONS.qcNote=async()=>{
 };
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"home",icon:"🏠",label:"首页",order:1,render:renderHome});
+AppModule({id:"home",icon:"home",label:"首页",order:1,render:renderHome});
 
 /* ================= 学生名册 Excel 导入 ================= */
 const ROSTER_KNOWN={"姓名":"name","性别":"sex","班级":"cls","学号":"sid","学籍号":"sid","考号":"kid",
@@ -1868,11 +1902,12 @@ async function doInfoImport(){
 }
 
 /* ================= 班主任 ================= */
-/* v105 信息架构：9 页签平铺 → 分组两级导航；v111 班务组并入日常、只读名册页移除
-   （查人看板=学生档案页，名册增删改=年级→学生名册，同一库自动联动） */
+/* v105 分组两级导航；v111 班务组并入日常、只读名册页移除
+   （查人看板=学生档案页，名册增删改=年级→学生名册，同一库自动联动）
+   v112 图标扁平化：组名不带 emoji，图标由 ico() 渲染 */
 const BZR_GROUPS=[
-  {key:"daily",name:"📅 日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"],["duties","班委与值日"],["activities","班会与活动"]]},
-  {key:"score",name:"📈 成绩",pages:[["score","班级成绩分析"],["report","分析报告"]]},
+  {key:"daily",icon:"cal",name:"日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"],["duties","班委与值日"],["activities","班会与活动"]]},
+  {key:"score",icon:"grade",name:"成绩",pages:[["score","班级成绩分析"],["report","分析报告"]]},
 ];
 const BZR_TABS=BZR_GROUPS.flatMap(g=>g.pages);
 function renderBzr(){
@@ -1892,7 +1927,7 @@ function renderBzr(){
     :(sub==="score")?clsScoreView.after
     :(sub==="report"&&typeof bzrReportView!=="undefined"?bzrReportView.after:null);
   const grp=BZR_GROUPS.find(g=>g.pages.some(p=>p[0]===sub))||BZR_GROUPS[0];
-  return `<div class="grouptabs">${BZR_GROUPS.map(g=>`<div class="gtab${g===grp?" active":""}" data-gtab="${g.key}" data-mod="bzr">${g.name}</div>`).join("")}</div>
+  return `<div class="grouptabs">${BZR_GROUPS.map(g=>`<div class="gtab${g===grp?" active":""}" data-gtab="${g.key}" data-mod="bzr">${ico(g.icon)}${g.name}</div>`).join("")}</div>
   <div class="subtabs">${grp.pages.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
 }
 /* v105：打开班级课表自动滚动定位到当前课程（无课进行中则定位下一节） */
@@ -2024,7 +2059,7 @@ ACTIONS.schedSyncMine=async()=>{
 };
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"bzr",icon:"🏫",label:"班主任",order:2,render:renderBzr});
+AppModule({id:"bzr",icon:"school",label:"班主任",order:2,render:renderBzr});
 
 /* ================= 班主任 · 班级成绩分析 ================= */
 function topNOf(){try{const n=Number(localStorage.getItem("tbTopN"));return n>0?n:80;}catch(e){return 80;}}
@@ -3004,7 +3039,7 @@ ACTIONS.taskToggle=async(id)=>{
 ACTIONS.markMine=()=>{};
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"jks",icon:"📝",label:"教科室",order:3,render:renderJks});
+AppModule({id:"jks",icon:"lab",label:"教科室",order:3,render:renderJks});
 
 /* ================= 个人事务 ================= */
 const GR_TABS=[["mysched","个人课表"],["todos","待办事项"],["notes","随手记"],["events","日程"]];
@@ -3055,16 +3090,17 @@ function notesView(){
 }
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"gr",icon:"👤",label:"个人",order:5,render:renderGr});
+AppModule({id:"gr",icon:"user",label:"个人",order:5,render:renderGr});
 
 /* ================= 设置（v80 页签化：全局设置统一收口） ================= */
+/* v112：页签改三元组 [key, 文案, 图标键]，图标由 ico() 扁平渲染 */
 const SET_TABS=[
-  ["basic","🏫 基本信息"],
-  ["upload","📤 资料上传"],
-  ["lines","📐 成绩统计口径"],
-  ["sync","☁️ 同步与备份"],
-  ["periods","⏰ 作息时间表"],
-  ["secure","🔐 安全与关于"],
+  ["basic","基本信息","school"],
+  ["upload","资料上传","upload"],
+  ["lines","成绩统计口径","sliders"],
+  ["sync","同步与备份","cloud"],
+  ["periods","作息时间表","clock"],
+  ["secure","安全与关于","lock"],
 ];
 function setTabBasic(){
   const s=settings();
@@ -3142,7 +3178,7 @@ function renderSet(){
   const tab=State.sub.set||"basic";
   const map={basic:setTabBasic,upload:(typeof setTabUpload==="function"?setTabUpload:setTabBasic),lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
   const body=(map[tab]||setTabBasic)();
-  return `<div class="subtabs">${SET_TABS.map(t=>`<div class="stab${tab===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+body;
+  return `<div class="subtabs">${SET_TABS.map(t=>`<div class="stab${tab===t[0]?" active":""}" data-sub="${t[0]}">${ico(t[2])}${t[1]}</div>`).join("")}</div>`+body;
 }
 ACTIONS.saveSettings=async()=>{
   const s=settings();
@@ -3221,7 +3257,7 @@ ACTIONS.resetPeriods=async()=>{
 };
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"set",icon:"⚙️",label:"设置",order:6,render:renderSet});
+AppModule({id:"set",icon:"cog",label:"设置",order:6,render:renderSet});
 
 /* ================= v111 设置 → 资料上传（全站导入收口） =================
    定位：所有需要"上传/导入"的资料统一从这里进——成绩、课表、名册、学生信息表、
@@ -3260,10 +3296,10 @@ function setTabUpload(){
 /* ================= 年级模块（v111：「教务」正名「年级」——三身份导航：班主任/年级/教科室） ================= */
 /* 两级导航：大标签分组 → 子页签；选中组由当前子页自动反推（深链/其他模块跳转无需关心组） */
 const JW_GROUPS=[
-  {key:"data",name:"📥 数据",pages:[["manage","考试与成绩"],["tmap","教师任课"],["dataio","数据导出与纠错"]]},
-  {key:"ana",name:"📊 分析",pages:[["overview","年级总览"],["classes","班级对比"],["subject","单科分析"],["teachers","教师对比"]]},
-  {key:"stu",name:"👨‍🎓 学生",pages:[["roster","学生名册"],["transfer","异动记录"],["watch","重点关注"],["trend","趋势追踪"]]},
-  {key:"kb",name:"📝 考务",pages:[["plan","考试日程"],["arrange","考场编排"]]},
+  {key:"data",icon:"inbox",name:"数据",pages:[["manage","考试与成绩"],["tmap","教师任课"],["dataio","数据导出与纠错"]]},
+  {key:"ana",icon:"pie",name:"分析",pages:[["overview","年级总览"],["classes","班级对比"],["subject","单科分析"],["teachers","教师对比"]]},
+  {key:"stu",icon:"users",name:"学生",pages:[["roster","学生名册"],["transfer","异动记录"],["watch","重点关注"],["trend","趋势追踪"]]},
+  {key:"kb",icon:"clip",name:"考务",pages:[["plan","考试日程"],["arrange","考场编排"]]},
 ];
 const JW_TABS=JW_GROUPS.flatMap(g=>g.pages);
 function renderJw(){
@@ -3279,7 +3315,7 @@ function renderJw(){
   }[sub];
   renderJw.after=f&&f.after;
   const grp=JW_GROUPS.find(g=>g.pages.some(p=>p[0]===sub))||JW_GROUPS[0];
-  return `<div class="grouptabs">${JW_GROUPS.map(g=>`<div class="gtab${g===grp?" active":""}" data-gtab="${g.key}">${g.name}</div>`).join("")}</div>
+  return `<div class="grouptabs">${JW_GROUPS.map(g=>`<div class="gtab${g===grp?" active":""}" data-gtab="${g.key}">${ico(g.icon)}${g.name}</div>`).join("")}</div>
   <div class="subtabs">${grp.pages.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
 }
 /* ---------- 考试数据基础 ---------- */
@@ -4304,7 +4340,7 @@ jwStudents.after=()=>{
 };
 
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
-AppModule({id:"jw",icon:"📊",label:"年级",order:4,render:renderJw});
+AppModule({id:"jw",icon:"grade",label:"年级",order:4,render:renderJw});
 
 /* ================= 重点关注名单 ================= */
 /* 临界生分两类概念：本科临界（锚本科线）/ 特控临界（锚特控线）；总分按方向、各科按科目（方向科再分方向） */
