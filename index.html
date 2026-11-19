@@ -2309,7 +2309,9 @@ function bzrProfileView(){
   let chips=[],chipLabel="";
   if(q){chips=matched;chipLabel=(sc==="all"?"全年级":clsLabel(sc))+"匹配 · "+chips.length+" 人：";}
   else{
-    const fc=auto?String(auto.cls||""):(sc!=="all"?sc:(st.cls||"15"));
+    /* v110 默认班：下拉具体班 || 本人班（settings.clsCode 数字班号；cls="15班" 格式须提取数字）|| 兜底15 */
+    const myCls=st.clsCode||String(st.cls||"").replace(/[^0-9]/g,"")||"15";
+    const fc=auto?String(auto.cls||""):(sc!=="all"?sc:myCls);
     chips=profStudents().filter(s=>String(s.cls||"")===fc);
     chipLabel=clsLabel(fc)+"名单 · "+chips.length+" 人：";
   }
