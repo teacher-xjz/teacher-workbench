@@ -393,7 +393,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v106";
+window.APP_VERSION="v107";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -401,6 +401,12 @@ window.APP_VERSION="v106";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const escA=s=>esc(s).replace(/\n/g,"&#10;");
+/* v107 名次显示统一带分母（参考人数）：rkN(名次,人数)="612/1224"；rankDisp 按列类型取对应分母（年级=全年级参考人数，方向=方向内，班级=班内） */
+function rkN(v,n){if(v==null||v==="")return "—";return n?`${v}/${n}`:String(v);}
+function rankDisp(r,kind){kind=kind||"gr";
+  if(kind==="gr")return rkN(r._gr,r._grN);
+  if(kind==="dir")return r._grDir!=null?rkN(r._grDir,r._grDirN):rkN(r._gr,r._grN);
+  return rkN(r._cr!=null?r._cr:r.clsRank,r._crN);}
 /* v106 班级显示名：22班=异动管理虚拟班（为方便学生异动而设，学籍不在实体的学生挂靠于此），
    所有下拉/列表/报表统一带标注；数据与统计对 22 班照常可用（名册/成绩/导出均不排除） */
 const VIRT_CLS={"22":"22班（异动）"};
@@ -1993,13 +1999,13 @@ function clsScoreView(){
     <div><h3 style="font-size:14px;margin-bottom:8px">🏆 优秀线统计<span class="sub">${anaDir}方向优秀线 ${topLn!=null?fmtN(topLn,1):"未设"}（${topSrc}）</span></h3>
       ${topLn==null?`<div class="empty">${anaDir}方向未设总分优秀线：到「设置 → 成绩统计口径」③ 填写「${anaDir}方向 优秀线」后回来</div>`
       :excRowsT.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">班内名次</th><th>姓名</th><th class="ctr">总分</th><th class="ctr">方向内年级名次</th></tr></thead><tbody>
-        ${excRowsT.map(r=>`<tr><td class="ctr">${r._cr||"—"}</td><td><b>${esc(r.name)}</b></td><td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._grDir||"—"}</td></tr>`).join("")}
+        ${excRowsT.map(r=>`<tr><td class="ctr">${rankDisp(r,"cr")}</td><td><b>${esc(r.name)}</b></td><td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${rankDisp(r,"dir")}</td></tr>`).join("")}
         </tbody></table></div><div class="muted" style="margin-top:4px">达线 ${excRowsT.length} 人 / 本班${anaDir}方向参考 ${dirRowsC.length} 人，占 ${fmtN(dirRowsC.length?excRowsT.length/dirRowsC.length*100:0)}%</div>`
       :`<div class="empty">优秀线 ${fmtN(topLn,1)} 分，本班${anaDir}方向最高 ${excGap!=null?fmtN(excGap,1):"—"} 分${excGap!=null?`，差距 ${fmtN(topLn-excGap,1)} 分`:String()}</div>`}
     </div>
     <div><h3 style="font-size:14px;margin-bottom:8px">🔝 ${topTitle}<span class="sub">${isGrade?"按年级总排名（含两个方向）":`按${anaDir}方向内年级名次`} · 并列同分同名次全部保留</span></h3>
       ${topList.length?`<div class="twrap" style="max-height:260px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">${rkTxt}</th><th>姓名</th>${isGrade?"<th class='ctr'>方向</th>":String()}<th class="ctr">总分</th><th class="ctr">班内名次</th></tr></thead><tbody>
-        ${topList.map(r=>`<tr><td class="ctr"><b>${rkOf(r)}</b></td><td><b>${esc(r.name)}</b></td>${dirCell(r)}<td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${r._cr||"—"}</td></tr>`).join("")}
+        ${topList.map(r=>`<tr><td class="ctr"><b>${rkOf(r)}</b></td><td><b>${esc(r.name)}</b></td>${dirCell(r)}<td class="ctr"><b>${fmtN(r.total,1)}</b></td><td class="ctr">${rankDisp(r,"cr")}</td></tr>`).join("")}
         </tbody></table></div><div class="muted" style="margin-top:4px">${isGrade?"年级总榜":`${anaDir}方向榜`}前 ${topN} 名中，本班入选 ${topList.length} 人</div>`
       :`<div class="empty">本班无人进入${isGrade?"年级":"年级"+anaDir+"方向"}前 ${topN} 名</div>`}
     </div>
@@ -2224,7 +2230,7 @@ function maskReg(kind,val){
   const id="mk"+(++_maskSeq);_maskMap[id]={kind,val:String(val).replace(/\s+/g,"")};
   return id;
 }
-function profScopeCls(){return State.bzrCls!==undefined?State.bzrCls:String(settings().clsCode||"");}
+function profScopeCls(){return State.bzrCls!==undefined?State.bzrCls:"all";} /* v107：默认全年级（年级管理场景），可切回本班 */
 function profStudents(){
   const sc=profScopeCls();
   let list=State.data.students.slice();
@@ -2303,7 +2309,7 @@ function profileCard(st){
       <div style="background:#f8fafc;border-radius:8px;padding:6px 10px;font-size:12.5px;display:flex;align-items:center;gap:6px"><span style="color:#64748b;font-size:11px">母亲</span><b style="font-weight:400">${esc(st.mother||"—")}</b><b class="ctr-mask" data-act="maskToggle" data-mid="${maskReg("tel",st.motherPhone)}" style="cursor:pointer;border-bottom:1px dashed #cbd5e1;font-weight:400">${esc(maskTel(st.motherPhone))}</b></div>
     </div>
     ${cols.length?`<div style="overflow-x:hidden"><table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5px">
-      <colgroup><col style="width:78px">${cols.map(()=>`<col style="width:40px">`).join("")}<col style="width:46px"><col style="width:46px"><col style="width:50px"><col style="width:50px"><col style="width:50px"><col style="width:36px"></colgroup>
+      <colgroup><col style="width:76px">${cols.map(()=>`<col style="width:40px">`).join("")}<col style="width:44px"><col style="width:44px"><col style="width:62px"><col style="width:62px"><col style="width:56px"><col style="width:34px"></colgroup>
       <thead><tr><th style="text-align:left;font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">考试</th>${cols.map(c=>`<th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">${esc(c)}</th>`).join("")}<th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">总分</th><th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">语数外</th><th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">年级名次</th><th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">方向名次</th><th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">班级名次</th><th style="font-weight:500;color:#64748b;padding:4px;border-bottom:1px solid #e2e8f0">趋势</th></tr></thead>
       <tbody>${list.slice().reverse().map((it,i)=>{
         const ri=list.length-1-i;const prev=ri>0?list[ri-1].row:null;
@@ -2323,12 +2329,12 @@ function profileCard(st){
         }).join("")}
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9"><b>${esc(fmtN(num(it.row.total),1))}</b></td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${ynTxt}</td>
-        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${it.row._gr||"—"}</td>
-        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${it.row._grDir||"—"}</td>
-        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${it.row._cr||"—"}</td>
+        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"gr")}</td>
+        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"dir")}</td>
+        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"cr")}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9;color:${tc}">${tr}</td></tr>`;
       }).join("")}</tbody></table></div>
-      <div class="muted" style="font-size:11.5px;margin-top:6px">名次为并列名次（同分同名次）：年级=全年级 · 方向=${esc(dir||"—")||"—"}方向内 · 班级=班内；"缺"=按缺考口径剔除的 0 分；虚线处点击显示完整号码</div>`
+      <div class="muted" style="font-size:11.5px;margin-top:6px">名次为并列名次（同分同名次），分母=参考人数：年级/全年级 · 方向/该方向 · 班级/本班；"缺"=按缺考口径剔除的 0 分；虚线处点击显示完整号码</div>`
       :`<div class="empty" style="padding:16px"><div class="big">📄</div>名册中没有该生的历次考试成绩记录（可能缺考或考试库中无同名学生）</div>`}
     <div style="margin-top:9px;font-size:12.5px;color:#334155;display:flex;align-items:center;gap:8px">
       <b style="font-weight:600">家校沟通</b><span style="color:#64748b">共 ${comms.length} 条</span>
@@ -3156,17 +3162,17 @@ function computeExam(exam){
   // 总分与排名
   const rows=exam.rows.map(r=>({r,total:num(r.total)}));
   const withTotal=rows.filter(x=>x.total!=null&&!(exam.zeroAsMissing&&x.total===0)).sort((a,b)=>b.total-a.total);
-  withTotal.forEach((x,i)=>{x.r._gr=(i>0&&withTotal[i-1].total===x.total)?withTotal[i-1].r._gr:i+1;}); /* 并列名次：同分同名次，下一名跳号（1224式，与学校成绩表一致） */
+  withTotal.forEach((x,i)=>{x.r._gr=(i>0&&withTotal[i-1].total===x.total)?withTotal[i-1].r._gr:i+1;x.r._grN=withTotal.length;}); /* 并列名次：同分同名次，下一名跳号（1224式，与学校成绩表一致）；_grN=全年级参考人数（v107 分母） */
   // 方向内排名（物理方向/历史方向各自按总分排）
   const dirRows={物理:[],历史:[]};
   withTotal.forEach(x=>{const d=rowDir(x.r);if(d){x.r._dir=d;dirRows[d].push(x);}});
-  Object.values(dirRows).forEach(list=>list.forEach((x,i)=>{x.r._grDir=(i>0&&list[i-1].total===x.total)?list[i-1].r._grDir:i+1;}));
+  Object.values(dirRows).forEach(list=>list.forEach((x,i)=>{x.r._grDir=(i>0&&list[i-1].total===x.total)?list[i-1].r._grDir:i+1;x.r._grDirN=list.length;}));
   out.ranks=withTotal.map(x=>({row:x.r,rank:x.r._gr}));
   cls.forEach(c=>{
     const rowsC=exam.rows.filter(r=>r.cls===c);
     const withC=rowsC.filter(r=>r.total!=null&&!(exam.zeroAsMissing&&Number(r.total)===0)).sort((a,b)=>b.total-a.total);
     let pcr=null,pcrT=null;
-    withC.forEach((r,i)=>{const t=Number(r.total);r._cr=(pcr!=null&&pcrT===t)?pcr:i+1;pcr=r._cr;pcrT=t;}); /* 班级内并列名次 */
+    withC.forEach((r,i)=>{const t=Number(r.total);r._cr=(pcr!=null&&pcrT===t)?pcr:i+1;r._crN=withC.length;pcr=r._cr;pcrT=t;}); /* 班级内并列名次；_crN=班内参考人数（v107） */
     const bySubj={};subjects.forEach(s=>bySubj[s]=subjStats(exam,s,rowsC));
     const dirs={};
     ["物理","历史"].forEach(d=>{
@@ -3918,6 +3924,7 @@ function stuHistData(name,cls){
       if(vals.length)clsSubjAvg[subj]=avg(vals);
     });
     out.push({exam:e,total:num(r.total),totalRaw:num(r.totalRaw),lang:r.lang,sRaw:Object.assign({},r.sRaw||{}),rank,dirRank,dir:d,cr,
+      gN:ce.ranks.length,dirN:d?ce.ranks.filter(x=>x.row._dir===d).length:null,cN:clsRows.length,
       clsAvg:clsRows.length?avg(clsRows.map(x=>num(x.total))):null,
       gradeAvg:gRows.length?avg(gRows.map(x=>num(x.total))):null,
       s:Object.assign({},r.s),clsSubjAvg});
@@ -3941,7 +3948,7 @@ function stuHistHtml(h,pfx){
     <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>考试</th><th class="ctr">日期</th><th class="ctr">总分</th><th class="ctr">年级排名</th><th class="ctr">方向排名</th><th class="ctr">班级排名</th><th class="ctr">较上次</th><th class="ctr">班级均分</th><th class="ctr">年级均分</th><th class="ctr">与年级差</th><th>各科成绩</th></tr></thead><tbody>
     ${h.map((x,i)=>{const d=(x.total!=null&&x.gradeAvg!=null)?x.total-x.gradeAvg:null;const dl=stuHistDelta(h,i);
       return `<tr><td><b>${esc(x.exam.name)}</b></td><td class="ctr">${esc(x.exam.date||"—")}</td>
-      <td class="ctr"><b>${x.total!=null?fmtN(x.total,1):"—"}</b>${x.totalRaw!=null?`<small class="muted">（原${fmtN(x.totalRaw,1)}）</small>`:""}</td><td class="ctr">${x.rank||"—"}</td><td class="ctr">${x.dirRank?x.dirRank+(x.dir?"（"+x.dir+"）":""):"—"}</td><td class="ctr">${x.cr||"—"}</td>
+      <td class="ctr"><b>${x.total!=null?fmtN(x.total,1):"—"}</b>${x.totalRaw!=null?`<small class="muted">（原${fmtN(x.totalRaw,1)}）</small>`:""}</td><td class="ctr">${rkN(x.rank,x.gN)}</td><td class="ctr">${x.dirRank?rkN(x.dirRank,x.dirN)+(x.dir?"（"+x.dir+"）":""):"—"}</td><td class="ctr">${rkN(x.cr,x.cN)}</td>
       <td class="ctr ${dl?dl.cls:""}" style="font-weight:600">${dl?`<span title="上次第${dl.prev}名 → 本次第${dl.cur}名">${dl.t}</span>`:"—"}</td>
       <td class="ctr">${x.clsAvg!=null?fmtN(x.clsAvg,1):"—"}</td><td class="ctr">${x.gradeAvg!=null?fmtN(x.gradeAvg,1):"—"}</td>
       <td class="ctr ${d!=null?(d>=0?"diff-pos":"diff-neg"):""}">${d!=null?(d>=0?"+":"")+fmtN(d,1):"—"}</td>
@@ -3983,7 +3990,7 @@ function jwStudents(){
     <div class="frow"><div class="field" style="flex:1"><input class="searchbox" style="width:100%" placeholder="输入姓名、学号、考号或班级（如 15）…" value="${escA(State.q_students||"")}" data-search="students"></div></div>
     ${q?`<div class="twrap"><table class="tb"><thead><tr><th class="ctr">班级</th><th>姓名</th><th class="ctr">方向</th><th class="ctr">年级排名</th><th class="ctr">方向排名</th><th class="ctr">班级排名</th><th class="ctr">总分</th>${exam.subjects.map(s=>`<th class="ctr">${esc(s)}</th>`).join("")}<th class="ctr">详情</th></tr></thead><tbody>
     ${rows.map(r=>`<tr><td class="ctr">${esc(r.cls)}</td><td><b>${esc(r.name)}</b></td>
-      <td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${rankMap[r.name+"|"+r.cls]||"—"}</td><td class="ctr">${r._grDir||"—"}</td><td class="ctr">${r._cr||r.clsRank||"—"}</td><td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td>
+      <td class="ctr">${rowDir(r)||"—"}</td><td class="ctr">${rankDisp(r,"gr")}</td><td class="ctr">${rankDisp(r,"dir")}</td><td class="ctr">${rankDisp(r,"cr")}</td><td class="ctr"><b>${r.total!=null?fmtN(r.total,1):"—"}</b></td>
       ${exam.subjects.map(s=>`<td class="ctr">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
       <td class="ctr"><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}">历次成绩</button></td></tr>`).join("")}
     </tbody></table></div>`:`<div class="empty">输入姓名、学号、考号或班级编号进行查询</div>`}
@@ -4118,7 +4125,7 @@ function jwWatch(){
       <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优秀名单 · ${scopeTxt}（优秀线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
         <span class="spacer"></span><button class="btn sm" data-act="copyList" data-kind="top" data-id="${exam.id}">📋 复制</button></h3>
         ${top.length?`<div class="twrap" style="max-height:300px;overflow-y:auto"><table class="tb"><thead><tr><th class="ctr">名次</th><th class="ctr">班级</th><th>姓名</th><th class="ctr">方向</th><th class="ctr">总分</th></tr></thead><tbody>
-        ${top.map(x=>`<tr><td class="ctr">${x.row._grDir||x.rank}</td><td class="ctr">${esc(x.row.cls)}</td><td>${esc(x.row.name)}</td><td class="ctr">${rowDir(x.row)||"—"}</td><td class="ctr"><b>${fmtN(x.row.total,1)}</b></td></tr>`).join("")}
+        ${top.map(x=>`<tr><td class="ctr">${rankDisp(x.row,"dir")}</td><td class="ctr">${esc(x.row.cls)}</td><td>${esc(x.row.name)}</td><td class="ctr">${rowDir(x.row)||"—"}</td><td class="ctr"><b>${fmtN(x.row.total,1)}</b></td></tr>`).join("")}
         </tbody></table></div>`:`<div class="empty">无人达到优秀线</div>`}
       </div>
       <div><h3 style="font-size:14px;margin-bottom:8px">📉 退步名单 · ${scopeTxt}（对比「${idx>0?esc(exs[idx-1].name):"无"}」按${declines.some(x=>x.isDir)?"方向内":"年级"}排名）
@@ -4154,7 +4161,7 @@ ACTIONS.copyList=(id,el)=>{
   const inScope=r=>scope==="__all"||String(r.cls)===scope;
   const exs=examsSorted();const idx=exs.findIndex(e=>e.id===exam.id);
   const kind=el.dataset.kind;let rows;
-  if(kind==="top"){rows=[["名次(方向内)","班级","姓名","方向","总分"]];ce.ranks.filter(x=>inScope(x.row)&&(()=>{const ln=totalLine(exam,rowDir(x.row),"top");return ln!=null&&x.row.total>=ln;})()).forEach(x=>rows.push([x.row._grDir||x.rank,x.row.cls,x.row.name,rowDir(x.row)||"",fmtN(x.row.total,1)]));}
+  if(kind==="top"){rows=[["名次(方向内/年级)","班级","姓名","方向","总分"]];ce.ranks.filter(x=>inScope(x.row)&&(()=>{const ln=totalLine(exam,rowDir(x.row),"top");return ln!=null&&x.row.total>=ln;})()).forEach(x=>rows.push([rankDisp(x.row,"dir"),x.row.cls,x.row.name,rowDir(x.row)||"",fmtN(x.row.total,1)]));}
   else{const prev=exs[idx-1];const pce=computeExam(prev);const pRank={};pce.ranks.forEach(x=>pRank[x.row.name+"|"+x.row.cls]=x.row._grDir||x.rank);
     rows=[["班级","姓名","方向","上次排名","本次排名","退步幅度","本次总分"]];
     ce.ranks.map(x=>({row:x.row,now:x.row._grDir||x.rank,prev:pRank[x.row.name+"|"+x.row.cls]})).filter(x=>inScope(x.row)&&x.prev&&x.now-x.prev>0)
@@ -5967,6 +5974,8 @@ function buildGradePack(exam,opts){
     delta.up.sort((a,b)=>b.step-a.step);delta.down.sort((a,b)=>b.step-a.step);
     prevDetail=prev.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:tieOf(prevAllTie,r),dirRank:tieOf(pTie,r),
       scores:subjects.reduce((o,s)=>{o[s]=detScore(prev,r,s);return o;},{})}));
+    delta.prevN={all:prev.rows.filter(r=>r.total!=null&&r.total>0).length,dir:{}}; /* v107：上次考试分母 */
+    ["物理","历史"].forEach(dr=>{delta.prevN.dir[dr]=prev.rows.filter(r=>rowDir(r)===dr&&r.total!=null&&r.total>0).length;});
   }
   /* ⑧ 成绩明细（仅 姓名/班级/方向/总分/名次/各科分数；永不含身份证号、学号） */
   const detail=exam.rows.map(r=>({name:r.name,cls:r.cls,dir:rowDir(r),total:r.total,gradeRank:tieOf(allTie,r),dirRank:tieOf(dirTie,r),
@@ -5992,6 +6001,10 @@ function buildGradePack(exam,opts){
 /* Excel 版（SheetJS）：与 JSON 完全同源的一份数据，人工核对用 */
 function gradePackXlsx(exam,opts,P){
   const subjects=exam.subjects||[];
+  /* v107 名次带分母（参考人数），与页面显示口径一致 */
+  const nAllTie=exam.rows.filter(r=>r.total!=null&&r.total>0).length;
+  const dirCnt={};["物理","历史"].forEach(d=>dirCnt[d]=exam.rows.filter(r=>rowDir(r)===d&&r.total!=null&&r.total>0).length);
+  const rN=(v,n)=>v!=null&&v!==""?(n?v+"/"+n:String(v)):"";
   const wb=XLSX.utils.book_new();
   const add=(name,aoa)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),name);
   add("使用说明",[
@@ -6031,9 +6044,9 @@ function gradePackXlsx(exam,opts,P){
   add("临界生",[["班级","人数","本科上线","本科临界","特控上线","特控临界","本科上线名单","特控上线名单"],
     ...P.clsLines.map(x=>[x.cls,x.n,x.ben,x.benCrit,x.exc,x.excCrit,x.benNames.join("、"),x.excNames.join("、")])]);
   add("前N名_总分",[["年级名次","姓名","班级","方向","总分","方向名次"],
-    ...P.topOverall.map(x=>[x.rank,x.name,x.cls,x.dir||"未标注",x.total,x.dirRank!=null?x.dirRank:""])]);
+    ...P.topOverall.map(x=>[rN(x.rank,nAllTie),x.name,x.cls,x.dir||"未标注",x.total,x.dirRank!=null?rN(x.dirRank,dirCnt[x.dir]):""])]);
   add("方向前N",[["方向","方向名次","姓名","班级","总分","年级名次"],
-    ...["物理","历史"].filter(d=>P.topByDir[d]).map(d=>P.topByDir[d].map(x=>[d,x.rank,x.name,x.cls,x.total,x.gradeRank])).flat()]);
+    ...["物理","历史"].filter(d=>P.topByDir[d]).map(d=>P.topByDir[d].map(x=>[d,rN(x.rank,dirCnt[d]),x.name,x.cls,x.total,rN(x.gradeRank,nAllTie)])).flat()]);
   add("单科前三",[["方向","科目","名次","姓名","班级","分数","任课教师"],
     ...P.champions.map(x=>[x.dir,x.subj,x.rank,x.name,x.cls,x.score,x.teacher])]);
   add("前N班级分布",[["范围","班级","人数","占该榜%"],
@@ -6044,11 +6057,11 @@ function gradePackXlsx(exam,opts,P){
     ...P.delta.up.slice(0,50).map(x=>["↑进步",x.name,x.cls,x.prev,x.cur,"前"+x.step+"名"]),
     ...P.delta.down.slice(0,50).map(x=>["↓退步",x.name,x.cls,x.prev,x.cur,"退"+x.step+"名"])]);
   if(opts.detail){
-    const detAoa=(det)=>[["姓名","班级","方向","总分","年级名次","方向名次",...subjects],
-      ...det.map(r=>[r.name,r.cls,r.dir||"未标注",r.total!=null?r.total:"",r.gradeRank!=null?r.gradeRank:"",
-        r.dirRank!=null?r.dirRank:"",...subjects.map(s=>r.scores[s]!=null?r.scores[s]:"")])];
-    add("明细_"+exam.name.slice(0,12),detAoa(P.detail));
-    if(P.prevDetail)add("明细_"+String(P.delta.prevName||"上次").slice(0,12),detAoa(P.prevDetail));
+    const detAoa=(det,nAll,dirC)=>[["姓名","班级","方向","总分","年级名次","方向名次",...subjects],
+      ...det.map(r=>[r.name,r.cls,r.dir||"未标注",r.total!=null?r.total:"",rN(r.gradeRank,nAll),
+        rN(r.dirRank,r.dir?dirC[r.dir]:null),...subjects.map(s=>r.scores[s]!=null?r.scores[s]:"")])];
+    add("明细_"+exam.name.slice(0,12),detAoa(P.detail,nAllTie,dirCnt));
+    if(P.prevDetail)add("明细_"+String(P.delta.prevName||"上次").slice(0,12),detAoa(P.prevDetail,(P.delta.prevN||{}).all||nAllTie,(P.delta.prevN||{}).dir||dirCnt));
   }
   XLSX.writeFile(wb,"全年级成绩分析数据包_"+exam.name+".xlsx");
 }
