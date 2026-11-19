@@ -257,6 +257,13 @@ canvas.chart{width:100%;display:block}
   table.tb{font-size:12px}
   .field{min-width:100px}
 }
+/* ===== v110 学生档案打印：profPrint 把档案卡临时搬到 body 顶层，打印时只显示它（无空白页），保留表格底色，A4 收窄边距 ===== */
+@media print{
+  body>*:not(#profCard){display:none!important}
+  #profCard{display:block!important;width:100%!important;border:none!important;box-shadow:none!important;border-radius:0!important;padding:0!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #profCard .btn{display:none!important}
+  @page{margin:10mm}
+}
 </style>
 </head>
 <body>
@@ -393,7 +400,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v109";
+window.APP_VERSION="v110";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1752,7 +1759,7 @@ const BZR_GROUPS=[
 ];
 const BZR_TABS=BZR_GROUPS.flatMap(g=>g.pages);
 function renderBzr(){
-  let sub=State.sub.bzr||"sched";
+  let sub=State.sub.bzr||"profile"; /* v110：默认打开学生档案（最常用），班级课表由首页绿条+页签兜底 */
   if(sub==="contacts"){sub="comm";State.sub.bzr="comm";} /* v105 旧深链：家长联系 → 沟通记录 */
   const f={
     sched:()=>`<div class="card"><h3>🏫 班级课表 · ${esc(settings().cls)}<span class="sub">蓝色列=今天 · 自动定位当前课程</span><span class="spacer"></span><button class="btn primary" data-act="schedImport">📥 Excel课表导入</button></h3><div class="notice blue">导入学校的 Excel 课表后，将自动写入班级课表，并同步到「个人 → 个人课表」（只保留含自己姓名的课）。也可随时点个人课表页的「从班级课表同步」重新提取。</div>${schedTable("classSched",{highlight:true,locate:true})}</div>`,
@@ -2261,6 +2268,20 @@ function maskReg(kind,val){
   return id;
 }
 function profScopeCls(){return State.bzrCls!==undefined?State.bzrCls:"all";} /* v107：默认全年级（年级管理场景），可切回本班 */
+/* ===== v110 快速切换：最近查看（本机记忆，上限8人） ===== */
+function profRecentIds(){try{return JSON.parse(localStorage.getItem("bzrProfRecent")||"[]")||[];}catch(e){return[];}}
+function profRemember(id){
+  if(!id)return;
+  try{let a=profRecentIds().filter(x=>x!==id);a.unshift(id);
+    localStorage.setItem("bzrProfRecent",JSON.stringify(a.slice(0,8)));}catch(e){}
+}
+function profChipRow(label,list,curId,showCls){
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center">
+    <span class="muted" style="font-size:12px;align-self:center;white-space:nowrap">${esc(label)}</span>
+    ${list.slice(0,60).map(s=>`<button class="btn sm${s.id===curId?" primary":""}" data-act="profPick" data-id="${s.id}">${esc(s.name)}${showCls?`（${escA(clsLabel(s.cls||""))}）`:""}</button>`).join("")}
+    ${list.length>60?`<span class="muted" style="align-self:center">…仅列前 60 人，输入姓名缩小范围</span>`:""}
+  </div>`;
+}
 function profStudents(){
   const sc=profScopeCls();
   let list=State.data.students.slice();
@@ -2283,13 +2304,26 @@ function bzrProfileView(){
   const sel=State.bzrSelId?State.data.students.find(x=>x.id===State.bzrSelId):null;
   const matched=profMatch();
   const auto=(!State.bzrSelId&&matched.length===1)?matched[0]:sel;
+  const q=String(State.bzrQ||"").trim();
+  /* v110 名单条口径：①有搜索词→匹配结果（显示班级标签）②无词已选人→TA所在班名单 ③无词→默认班（下拉具体班||本人班15班） */
+  let chips=[],chipLabel="";
+  if(q){chips=matched;chipLabel=(sc==="all"?"全年级":clsLabel(sc))+"匹配 · "+chips.length+" 人：";}
+  else{
+    const fc=auto?String(auto.cls||""):(sc!=="all"?sc:(st.cls||"15"));
+    chips=profStudents().filter(s=>String(s.cls||"")===fc);
+    chipLabel=clsLabel(fc)+"名单 · "+chips.length+" 人：";
+  }
+  const recent=profRecentIds().map(id=>State.data.students.find(s=>s.id===id)).filter(Boolean)
+    .filter(s=>!auto||s.id!==auto.id);
   return `<div class="card"><h3>📇 学生档案<span class="sub">输姓名调阅 · 为全年级预留（班级可切换）</span><span class="spacer"></span>
     <select class="searchbox" id="profCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>
     <button class="btn" data-act="profImport">📥 导入家长信息</button></h3>
     <div style="display:flex;gap:8px;margin-bottom:10px"><input id="profQ" placeholder="输入学生姓名（支持部分字）" value="${escA(State.bzrQ||"")}" style="max-width:280px">
-    <span class="muted" style="align-self:center">${esc(sc==="all"?"全年级":sc+"班")} · ${matched.length} 人匹配</span></div>
-    ${matched.length&&!auto?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${matched.slice(0,60).map(s=>`<button class="btn sm" data-act="profPick" data-id="${s.id}">${esc(s.name)}${sc==="all"?`（${escA(clsLabel(s.cls||""))}）`:""}</button>`).join("")}${matched.length>60?`<span class="muted" style="align-self:center">…等 ${matched.length} 人，请继续输入缩小范围</span>`:""}</div>`:""}
-    ${matched.length===0?`<div class="empty"><div class="big">🔍</div>${State.bzrQ?`${escA(State.bzrQ)}：${esc(sc==="all"?"全年级":sc+"班")}名册中没有匹配的学生`:"输入姓名或从上方选择学生"}　${sc!=="all"&&State.bzrQ?`<a href="javascript:void(0)" data-act="profAllScope">去全年级找</a>`:""}</div>`:""}
+    ${(q||State.bzrSelId)?`<button class="btn sm" data-act="profClear" title="清空搜索与选中，回到默认名单">✕ 清空</button>`:""}
+    <span class="muted" style="align-self:center">${q?esc(sc==="all"?"全年级":sc+"班")+" · "+matched.length+" 人匹配":""}</span></div>
+    ${recent.length?profChipRow("🕘 最近查看：",recent.slice(0,8),auto&&auto.id,true):""}
+    ${chips.length?profChipRow(chipLabel,chips,auto&&auto.id,q?sc==="all":false):""}
+    ${matched.length===0&&q?`<div class="empty"><div class="big">🔍</div>${escA(State.bzrQ)}：${esc(sc==="all"?"全年级":sc+"班")}名册中没有匹配的学生　${sc!=="all"?`<a href="javascript:void(0)" data-act="profAllScope">去全年级找</a>`:""}</div>`:""}
     ${auto?profileCard(auto):""}
   </div>`;
 }
@@ -2322,7 +2356,7 @@ function profileCard(st){
     });
   });
   const comms=State.data.comm.filter(r=>!r.deleted&&r.name===st.name).sort((a,b)=>String(b.dt||"").localeCompare(String(a.dt||"")));
-  return `<div style="background:var(--card,#fff);border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 16px">
+  return `<div id="profCard" style="background:var(--card,#fff);border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 16px">
     <div style="display:flex;align-items:center;gap:10px">
       <div style="width:38px;height:38px;border-radius:50%;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px">${esc((st.name||"?").slice(0,1))}</div>
       <div style="flex:1;min-width:0">
@@ -2644,9 +2678,30 @@ ACTIONS.commExport=()=>{
   toast("✅ Word 文档已生成（用 Word/WPS 直接打开）");
 };
 /* ===== 交互事件 ===== */
-ACTIONS.profPick=id=>{State.bzrSelId=id;renderKeep();};
+ACTIONS.profPick=id=>{profRemember(id);State.bzrSelId=id;renderKeep();};
+ACTIONS.profClear=()=>{State.bzrQ="";State.bzrSelId=null;renderKeep();};
 ACTIONS.profAllScope=()=>{State.bzrCls="all";renderKeep();};
-ACTIONS.profPrint=()=>{window.print();};
+ACTIONS.profPrint=()=>{
+  const card=document.getElementById("profCard");if(!card)return;
+  /* 打印专用：卡片临时搬到 body 顶层（配合 @media print 只显示它），打完放回原位 */
+  const anchor=card.parentElement,next=card.nextSibling;
+  document.body.appendChild(card);
+  /* 口径B：打印永远输出真实值——临时还原所有打码字段，打印完恢复打码显示 */
+  const restore=[];
+  card.querySelectorAll("[data-mid]").forEach(el=>{
+    const m=_maskMap[el.dataset.mid];if(!m)return;
+    restore.push([el,el.textContent]);el.textContent=m.val;
+  });
+  let done=false;
+  const fin=()=>{if(done)return;done=true;
+    restore.forEach(([el,t])=>{el.textContent=t;});
+    window.removeEventListener("afterprint",fin);
+  };
+  window.addEventListener("afterprint",fin);
+  window.print();
+  fin(); /* 阻塞式打印对话框关闭后返回即还原；afterprint 兜底（幂等） */
+  if(anchor)anchor.insertBefore(card,next);else document.body.appendChild(card); /* 放回原位 */
+};
 ACTIONS.maskToggle=(id,el)=>{
   const m=_maskMap[el.dataset.mid];if(!m)return;
   const masked=m.kind==="id"?maskId(m.val):maskTel(m.val);
@@ -2660,7 +2715,9 @@ document.addEventListener("change",e=>{
 let _profComp=false,_commComp=false;
 document.addEventListener("compositionstart",e=>{if(e.target.id==="profQ")_profComp=true;if(e.target.id==="commQ")_commComp=true;});
 document.addEventListener("compositionend",e=>{
-  if(e.target.id==="profQ"){_profComp=false;State.bzrQ=e.target.value;profRekeep("profQ");}
+  if(e.target.id==="profQ"){_profComp=false;State.bzrQ=e.target.value;
+    const m=profMatch();if(m.length===1)profRemember(m[0].id); /* v110：唯一匹配自动记入最近查看 */
+    profRekeep("profQ");}
   if(e.target.id==="commQ"){_commComp=false;State.commQ=e.target.value;profRekeep("commQ");}
 });
 function profRekeep(id){
@@ -2669,7 +2726,9 @@ function profRekeep(id){
   if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
 }
 document.addEventListener("input",e=>{
-  if(e.target.id==="profQ"){State.bzrQ=e.target.value;State.bzrSelId=null;if(_profComp||e.isComposing)return;profRekeep("profQ");}
+  if(e.target.id==="profQ"){State.bzrQ=e.target.value;State.bzrSelId=null;if(_profComp||e.isComposing)return;
+    const m=profMatch();if(m.length===1)profRemember(m[0].id); /* v110：唯一匹配自动记入最近查看 */
+    profRekeep("profQ");}
   if(e.target.id==="commQ"){State.commQ=e.target.value;if(_commComp||e.isComposing)return;profRekeep("commQ");}
 });
 
