@@ -411,7 +411,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v111";
+window.APP_VERSION="v112";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2484,6 +2484,7 @@ function profileCard(st){
       <button class="btn sm" data-act="profEdit" data-id="${st.id}">✏️ 编辑</button>
       <button class="btn sm primary" data-act="commPanel" data-name="${escA(st.name)}" data-cls="${escA(st.cls||"")}">＋ 记录沟通</button>
       <button class="btn sm" data-act="profPrint">🖨 打印</button>
+      <button class="btn sm" data-go="home" title="回到首页">⬅ 返回首页</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0">
       <div style="background:#f8fafc;border-radius:8px;padding:6px 10px;font-size:12.5px;display:flex;align-items:center;gap:6px"><span style="color:#64748b;font-size:11px">身份证</span><b class="ctr-mask" data-act="maskToggle" data-mid="${maskReg("id",st.idcard)}" style="cursor:pointer;border-bottom:1px dashed #cbd5e1;font-weight:400">${esc(maskId(st.idcard))}</b></div>
