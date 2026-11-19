@@ -213,6 +213,12 @@ table.tb tr.hl td{background:#fffbeb}
 .tl-top{display:flex;gap:8px;align-items:baseline;font-size:14px;flex-wrap:wrap}
 .tl-top .muted{font-size:12px}
 .tl-subj{font-weight:600;margin-top:2px}
+/* v106：课程行右侧倒计时块（不遮蔽课程信息） */
+.tl-item{display:flex;gap:10px;align-items:flex-start}
+.tl-main{flex:1;min-width:0}
+.tl-cd{width:42%;max-width:210px;flex-shrink:0;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:6px 10px;display:flex;flex-direction:column;gap:4px}
+.tl-cdtime{font-size:13.5px;font-weight:700;white-space:nowrap}
+.tl-cdsub{font-size:11px;color:var(--text2)}
 @media(max-width:640px){.hero{padding:14px 16px}.hero-greet{font-size:17px}.hstat{min-width:64px;padding:6px 10px}}
 /* 提醒列表 */
 .ag-item{display:flex;gap:10px;padding:10px 6px;border-bottom:1px solid var(--line);align-items:baseline;font-size:14.5px}
@@ -387,7 +393,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v105";
+window.APP_VERSION="v106";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -395,6 +401,10 @@ window.APP_VERSION="v105";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const escA=s=>esc(s).replace(/\n/g,"&#10;");
+/* v106 班级显示名：22班=异动管理虚拟班（为方便学生异动而设，学籍不在实体的学生挂靠于此），
+   所有下拉/列表/报表统一带标注；数据与统计对 22 班照常可用（名册/成绩/导出均不排除） */
+const VIRT_CLS={"22":"22班（异动）"};
+function clsLabel(c){const s=String(c==null?"":c).trim();return VIRT_CLS[s]||(s?s+"班":"");}
 const uid=()=>Date.now()+"-"+Math.random().toString(36).slice(2,8);
 const WEEK=["周日","周一","周二","周三","周四","周五","周六"];
 const pad2=n=>String(n).padStart(2,"0");
@@ -652,9 +662,9 @@ function crudView(store,cfg,opts){
   if(store==="students"&&!opts.cls){
     const clss=[...new Set(State.data.students.map(s=>String(s.cls||"")).filter(Boolean))]
       .sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
-    clsFilter=clss.length>1?`<select class="searchbox" id="stuClsFilter" style="max-width:120px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${State.f_students===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>`:"";
+    clsFilter=clss.length>1?`<select class="searchbox" id="stuClsFilter" style="max-width:120px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${State.f_students===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>`:"";
   }
-  return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(opts.cls)}班·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}
+  return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(clsLabel(opts.cls))}·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}
     ${cfg.noSearch?"":`<input class="searchbox" placeholder="搜索…" value="${escA(State["q_"+store]||"")}" data-search="${store}">`}
     ${opts.readOnly?"":`<button class="btn primary" data-act="crudAdd" data-store="${store}">＋ 新增</button>`}</h3>
     ${crudBody(store,cfg,q,opts)}
@@ -1232,17 +1242,46 @@ function homeCdCalc(items){
   }
   return null;
 }
-function homeCdHtml(info){
-  const pct=Math.min(100,Math.max(2,Math.round(info.pct*100)));
-  return `<div class="cd-top"><span class="cd-label">${info.label}</span><b class="cd-time" style="color:${info.color}">${info.count}</b></div>
-  <div class="cd-track"><div class="cd-fill" style="width:${pct}%;background:${info.color}"></div></div>
-  <div class="cd-sub">${info.sub}</div>`;
+/* ===== v106：倒计时并入课程行（右侧紧凑块，不遮蔽课程信息），已下课的不再展示 ===== */
+function cdInline(count,color,pct,sub){
+  return `<b class="tl-cdtime" style="color:${color}">${count}</b>
+  <div class="cd-track" style="height:7px"><div class="cd-fill" style="width:${Math.round(pct*100)}%;background:${color}"></div></div>
+  <span class="tl-cdsub">${sub}</span>`;
 }
-setInterval(()=>{ /* 每 30 秒静默刷新首页倒计时（元素不存在则跳过） */
-  const el=document.getElementById("homeCd");
+function homeTlHtml(){
+  const items=window._homeCdItems||[];
+  const parse=t=>{const m=/(\d{1,2}):(\d{2})[—–-](\d{1,2}):(\d{2})/.exec(t||"");return m?[+m[1]*60+ +m[2],+m[3]*60+ +m[4]]:null;};
+  const d=new Date(),nm=d.getHours()*60+d.getMinutes();
+  const shown=items.map(it=>({...it,r:parse(it.time)})).filter(x=>x.r&&x.r[1]>nm); /* 已下课的整行隐藏 */
+  if(!shown.length){ /* 今天课上完了或今天没课：紧凑倒计时条（自动找未来7天） */
+    const cd=items.length?homeCdCalc(items):null;
+    if(!cd)return `<div class="empty">今天没有课 🎉（去「个人 → 个人课表」填写课表）</div>`;
+    return `<div class="cd-wrap" style="padding:8px 12px"><div class="cd-top" style="margin-bottom:4px"><span class="cd-label">${cd.label}</span><b class="cd-time" style="color:${cd.color};font-size:15px">${cd.count}</b></div><div class="cd-track" style="height:6px"><div class="cd-fill" style="width:${Math.round(cd.pct*100)}%;background:${cd.color}"></div></div><div class="cd-sub" style="margin-top:3px">${cd.sub}</div></div><div class="empty" style="margin-top:8px">今天的课都上完了 ✅</div>`;
+  }
+  return `<div class="tl">`+shown.map((x,i)=>{
+    const isNow=x.r[0]<=nm&&nm<=x.r[1];
+    let cd="";
+    if(isNow){ /* 正在上的课：右侧显示剩余时间条（倒数下课） */
+      const rem=Math.max(0,x.r[1]-nm);
+      const pct=Math.min(1,Math.max(.02,rem/Math.max(1,x.r[1]-x.r[0])));
+      cd=cdInline(rem<1?"即将下课":`还剩 ${rem} 分钟`,cdTier(rem),pct,`${cdHM(x.r[1])} 下课`);
+    }else if(i===0){ /* 没在上课时：倒计时挂到下一节（沙漏式，条=剩余等待比例） */
+      const gap=x.r[0]-nm;
+      let prevEnd=-1;items.forEach(it=>{const pr=parse(it.time);if(pr&&pr[1]<=nm)prevEnd=Math.max(prevEnd,pr[1]);});
+      const base=prevEnd>=0?prevEnd:x.r[0]-90;
+      const pct=Math.min(1,Math.max(.02,(x.r[0]-nm)/Math.max(1,x.r[0]-base)));
+      cd=cdInline(gap<1?"马上开始":`距开始 ${gap} 分钟`,cdTier(gap),pct,`${cdHM(x.r[0])} 上课`);
+    }
+    return `<div class="tl-item${isNow?" now":""}"><span class="tl-dot"></span>
+      <div class="tl-main"><div class="tl-top"><b>${esc(x.title)}</b><span class="muted">${esc(x.time)}</span>${isNow?'<span class="tag t-green">进行中</span>':""}</div>
+      <div class="tl-subj" style="color:${subjColor(x.v.split(/\s+/)[0])}">${esc(x.v)}</div></div>
+      ${cd?`<div class="tl-cd">${cd}</div>`:""}</div>`;
+  }).join("")+`</div>`;
+}
+setInterval(()=>{ /* 每 30 秒静默刷新首页课程时间轴（元素不存在则跳过） */
+  const el=document.getElementById("homeTlBox");
   if(!el||!window._homeCdItems)return;
-  const info=homeCdCalc(window._homeCdItems);
-  if(info)el.innerHTML=homeCdHtml(info);else delete window._homeCdItems;
+  el.innerHTML=homeTlHtml();
 },30000);
 /* 问候横条：所有主页面顶部共用（v61） */
 function heroBar(){
@@ -1275,7 +1314,6 @@ function renderHome(){
   const week7=agenda.filter(a=>{const d=daysFromToday(a.date);return d>=0&&d<=7;}).slice(0,10);
   const sched=homeTodaySched();
   if(sched.items.length)window._homeCdItems=sched.items; /* 供 30 秒定时刷新 */
-  const cdInfo=sched.items.length?homeCdCalc(sched.items):null;
   const notes=State.data.notes.slice().sort((a,b)=>String(b.time||"").localeCompare(String(a.time||""))).slice(0,5);
   const projAlert=State.data.projects.filter(p=>{
     if(p.status==="已结题")return false;
@@ -1293,14 +1331,9 @@ function renderHome(){
       ${todayTodos.map(t=>todoItemHtml(t)).join("")||""}
       ${!overdue.length&&!todayTodos.length?`<div class="empty">今天没有到期事项 ✨</div>`:""}
     </div>
-    <div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}</span>
+    <div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}<span class="muted"> · 已结束的自动收起</span></span>
       <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="mysched">个人课表 →</button></h3>
-      ${cdInfo?`<div class="cd-wrap" id="homeCd">${homeCdHtml(cdInfo)}</div>`:""}
-      ${sched.items.length?`<div class="tl">${sched.items.map(i=>`
-        <div class="tl-item${i.now?" now":""}"><span class="tl-dot"></span>
-          <div class="tl-main"><div class="tl-top"><b>${esc(i.title)}</b><span class="muted">${esc(i.time)}</span>${i.now?'<span class="tag t-green">进行中</span>':""}</div>
-          <div class="tl-subj" style="color:${subjColor(i.v.split(/\s+/)[0])}">${esc(i.v)}</div></div></div>`).join("")}</div>`
-      :`<div class="empty">今天没有课 🎉（去「个人 → 个人课表」填写课表）</div>`}
+      <div id="homeTlBox">${homeTlHtml()}</div>
     </div>
   </div>
   <div class="grid2">
@@ -1638,7 +1671,7 @@ ACTIONS.infoImport=()=>{
       <div class="notice blue">共 <b>${sheets.length}</b> 个工作表、<b>${total}</b> 名学生：匹配现有名册 <b>${hit}</b> 名（只补空缺住址/性别/班级），新增 <b>${news.length}</b> 名${news.length?`（${escA(news.slice(0,8).join("、"))}${news.length>8?"…":""}）`:""}。<b>请核对每个表的班级</b>，不对就改下拉框。</div>
       <table class="tb"><thead><tr><th>工作表</th><th>人数</th><th>识别到</th><th>班级</th></tr></thead><tbody>
       ${sheets.map((s,i)=>`<tr><td>${escA(s.name)}</td><td class="ctr">${s.p.n}</td><td class="ctr">姓名第${s.p.nameCol+1}列${s.p.sexCol>=0?"·性别":""}${s.p.idCol>=0?"·身份证":""}${(s.p.addrA>=0||s.p.addrB>=0||s.p.hjCols.length)?"·住址":""}</td>
-        <td><select class="searchbox" data-isheet="${i}" style="max-width:110px"><option value=""${s.cls?"":" selected"}>不指定</option>${pool.map(c=>`<option value="${escA(c)}"${s.cls===c?" selected":""}>${escA(c)}班</option>`).join("")}</select></td></tr>`).join("")}
+        <td><select class="searchbox" data-isheet="${i}" style="max-width:110px"><option value=""${s.cls?"":" selected"}>不指定</option>${pool.map(c=>`<option value="${escA(c)}"${s.cls===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select></td></tr>`).join("")}
       </tbody></table>
       <div class="twrap" style="max-height:220px;overflow-y:auto;margin-top:8px"><table class="tb"><thead><tr><th>工作表</th><th>姓名</th><th>性别</th><th>家庭住址</th></tr></thead><tbody>
       ${sheets.flatMap(s=>s.p.rows.slice(0,5).map(r=>`<tr><td>${escA(s.name)}</td><td>${escA(r.name)}</td><td>${escA(r.sex||"—")}</td><td>${escA(r.addr||"—")}</td></tr>`)).join("")}
@@ -1936,8 +1969,8 @@ function clsScoreView(){
     <div class="bzrgrp"><span>前N口径</span>
       <select id="anaBaseSel" style="width:130px"><option value="dir"${topBase==="dir"?" selected":""}>${anaDir}方向内（默认）</option><option value="grade"${topBase==="grade"?" selected":""}>年级总榜</option></select></div>
     <div class="bzrgrp bzrcmp"><span>对比班级</span>
-      ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(c)}班<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
-      ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(c)}班</option>`).join("")}</select>`:""}
+      ${cmpCls.length?cmpCls.map(c=>`<span class="cmpchip" data-act="bzrCmpToggle" data-id="${escA(c)}" title="点击移除该对比班">${esc(clsLabel(c))}<b>×</b></span>`).join(""):`<span class="muted" style="font-size:12px">未选（可多选，选后显示对比表）</span>`}
+      ${cmpAvail.length?`<select id="bzrCmpAdd" style="width:112px"><option value="">＋ 添加</option>${cmpAvail.map(c=>`<option value="${escA(c)}">${esc(clsLabel(c))}</option>`).join("")}</select>`:""}
       ${cmpCls.length?`<button class="btn sm" data-act="bzrCmpClear">清空</button>`:""}
     </div>
   </div>
@@ -1955,7 +1988,7 @@ function clsScoreView(){
     const excGap=dirRowsC.length?Math.max(...dirRowsC.map(r=>r.total)):null;
     const topTitle=isGrade?`年级前 ${topN} 名 · 本班入选`:`年级${anaDir}方向前 ${topN} 名 · 本班入选`;
     const dirCell=r=>isGrade?`<td class="ctr">${rowDir(r)||"—"}</td>`:String();
-    return `<details open class="lnsec" style="margin-top:10px"><summary>🏆 优秀线与前N名 · ${esc(viewCls)}班 · ${anaDir}方向（统计范围=当前班级，可收起）</summary>
+    return `<details open class="lnsec" style="margin-top:10px"><summary>🏆 优秀线与前N名 · ${esc(clsLabel(viewCls))} · ${anaDir}方向（统计范围=当前班级，可收起）</summary>
   <div class="grid2">
     <div><h3 style="font-size:14px;margin-bottom:8px">🏆 优秀线统计<span class="sub">${anaDir}方向优秀线 ${topLn!=null?fmtN(topLn,1):"未设"}（${topSrc}）</span></h3>
       ${topLn==null?`<div class="empty">${anaDir}方向未设总分优秀线：到「设置 → 成绩统计口径」③ 填写「${anaDir}方向 优秀线」后回来</div>`
@@ -2062,11 +2095,11 @@ function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
   };
   const sts=clsArr.map(stat);
   const row=(label,fn)=>`<tr><td><b>${label}</b></td>${sts.map(s=>`<td class="ctr">${fn(s)}</td>`).join("")}</tr>`;
-  return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(viewCls)}班 vs ${cmpCls.map(c=>esc(c)+"班").join("、")}（可收起）</summary>
+  return `<details open class="lnsec" style="margin-top:10px"><summary>⚖ 班级对比：${esc(clsLabel(viewCls))} vs ${cmpCls.map(c=>esc(clsLabel(c))).join("、")}（可收起）</summary>
   <div class="statcards" style="grid-template-columns:repeat(${Math.min(4,sts.length)},1fr);margin-top:6px">
-    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(s.cls)}班 · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前${topN}占${s.topNn}人</div></div>`).join("")}
+    ${sts.map((s,i)=>`<div class="stat"><div class="v" style="color:${CMP_COLORS[i%CMP_COLORS.length]}">${fmtN(s.avg)}</div><div class="k"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span>${esc(clsLabel(s.cls))} · 总分均分</div><div class="muted" style="font-size:11px;margin-top:2px">本科上线${s.ben} · 特控上线${s.exc} · 年级第${s.rank||"—"}名 · 前${topN}占${s.topNn}人</div></div>`).join("")}
   </div>
-  <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(s.cls)}班${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
+  <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>指标</th>${sts.map((s,i)=>`<th class="ctr"><span class="dot" style="background:${CMP_COLORS[i%CMP_COLORS.length]}"></span> ${esc(clsLabel(s.cls))}${s.cls===myCls?"（我的）":""}</th>`).join("")}</tr></thead><tbody>
     ${row("班级人数",s=>fmtN(s.n,0))}
     ${row("总分均分",s=>`<b>${fmtN(s.avg)}</b>`)}
     ${row("年级排名",s=>s.rank?`第${s.rank}/${s.ncls}名`:"—")}
@@ -2076,7 +2109,7 @@ function bzrCompareSection(exam,ce,viewCls,cmpCls,myCls){
   </tbody></table></div>
   <div style="margin-top:12px"><canvas class="chart" id="cClsCmp"></canvas>${legendHtml(sts.map((s,i)=>({c:CMP_COLORS[i%CMP_COLORS.length],n:s.cls+"班"})))}</div>
   <details class="lnsec" style="margin-top:8px"><summary>📋 单科均分逐班对照（展开查看）</summary>
-  <div class="twrap" style="margin-top:6px"><table class="tb"><thead><tr><th class="ctr">科目</th>${sts.map(s=>`<th class="ctr">${esc(s.cls)}班</th>`).join("")}<th class="ctr">年级均分</th></tr></thead><tbody>
+  <div class="twrap" style="margin-top:6px"><table class="tb"><thead><tr><th class="ctr">科目</th>${sts.map(s=>`<th class="ctr">${esc(clsLabel(s.cls))}</th>`).join("")}<th class="ctr">年级均分</th></tr></thead><tbody>
     ${exam.subjects.map(sub=>{
       const vals=sts.map(s=>{const b=ce.classes.find(c=>c.cls===s.cls);const m=b&&b.bySubj&&b.bySubj[sub];return m&&m.avg!=null?m.avg:null;});
       const gv=ce.grade&&ce.grade.bySubj&&ce.grade.bySubj[sub]?ce.grade.bySubj[sub].avg:null;
@@ -2215,11 +2248,11 @@ function bzrProfileView(){
   const matched=profMatch();
   const auto=(!State.bzrSelId&&matched.length===1)?matched[0]:sel;
   return `<div class="card"><h3>📇 学生档案<span class="sub">输姓名调阅 · 为全年级预留（班级可切换）</span><span class="spacer"></span>
-    <select class="searchbox" id="profCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>
+    <select class="searchbox" id="profCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>
     <button class="btn" data-act="profImport">📥 导入家长信息</button></h3>
     <div style="display:flex;gap:8px;margin-bottom:10px"><input id="profQ" placeholder="输入学生姓名（支持部分字）" value="${escA(State.bzrQ||"")}" style="max-width:280px">
     <span class="muted" style="align-self:center">${esc(sc==="all"?"全年级":sc+"班")} · ${matched.length} 人匹配</span></div>
-    ${matched.length&&!auto?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${matched.slice(0,60).map(s=>`<button class="btn sm" data-act="profPick" data-id="${s.id}">${esc(s.name)}${sc==="all"?`（${escA(s.cls||"")}班）`:""}</button>`).join("")}${matched.length>60?`<span class="muted" style="align-self:center">…等 ${matched.length} 人，请继续输入缩小范围</span>`:""}</div>`:""}
+    ${matched.length&&!auto?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${matched.slice(0,60).map(s=>`<button class="btn sm" data-act="profPick" data-id="${s.id}">${esc(s.name)}${sc==="all"?`（${escA(clsLabel(s.cls||""))}）`:""}</button>`).join("")}${matched.length>60?`<span class="muted" style="align-self:center">…等 ${matched.length} 人，请继续输入缩小范围</span>`:""}</div>`:""}
     ${matched.length===0?`<div class="empty"><div class="big">🔍</div>${State.bzrQ?`${escA(State.bzrQ)}：${esc(sc==="all"?"全年级":sc+"班")}名册中没有匹配的学生`:"输入姓名或从上方选择学生"}　${sc!=="all"&&State.bzrQ?`<a href="javascript:void(0)" data-act="profAllScope">去全年级找</a>`:""}</div>`:""}
     ${auto?profileCard(auto):""}
   </div>`;
@@ -2313,7 +2346,7 @@ ACTIONS.profImport=()=>{
     <div class="notice blue">读取《学生成绩管理系统》类表格中的「学生信息表」工作表（表头含 学生姓名 / 家长姓名 / 联系电话 / 与学生关系）。
     按「姓名+班级」匹配现有名册：<b>姓名与电话填入对应父亲/母亲字段（已有不同值时以表格为准更新，预览里逐行可见）</b>；匹配不到的学生标出、跳过。</div>
     <div class="frow"><div class="field"><label>表格文件（.xlsx / .xls / .csv）</label><input type="file" id="pimpFile" accept=".xlsx,.xls,.csv,.tsv"></div>
-    <div class="field" style="flex:.5"><label>匹配班级</label><select id="pimpCls">${[...new Set(State.data.students.map(s=>String(s.cls||"")).filter(Boolean))].sort((a,b)=>natKey(a).localeCompare(natKey(b))).map(c=>`<option value="${escA(c)}"${String(settings().clsCode||"")===c?" selected":""}>${escA(c)}班</option>`).join("")}</select></div></div>
+    <div class="field" style="flex:.5"><label>匹配班级</label><select id="pimpCls">${[...new Set(State.data.students.map(s=>String(s.cls||"")).filter(Boolean))].sort((a,b)=>natKey(a).localeCompare(natKey(b))).map(c=>`<option value="${escA(c)}"${String(settings().clsCode||"")===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select></div></div>
     <div id="pimpLog" class="muted"></div>`,
     `<button class="btn" data-act="closeModal">取消</button>`);
   $("#pimpFile").onchange=async ev=>{
@@ -2431,7 +2464,7 @@ function bzrCommView(){
   /* v105 信息架构：旧「家长联系」记录（contacts）与沟通记录功能重复，入口合并至此，一键迁移 */
   const oldCnt=State.meta.commMigrated?0:State.data.contacts.length;
   return `<div class="card"><h3>💬 家校沟通记录<span class="sub">过程资料 · 独立上云 · 只增不改</span><span class="spacer"></span>
-    <select class="searchbox" id="commCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(c)}班</option>`).join("")}</select>
+    <select class="searchbox" id="commCls" style="max-width:120px"><option value="all"${sc==="all"?" selected":""}>全年级</option>${clss.map(c=>`<option value="${escA(c)}"${sc===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>
     <select class="searchbox" id="commRange" style="max-width:110px">
       <option value="month"${(State.commRange||"month")==="month"?" selected":""}>本月</option>
       <option value="q"${State.commRange==="q"?" selected":""}>近三月</option>
@@ -2460,7 +2493,7 @@ function commTimeline(list){
     ${open?`<div style="padding:2px 0 8px 28px;font-size:12.5px">
       <div>${esc(r.content||"")}</div>
       ${r.follow?`<div style="margin-top:4px;color:#64748b">跟进：${escA(r.follow)}</div>`:""}
-      <div style="margin-top:4px;color:#94a3b8;font-size:11.5px">学生：${escA(r.name||"")}（${escA(commStuCls(r))}班） · 对象：${escA(r.who||"—")} · 录入：${esc(r._ts?new Date(r._ts).toLocaleString("zh-CN"):"—")}${r.by?" · 记录人："+escA(r.by):""}
+      <div style="margin-top:4px;color:#94a3b8;font-size:11.5px">学生：${escA(r.name||"")}（${escA(clsLabel(commStuCls(r)))}） · 对象：${escA(r.who||"—")} · 录入：${esc(r._ts?new Date(r._ts).toLocaleString("zh-CN"):"—")}${r.by?" · 记录人："+escA(r.by):""}
       　<a href="javascript:void(0)" data-act="commDel" data-id="${r.id}" style="color:#dc2626">删除</a></div></div>`:""}`;
   }).join("");
 }
@@ -2480,8 +2513,8 @@ ACTIONS.commPanel=(id,el)=>{
   if(name){st=State.data.students.find(s=>s.name===name&&(!cls||String(s.cls||"")===String(cls)))||State.data.students.find(s=>s.name===name);}
   const scope=profStudents();
   const opts=commWhoOptions(st);
-  openModal("＋ 记录沟通"+(st?` · ${esc(st.name)}（${escA(st.cls||"")}班）`:""),`
-    ${st?"":`<div class="frow" style="margin-bottom:6px"><div class="field"><label>学生</label><select id="commStu">${scope.map(s=>`<option value="${escA(s.id)}">${escA(s.name)}（${escA(s.cls||"")}班）</option>`).join("")}</select></div></div>`}
+  openModal("＋ 记录沟通"+(st?` · ${esc(st.name)}（${escA(clsLabel(st.cls||""))}）`:""),`
+    ${st?"":`<div class="frow" style="margin-bottom:6px"><div class="field"><label>学生</label><select id="commStu">${scope.map(s=>`<option value="${escA(s.id)}">${escA(s.name)}（${escA(clsLabel(s.cls||""))}）</option>`).join("")}</select></div></div>`}
     <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
       <input type="datetime-local" id="commDt" value="${escA(nowLocal().replace(" ","T"))}" style="width:180px">
       <select id="commWay" style="width:84px">${["电话","微信","面谈","家访","其他"].map(w=>`<option>${w}</option>`).join("")}</select>
@@ -2559,7 +2592,7 @@ ACTIONS.commExport=()=>{
   const rows=keys.map(k=>{
     const [nm,cls]=k.split("|");
     const items=byStu[k].sort((a,b)=>String(a.dt||"").localeCompare(String(b.dt||"")));
-    return `<h3 style="font-size:14px;margin:16px 0 6px">${escW(nm)}（${escW(cls)}班）—— ${items.length} 条</h3>
+    return `<h3 style="font-size:14px;margin:16px 0 6px">${escW(nm)}（${escW(clsLabel(cls))}）—— ${items.length} 条</h3>
     <table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;width:100%;font-size:11pt">
     <tr style="background:#eef2f7"><th style="width:110px">时间</th><th style="width:60px">方式</th><th style="width:70px">事由</th><th style="width:90px">对象</th><th>沟通内容</th><th style="width:110px">跟进</th></tr>
     ${items.map(r=>`<tr><td>${escW(r.dt)}</td><td>${escW(r.way)}</td><td>${escW(r.topic)}</td><td>${escW(r.rel||"")}${r.rel&&r.who?" ":""}${escW(r.who||"")}</td><td>${escW(r.content)}</td><td>${escW(r.follow||"")}</td></tr>`).join("")}
@@ -3583,7 +3616,7 @@ jwOverview.after=()=>{
         const lab=hit.si===0?"本科上线":"特控上线";
         const cnt=hit.si===0?s.ben:s.exc;
         /* 名单全部展示：人少气泡短、人多折行变高，长度随人数自适应（v55）；完整名单见「重点关注」 */
-        tip.innerHTML=`<b>${escA(s.cls)}班 · ${lab} ${cnt} 人</b><div>${escA(names.length?names.join("、"):"无")}</div>`;
+        tip.innerHTML=`<b>${escA(clsLabel(s.cls))} · ${lab} ${cnt} 人</b><div>${escA(names.length?names.join("、"):"无")}</div>`;
         tip.style.display="block";
         const wr=wrap.getBoundingClientRect();
         let tx=mx+14,ty=my+14;
@@ -3954,7 +3987,7 @@ function jwStudents(){
       ${exam.subjects.map(s=>`<td class="ctr">${r.s[s]!=null?fmtN(r.s[s],r.s[s]%1?1:0):"—"}</td>`).join("")}
       <td class="ctr"><button class="btn sm" data-act="stuDetail" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}">历次成绩</button></td></tr>`).join("")}
     </tbody></table></div>`:`<div class="empty">输入姓名、学号、考号或班级编号进行查询</div>`}
-    ${one&&hist&&hist.length?`<div class="card" style="margin-top:14px"><h3>📈 ${esc(one.name)}（${esc(one.cls)}班）· 历次考试分析<span class="sub">${hist.length} 场考试 · 排名越小越好</span></h3>${stuHistHtml(hist,"In")}</div>`:one&&!hist.length?`<div class="muted" style="margin-top:10px">该生没有任何考试记录。</div>`:""}
+    ${one&&hist&&hist.length?`<div class="card" style="margin-top:14px"><h3>📈 ${esc(one.name)}（${esc(clsLabel(one.cls))}）· 历次考试分析<span class="sub">${hist.length} 场考试 · 排名越小越好</span></h3>${stuHistHtml(hist,"In")}</div>`:one&&!hist.length?`<div class="muted" style="margin-top:10px">该生没有任何考试记录。</div>`:""}
   </div>`;
 }
 ACTIONS.stuDetail=(id,el)=>{
@@ -3974,7 +4007,7 @@ ACTIONS.stuDetail=(id,el)=>{
     else if(tl!=null&&isCritScore(cur.total,tl,"exc",exam))crit=`<span class="tag t-purple">特控临界（${d?d+"方向":""}${tl}，浮动${critRangeTxt(exam,"exc")}）</span>`;
     else if(bl!=null&&db>0)crit=`<span class="tag t-green">超本科线 +${fmtN(db,0)}</span>`;
     else if(bl!=null)crit=`<span class="tag t-gray">距本科线 -${fmtN(-db,0)}</span>`;}
-  openModal(`学生历次成绩分析 — ${esc(name)}（${esc(cls)}班）`,
+  openModal(`学生历次成绩分析 — ${esc(name)}（${esc(clsLabel(cls))}）`,
     `<div class="flex" style="margin-bottom:10px">${crit}${cur&&cur.total!=null?`<span class="tag t-blue">总分 ${fmtN(cur.total,1)}</span>`:""}${cur&&cur.lang?`<span class="tag t-gray">外语·${esc(cur.lang)}</span>`:""}${cur&&cur.totalRaw!=null?`<span class="tag t-gray">总分(原始分) ${fmtN(cur.totalRaw,1)}</span>`:""}${cr?`<span class="tag t-purple">班级第 ${cr} 名</span>`:""}${h.length?`<span class="tag t-gray">共 ${h.length} 场考试</span>`:""}</div>
     ${stuHistHtml(h,"Md")}`,
     `<button class="btn" data-act="closeModal">关闭</button>`);
@@ -4056,7 +4089,7 @@ function jwWatch(){
   if(bySubj["总分"])critOrder.unshift("总分");
   const chipOf=g=>g.list.map(x=>{
     const d=x.delta;
-    return `<span class="crit-chip">${esc(x.r.cls)}班 <b>${esc(x.r.name)}</b> ${fmtN(x.v,1)} <span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"线上 +":"线下 -"}${fmtN(Math.abs(d),0)}</span></span>`;
+    return `<span class="crit-chip">${esc(clsLabel(x.r.cls))} <b>${esc(x.r.name)}</b> ${fmtN(x.v,1)} <span class="tag ${d>=0?"t-green":"t-orange"}">${d>=0?"线上 +":"线下 -"}${fmtN(Math.abs(d),0)}</span></span>`;
   }).join("");
   const expRow=(key,g,open)=>`<tr class="crit-exprow" id="critExp_${key}" style="${open?"":"display:none"}"><td colspan="3">${g.list.length?chipOf(g):'<span class="muted">无临界生</span>'}</td></tr>`;
   const pillOf=(g,key,open,subj,dk)=>`<button type="button" class="crit-pill${g.list.length?"":" zero"}${open?" open":""}" data-act="toggleCrit" data-key="${key}" title="${escA(subj+"（"+(dk==="ph"?"物理":"历史")+"方向 · 线"+g.line+" · 浮动"+critBand+"）")}">${g.list.length} 人 · 线${g.line}</button>`;
@@ -4079,7 +4112,7 @@ function jwWatch(){
     critBody+=`<tr${subj==="总分"?' style="font-weight:600"':""}><td class="ctr">${esc(subj)}</td>${cells}</tr>`+exps;
   });
   const critTotal=groups.reduce((a,g)=>a+g.list.length,0);
-  return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(c)}班</option>`).join("")}</select> ${examSelector()}</h3>
+  return `<div class="card"><h3>🎯 重点关注名单 · ${esc(exam.name)}<span class="spacer"></span><select id="watchClsSel" class="searchbox" style="min-width:130px"><option value="__all"${clsScope==="__all"?" selected":""}>全年级</option>${clsList.map(c=>`<option value="${escA(c)}"${String(c)===clsScope?" selected":""}>${esc(clsLabel(c))}</option>`).join("")}</select> ${examSelector()}</h3>
     <div class="notice blue">全局默认分数线与临界浮动在「设置 → 成绩统计口径」分方向设置 · 本场考试的自定义覆盖点上方「📐 划线覆盖」 · 本科临界 ${critRangeTxt(exam,"pass")} · 特控临界 ${critRangeTxt(exam,"exc")} · 填 <b>+10,-10</b>=线上10~线下10；<b>-10,0</b>=线下10分内；单个数=上下对称</div>
     <div class="grid2">
       <div><h3 style="font-size:14px;margin-bottom:8px">🥇 优秀名单 · ${scopeTxt}（优秀线 物理 ${totalLine(exam,"物理","top")} / 历史 ${totalLine(exam,"历史","top")}，共 ${top.length} 人）
@@ -4188,8 +4221,8 @@ function jwTrend(){
         <div class="field" style="flex:.7"><label>范围</label><select id="trendScopeSel"><option value="grade">年级</option><option value="cls">班级</option><option value="stu" selected>学生</option></select></div>
         <div class="field" style="flex:1"><label>搜索学生（姓名/考号）</label><input class="searchbox" style="width:100%" value="${escA(State.q_trendStu||"")}" data-search="trendStu" placeholder="输入后从下方选择"></div>
       </div>
-      ${q&&!cur?`<div class="flex">${matched.map(r=>`<button class="btn sm" data-act="trendStuPick" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}">${esc(r.name)}（${esc(r.cls)}班）</button>`).join("")}</div>`:""}
-      ${cur?`<div class="flex" style="margin-bottom:8px"><span class="tag t-blue">${esc(cur.name)}（${esc(cur.cls)}班）</span><button class="btn sm" data-act="trendStuClear">清除</button></div>`:""}
+      ${q&&!cur?`<div class="flex">${matched.map(r=>`<button class="btn sm" data-act="trendStuPick" data-name="${escA(r.name)}" data-cls="${escA(r.cls)}">${esc(r.name)}（${esc(clsLabel(r.cls))}）</button>`).join("")}</div>`:""}
+      ${cur?`<div class="flex" style="margin-bottom:8px"><span class="tag t-blue">${esc(cur.name)}（${esc(clsLabel(cur.cls))}）</span><button class="btn sm" data-act="trendStuClear">清除</button></div>`:""}
       <canvas class="chart" id="cTrend"></canvas>${cur?legendHtml([{c:"#2563eb",n:"总分"},{c:"#dc2626",n:"年级排名"},{c:"#059669",n:"方向排名"}]):""}</div>`;
   }
   return `<div class="card"><h3>📈 趋势追踪 · 年级<span class="spacer"></span>${examSelector()}</h3>
@@ -4260,7 +4293,7 @@ ACTIONS.headSetup=()=>{
   const heads=(typeof teacherMaps==="function")?teacherMaps().heads:{};
   const body=`<div class="notice blue">每个班选一位班主任（人选来自该班全部教师记录，含"班主任（无任课科目）"）。保存后「班级任课教师对照表」对应行会带 ⭐，导出全年级数据包时自动附「班主任」列。<b>下拉里没有此人？</b>（如体育班班主任）先关掉本面板，到对照表点「➕ 手动增加教师」录入后再来设置。</div>
     <div class="frow" style="flex-direction:column;gap:8px">
-    ${clss.map(c=>`<div class="field" style="flex-direction:row;align-items:center;gap:8px"><label style="min-width:64px;margin:0">${esc(c)}班</label>
+    ${clss.map(c=>`<div class="field" style="flex-direction:row;align-items:center;gap:8px"><label style="min-width:64px;margin:0">${esc(clsLabel(c))}</label>
       <select id="headSel_${esc(c)}" data-cls="${esc(c)}"><option value="">（未设置）</option>${[...(byCls[c]||[])].sort().map(t=>`<option${(heads[c]||[]).includes(t)?" selected":""}>${escA(t)}</option>`).join("")}</select></div>`).join("")}
     </div>`;
   openModal("班主任快速设置",body,`<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="headSaveBtn">保存全部</button>`);
@@ -5642,7 +5675,7 @@ function bzrReportView(){
   const cls=reportClsCode();
   const ce=computeExam(exam);
   if(!ce.classes.find(c=>c.cls===cls))
-    return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}<div class="notice">本次数据里没有班级「${esc(cls)}班」。现有班级：${ce.classes.map(c=>esc(c.cls)).join("、")||"（无）"}。请到「设置 → 基本信息」检查班级代码。</div></div>`;
+    return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}<div class="notice">本次数据里没有班级「${esc(clsLabel(cls))}」。现有班级：${ce.classes.map(c=>esc(clsLabel(c.cls))).join("、")||"（无）"}。请到「设置 → 基本信息」检查班级代码。</div></div>`;
   const R=buildReport(exam,cls);
   if(!R)return `<div class="card"><h3>📑 考试分析报告</h3>${examSelector()}<div class="empty">暂无可分析的数据</div></div>`;
   const mOf=k=>R.metrics.find(x=>x.key===k)||{value:"—",formula:""};
@@ -5651,7 +5684,7 @@ function bzrReportView(){
   const dirTxt=Object.keys(R.meta.方向构成||{}).map(d=>`${d}${R.meta.方向构成[d]}人`).join(" · ");
   const bandMax=Math.max(1,...R.bands.cls,...R.bands.grade);
   return `<div class="card">
-    <h3>📑 考试分析报告 · ${esc(cls)}班<span class="sub">${esc(exam.name)}${exam.date?" · "+esc(exam.date):""}</span><span class="spacer"></span>
+    <h3>📑 考试分析报告 · ${esc(clsLabel(cls))}<span class="sub">${esc(exam.name)}${exam.date?" · "+esc(exam.date):""}</span><span class="spacer"></span>
       ${examSelector()}
       <button class="btn sm" data-act="gradeReportExport">📊 汇报PPT/导出数据</button>
       <button class="btn sm" data-act="bzrReportExport">⬇️ 导出本班数据(JSON)</button></h3>
@@ -5672,8 +5705,8 @@ function bzrReportView(){
 
   <div class="card"><h3>📶 分数段分布 · 本班 vs 年级<span class="sub">口径：${esc(exam.name)} 总分分段（分段线取自本场考试设置）</span></h3>
     <canvas class="chart" id="cRepBand"></canvas>
-    ${legendHtml([{c:"#2563eb",n:`${cls}班`},{c:"#94a3b8",n:"全年级"}])}
-    <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>分数段</th><th class="ctr">${esc(cls)}班</th><th class="ctr">占班比</th><th class="ctr">全年级</th><th class="ctr">占年级比</th></tr></thead><tbody>
+    ${legendHtml([{c:"#2563eb",n:clsLabel(cls)},{c:"#94a3b8",n:"全年级"}])}
+    <div class="twrap" style="margin-top:10px"><table class="tb"><thead><tr><th>分数段</th><th class="ctr">${esc(clsLabel(cls))}</th><th class="ctr">占班比</th><th class="ctr">全年级</th><th class="ctr">占年级比</th></tr></thead><tbody>
     ${R.bands.names.map((nm,i)=>{const c=R.bands.cls[i],g=R.bands.grade[i];return `<tr><td><b>${esc(nm)}</b></td>
       <td class="ctr"><b>${c}</b></td><td class="ctr">${R.meta.参考人数?fmtN(c/R.meta.参考人数*100)+"%":"—"}</td>
       <td class="ctr">${g}</td><td class="ctr">${R.bands.grade.reduce((a,b)=>a+b,0)?fmtN(g/R.bands.grade.reduce((a,b)=>a+b,0)*100)+"%":"—"}</td></tr>`;}).join("")}
@@ -5711,7 +5744,7 @@ function bzrReportView(){
     </div>
   </div>
 
-  <div class="card"><h3>📉 历次趋势 · ${esc(cls)}班<span class="sub">总分均分与上线人数（各场考试按同一口径重算）</span></h3>
+  <div class="card"><h3>📉 历次趋势 · ${esc(clsLabel(cls))}<span class="sub">总分均分与上线人数（各场考试按同一口径重算）</span></h3>
     <canvas class="chart" id="cRepTrend"></canvas>
     ${legendHtml([{c:"#2563eb",n:"本班总分均分"}])}
     <canvas class="chart" id="cRepTrendBen" style="margin-top:8px"></canvas>
