@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v102";
+window.APP_VERSION="v103";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -6997,10 +6997,13 @@ ACTIONS.ghNetDiag=async()=>{
   const p1=await probe("https://api.github.com/zen");
   const p2=await probe("https://api.github.com/zen");
   const p3=await probe("https://teacher-xjz.github.io/teacher-workbench/",{mode:"no-cors"});
+  /* v103 预检探测：带认证头会触发 CORS 预检（OPTIONS）——普通导航不受影响但预检可能被扩展/安全软件拦，正好区分"导航通但 fetch 死"的场景 */
+  const p4=await probe("https://api.github.com/zen",{headers:{"Authorization":"token ghp_DiagnosticPreflightProbe"}});
   const row=(n,r)=>`<div>${r.ok?"✅":"❌"} ${n}　<b>${r.ms}ms</b>${r.ok?"":`　<span class="muted">${esc(r.err||"")}</span>`}</div>`;
   let con;
-  if(p1.ok&&p2.ok)con="GitHub API 畅通，网络没问题——回到本页把令牌重新粘贴一次再点「连接云端」（若仍报错，多为令牌内容不对）";
-  else if(!p1.ok&&!p2.ok&&!p3.ok)con="三条探测全部失败：浏览器层面无法访问 GitHub——<b>优先检查浏览器代理类扩展</b>（地址栏输入 chrome://extensions，把代理/加速/广告拦截类扩展逐一停用重试，重点看是否指向了没在运行的 127.0.0.1:7890）；其次查安全软件拦截";
+  if(p1.ok&&p2.ok&&p4.ok)con="GitHub API 与认证请求全部畅通，网络没问题——回到本页把令牌重新粘贴一次再点「连接云端」；若仍报错，换一个浏览器（Edge/Chrome）试同步对比";
+  else if(p1.ok&&p2.ok&&!p4.ok)con="普通请求通、带认证头的请求被拦（预检失败）：<b>浏览器扩展或安全软件在拦截认证类跨域请求</b>——地址栏输入 chrome://extensions 逐一停用扩展排查（广告拦截/隐私保护/脚本类优先），其次查安全软件的"网页防护"设置";
+  else if(!p1.ok&&!p2.ok&&!p3.ok)con="三条探测全部失败：浏览器层面无法访问 GitHub——检查代理类扩展（chrome://extensions）与安全软件；本页导航能打开 api.github.com 而探测全败时，几乎可断定是扩展按资源类型拦截了网页内请求";
   else if(!p1.ok&&!p2.ok&&p3.ok)con="GitHub Pages 能通、但 API 不通：api.github.com 被 DNS 或网络策略拦——把本机 DNS 改为 223.5.5.5 / 119.29.29.29 后强刷重试";
   else con="间歇抖动（第一次失败、之后成功）：属网络波动，自动重试可以扛住，观察即可";
   out.innerHTML=`<div class="notice" style="border-left:4px solid #2563eb;background:#eff6ff;margin-top:8px"><b>🔍 诊断结果</b>
