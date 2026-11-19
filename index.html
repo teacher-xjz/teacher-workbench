@@ -380,7 +380,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v101";
+window.APP_VERSION="v102";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -6914,7 +6914,8 @@ const Sync={
   settingsCard(){return this.ghCard();},
   ghCard(){
     const c=this.ghCfg;
-    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步异常</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/失效（重新生成）；网络访问 GitHub 不稳定（会自动重试；不影响本机数据）。</div>`:"";
+    const errBox=this._ghErr?`<div class="notice" style="border-left:4px solid #dc2626;background:#fef2f2"><b>⚠️ 云端同步异常</b>：${esc(this._ghErr)}<br>常见原因：令牌没粘全/失效（重新生成）；网络访问 GitHub 不稳定（会自动重试；不影响本机数据）。</div>
+      <div style="margin-top:6px"><button class="btn sm" data-act="ghNetDiag">🔍 网络诊断（当场探测，30 秒定位原因）</button></div><div id="ghDiagOut"></div>`:"";
     if(!c||!this.ghConn){
       return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
       ${location.protocol==="file:"?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是本地文件方式打开（地址栏 file:// 开头）</b>：浏览器禁止本地文件联网，无法使用云端同步。请用网址 <b>https://teacher-xjz.github.io/teacher-workbench/</b> 打开本工作台并收藏书签；本地文件仅作离线备份。</div>`:""}
@@ -6983,6 +6984,29 @@ const Sync={
   },
 };
 ACTIONS.ghConnect=()=>Sync.connectGh();
+/* v102 网络诊断：当场直连探测 GitHub API 与 Pages，把"网络异常"落到具体原因（不用代理、不需要令牌） */
+ACTIONS.ghNetDiag=async()=>{
+  const out=$("#ghDiagOut");
+  if(!out)return;
+  out.innerHTML='<div class="muted">诊断中…（约几秒）</div>';
+  const probe=async(u,opt)=>{
+    const t0=performance.now();
+    try{await fetch(u,Object.assign({cache:"no-store"},opt||{}));return{ok:true,ms:Math.round(performance.now()-t0)};}
+    catch(e){return{ok:false,ms:Math.round(performance.now()-t0),err:(e&&e.message)||String(e)};}
+  };
+  const p1=await probe("https://api.github.com/zen");
+  const p2=await probe("https://api.github.com/zen");
+  const p3=await probe("https://teacher-xjz.github.io/teacher-workbench/",{mode:"no-cors"});
+  const row=(n,r)=>`<div>${r.ok?"✅":"❌"} ${n}　<b>${r.ms}ms</b>${r.ok?"":`　<span class="muted">${esc(r.err||"")}</span>`}</div>`;
+  let con;
+  if(p1.ok&&p2.ok)con="GitHub API 畅通，网络没问题——回到本页把令牌重新粘贴一次再点「连接云端」（若仍报错，多为令牌内容不对）";
+  else if(!p1.ok&&!p2.ok&&!p3.ok)con="三条探测全部失败：浏览器层面无法访问 GitHub——<b>优先检查浏览器代理类扩展</b>（地址栏输入 chrome://extensions，把代理/加速/广告拦截类扩展逐一停用重试，重点看是否指向了没在运行的 127.0.0.1:7890）；其次查安全软件拦截";
+  else if(!p1.ok&&!p2.ok&&p3.ok)con="GitHub Pages 能通、但 API 不通：api.github.com 被 DNS 或网络策略拦——把本机 DNS 改为 223.5.5.5 / 119.29.29.29 后强刷重试";
+  else con="间歇抖动（第一次失败、之后成功）：属网络波动，自动重试可以扛住，观察即可";
+  out.innerHTML=`<div class="notice" style="border-left:4px solid #2563eb;background:#eff6ff;margin-top:8px"><b>🔍 诊断结果</b>
+    ${row("GitHub API 直连 ①",p1)}${row("GitHub API 直连 ②",p2)}${row("GitHub Pages 站点",p3)}
+    <div style="margin-top:4px"><b>结论：</b>${con}</div></div>`;
+};
 ACTIONS.ghTogglePwd=()=>{const el=$("#ghToken");if(el)el.type=el.type==="password"?"text":"password";};
 ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步云端，本机数据不受影响。确定断开吗？"))Sync.ghDisconnect();};
 ACTIONS.ghUploadNow=async()=>{
