@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v125";
+window.APP_VERSION="v126";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2538,7 +2538,11 @@ function birthFromId(t){
   const m=/^(\d{4})(\d{2})\d{2}\d{6}/.exec(s);
   return m?m[1]+"-"+m[2]:"";
 }
-const DIR_OF_SUBJ={"物理":"物理","化学":"物理","生物":"物理","历史":"历史","政治":"历史","地理":"历史"};
+/* v126 科目识别按 3+1+2 新高考建模（四川）：
+   3=语数外必考；1=首选物理/历史（唯一的方向判定依据）；2=再选化生政地四选二——
+   再选科目与首选任意搭配（物化生/物化地/历政地…），不存在"科目属于哪个方向"的固定映射，
+   识别标准只看该生该科是否有真实成绩（正分）；全程 0 分/缺考=未选该科。
+   中考=入学参考成绩，计分规则与高中不同，只展示行、不参与列识别与方向判定。 */
 function subjKey(s){return s==="外语"?"英语":s;}
 /* 打码还原缓存：完整号码/身份证只存内存映射，DOM 不落原始值（点虚线处显示，再点隐藏） */
 let _maskSeq=0;const _maskMap={};
@@ -2615,26 +2619,34 @@ function profileRowsOf(st){
     computeExam(exam);
     const row=exam.rows.find(r=>r.name===st.name&&(!st.cls||String(r.cls)===String(st.cls)));
     if(!row)return;
-    const d=rowDir(row);if(d)dirCount[d]++;
+    if(!isRefExam(exam)){const d=rowDir(row);if(d)dirCount[d]++;}
     out.push({exam,row,date:String(exam.date||"")});
   });
   out.sort((a,b)=>a.date.localeCompare(b.date));
   return{list:out,dir:dirCount["物理"]>dirCount["历史"]?"物理":(dirCount["历史"]>0?"历史":"")};
 }
+/* 参考性考试（中考等）：仅展示，不参与高中科目列/方向判定 */
+function isRefExam(exam){return /中考/.test(String((exam&&exam.name)||""));}
 function profileCard(st){
   const {list,dir}=profileRowsOf(st);
   const status=st.status||"在读";
   const dirTxt=dir?`${dir}方向`:"";
-  /* 科目列自适应：取该生历次考试实际有成绩记录的科目（方向科目只取本方向） */
+  /* 科目列自适应（v126 按 3+1+2 建模）：列=该生高中考试里实际得过正分的科目。
+     再选科全程 0 分/缺考=未选该科不占列（物化地生的生物、物化生的地理都不占位）；
+     中考行只参考展示，其政史分不进列。 */
+  const posSubj=new Set();
+  list.forEach(it=>{
+    if(isRefExam(it.exam))return;
+    (it.exam.subjects||[]).forEach(s=>{
+      const v=it.row.s&&it.row.s[s];
+      if(v!=null&&v!==""&&num(v)>0)posSubj.add(subjKey(s));
+    });
+  });
   const cols=[];
-  list.forEach(it=>{const d=rowDir(it.row);
+  list.forEach(it=>{
     (it.exam.subjects||[]).forEach(s=>{
       const k=subjKey(s);
-      if(cols.includes(k))return;
-      const v=it.row.s&&it.row.s[s];
-      if(v==null||v==="")return;
-      if(DIR_OF_SUBJ[s]&&d&&DIR_OF_SUBJ[s]!==d)return;
-      cols.push(k);
+      if(posSubj.has(k)&&!cols.includes(k))cols.push(k);
     });
   });
   const comms=State.data.comm.filter(r=>!r.deleted&&r.name===st.name).sort((a,b)=>String(b.dt||"").localeCompare(String(a.dt||"")));
