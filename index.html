@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v118";
+window.APP_VERSION="v119";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -707,7 +707,16 @@ function crudView(store,cfg,opts){
       .sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
     clsFilter=clss.length>1?`<select class="searchbox" id="stuClsFilter" style="max-width:120px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${State.f_students===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>`:"";
   }
-  return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(clsLabel(opts.cls))}·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}
+  /* v119 学生标签：名册批量打标工具条 + 标签筛选（仅管理员可写的名册页） */
+  let tagFilter="";
+  if(store==="students"&&!opts.readOnly&&typeof STU_TAG_DEFS!=="undefined"&&!(typeof visitorView==="function"&&visitorView())){
+    const cur=State.ftag_students||"";
+    tagFilter=`<select class="searchbox" id="stuTagFilter" style="max-width:120px"><option value="">全部标签</option>${STU_TAG_DEFS.map(d=>`<option value="${escA(d.k)}"${cur===d.k?" selected":""}>${escA(d.k)}生</option>`).join("")}<option value="__none"${cur==="__none"?" selected":""}>无标签</option></select>
+    <span style="font-size:12px;color:var(--blue,#2563eb);white-space:nowrap">已选 <b id="stuTagN">${State._stuTagSel?State._stuTagSel.size:0}</b> 人</span>
+    ${STU_TAG_DEFS.map(d=>`<button class="btn sm" data-act="stuTagApply" data-tag="${escA(d.k)}" title="给勾选的学生加「${escA(d.k)}」标签" style="color:${d.fg}">+${escA(d.k)}</button>`).join("")}
+    <button class="btn sm" data-act="stuTagClearSel" title="移除勾选学生的全部特长标签">清除</button>`;
+  }
+  return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(clsLabel(opts.cls))}·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}${tagFilter}
     ${cfg.noSearch?"":`<input class="searchbox" placeholder="搜索…" value="${escA(State["q_"+store]||"")}" data-search="${store}">`}
     ${opts.readOnly?"":`<button class="btn primary" data-act="crudAdd" data-store="${store}">＋ 新增</button>`}</h3>
     ${crudBody(store,cfg,q,opts)}
@@ -720,14 +729,20 @@ function crudBody(store,cfg,q,opts){
   if(q){rows=rows.filter(r=>cfg.fields.some(f=>String(r[f.k]||"").toLowerCase().includes(q)));}
   if(store==="students"&&opts.cls){rows=rows.filter(r=>String(r.cls||"")===opts.cls);}
   else if(store==="students"&&State.f_students){rows=rows.filter(r=>String(r.cls||"")===State.f_students);}
+  /* v119 标签筛选：全部标签 / 某标签 / 无标签 */
+  if(store==="students"&&State.ftag_students){
+    const ft=State.ftag_students;
+    if(ft==="__none")rows=rows.filter(r=>!(typeof stuTagsOf==="function")||!stuTagsOf(r).length);
+    else rows=rows.filter(r=>typeof stuTagsOf==="function"&&stuTagsOf(r).includes(ft));
+  }
   const cols=cfg.cols;
   // 列头排序：State.csort_<store>={k,dir}；未设置时用配置默认
   const cs=State["csort_"+store];
   if(cs&&cols.some(c=>c.k===cs.k)){rows.sort((a,b)=>csortCmp(a[cs.k],b[cs.k])*cs.dir);}
   else rows.sort(cfg.sort||((a,b)=>String(b.date||"").localeCompare(String(a.date||""))));
   const arrow=cs?(cs.dir>0?" ▲":" ▼"):"";
-  return `${rows.length?`<div class="twrap tscr" data-cstore="${store}"><table class="tb"><thead><tr>${cols.map(c=>`<th class="${c.ctr?"ctr":""}${c.k?" sortable":""}"${c.k?` data-csk="${c.k}" data-cstore="${store}"`:""}>${c.label}${cs&&cs.k===c.k?arrow:""}</th>`).join("")}${opts.readOnly?"":`<th class="ctr">操作</th>`}</tr></thead><tbody>
-      ${rows.map(r=>`<tr data-rid="${r.id}">${cols.map(c=>`<td class="${c.ctr?"ctr":""}">${c.f?c.f(r):esc(r[c.k]||"—")}</td>`).join("")}
+  return `${rows.length?`<div class="twrap tscr" data-cstore="${store}"><table class="tb"><thead><tr>${store==="students"&&!opts.readOnly&&!(typeof visitorView==="function"&&visitorView())?`<th class="ctr" style="width:26px"><input type="checkbox" id="stuTagAll" title="全选本表"></th>`:""}${cols.map(c=>`<th class="${c.ctr?"ctr":""}${c.k?" sortable":""}"${c.k?` data-csk="${c.k}" data-cstore="${store}"`:""}>${c.label}${cs&&cs.k===c.k?arrow:""}</th>`).join("")}${opts.readOnly?"":`<th class="ctr">操作</th>`}</tr></thead><tbody>
+      ${rows.map(r=>`<tr data-rid="${r.id}">${store==="students"&&!opts.readOnly&&!(typeof visitorView==="function"&&visitorView())?`<td class="ctr"><input type="checkbox" class="stuTagCk" data-stuid="${r.id}"${State._stuTagSel&&State._stuTagSel.has(r.id)?" checked":""}></td>`:""}${cols.map(c=>`<td class="${c.ctr?"ctr":""}">${c.f?c.f(r):esc(r[c.k]||"—")}</td>`).join("")}
       ${opts.readOnly?"":`<td class="ctr" style="white-space:nowrap"><button class="btn sm" data-act="crudEdit" data-store="${store}" data-id="${r.id}">编辑</button> <button class="btn sm danger" data-act="crudDel" data-store="${store}" data-id="${r.id}">删除</button></td>`}</tr>`).join("")}
     </tbody></table></div><div class="muted" style="margin-top:8px">共 ${rows.length} 条</div>`
     :`<div class="empty"><div class="big">📋</div>暂无记录，点击右上角"＋ 新增"添加</div>`}`;
@@ -766,7 +781,55 @@ document.addEventListener("click",e=>{const b=e.target.closest("[data-act='crudA
 /* 学生名册班级筛选 */
 document.addEventListener("change",e=>{
   if(e.target.id==="stuClsFilter"){State.f_students=e.target.value;renderKeep();}
+  /* v119 标签筛选与勾选 */
+  if(e.target.id==="stuTagFilter"){State.ftag_students=e.target.value;State._stuTagSel=new Set();render();}
+  if(e.target.id==="stuTagAll"){
+    if(!State._stuTagSel)State._stuTagSel=new Set();
+    const cks=[...document.querySelectorAll(".stuTagCk")];
+    cks.forEach(c=>{c.checked=e.target.checked;if(c.checked)State._stuTagSel.add(c.dataset.stuid);else State._stuTagSel.delete(c.dataset.stuid);});
+    const n=$("#stuTagN");if(n)n.textContent=State._stuTagSel.size;
+  }
+  if(e.target.classList&&e.target.classList.contains("stuTagCk")){
+    if(!State._stuTagSel)State._stuTagSel=new Set();
+    if(e.target.checked)State._stuTagSel.add(e.target.dataset.stuid);else State._stuTagSel.delete(e.target.dataset.stuid);
+    const n=$("#stuTagN");if(n)n.textContent=State._stuTagSel.size;
+  }
 });
+/* v119 批量打标/清除（只增不减：加标签不覆盖已有；清除只移除字典内标签） */
+ACTIONS.stuTagApply=(x,el)=>{
+  const tag=el&&el.dataset.tag;if(!tag)return;
+  const ids=State._stuTagSel?[...State._stuTagSel]:[];
+  if(!ids.length){toast("请先勾选学生");return;}
+  (async()=>{
+    let n=0;
+    for(const id of ids){
+      const st=State.data.students.find(s=>s.id===id);if(!st)continue;
+      const cur=typeof stuTagsOf==="function"?stuTagsOf(st):[];
+      if(cur.includes(tag))continue;
+      st.tags=cur.concat(tag).join(",");
+      await putRec("students",st);n++;
+    }
+    State._stuTagSel=new Set();render();
+    toast(n?`已为 ${n} 人打上「${tag}」标签（原有标签不受影响）`:"勾选的学生都已有「"+tag+"」标签");
+  })();
+};
+ACTIONS.stuTagClearSel=()=>{
+  const ids=State._stuTagSel?[...State._stuTagSel]:[];
+  if(!ids.length){toast("请先勾选学生");return;}
+  (async()=>{
+    const known=typeof STU_TAG_DEFS!=="undefined"?STU_TAG_DEFS.map(d=>d.k):[];
+    let n=0;
+    for(const id of ids){
+      const st=State.data.students.find(s=>s.id===id);if(!st)continue;
+      const cur=typeof stuTagsOf==="function"?stuTagsOf(st):[];
+      const next=cur.filter(t=>!known.includes(t));
+      if(next.length===cur.length)continue;
+      st.tags=next.join(",");await putRec("students",st);n++;
+    }
+    State._stuTagSel=new Set();render();
+    toast(n?`已清除 ${n} 人的特长标签`:"勾选的学生均无特长标签");
+  })();
+};
 function openCrudModal(btn){
   const store=btn.dataset.store,id=btn.dataset.id;
   const cfg=CRUDCFG[store];if(!cfg)return;
@@ -780,7 +843,9 @@ function openCrudModal(btn){
     if(f.type==="date")defaults[f.k]=todayStr();
     else if(f.type==="datetime")defaults[f.k]=nowLocal();
   });}
-  const body=`<div class="frow">${cfg.fields.map(f=>fHtml(f,id?rec[f.k]:(rec[f.k]||defaults[f.k]||""))).join("")}</div>`;
+  const body=`<div class="frow">${cfg.fields.map(f=>fHtml(f,id?rec[f.k]:(rec[f.k]||defaults[f.k]||""))).join("")}</div>`
+    +(store==="students"&&typeof STU_TAG_DEFS!=="undefined"
+      ?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px dashed var(--line,#e2e8f0)"><div class="muted" style="font-size:12px;margin-bottom:6px">🏷 特长标签（可多选；不学了取消勾选保存即可）</div><div style="display:flex;gap:8px;flex-wrap:wrap">${STU_TAG_DEFS.map(d=>`<label style="display:flex;align-items:center;gap:5px;font-size:13px;padding:5px 12px;border:0.5px solid ${d.bd};border-radius:8px;cursor:pointer;background:${stuTagsOf(rec).includes(d.k)?d.bg:"transparent"}"><input type="checkbox" class="stuTagEdit" value="${escA(d.k)}"${stuTagsOf(rec).includes(d.k)?" checked":""}> ${escA(d.k)}</label>`).join("")}</div></div>`:"");
   openModal(id?"编辑 — "+cfg.title:"新增 — "+cfg.title,body,`<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="modalOk">保存</button>`);
   $("#modalOk").onclick=async()=>{
     const obj=Object.assign({},rec);
@@ -791,6 +856,8 @@ function openCrudModal(btn){
       else obj[f.k]=el.value.trim();
       if(f.req&&!obj[f.k]){toast("请填写："+f.label);return;}
     }
+    /* v119 学生标签：收集弹窗勾选 */
+    if(store==="students"){const t=[...document.querySelectorAll(".stuTagEdit:checked")].map(x=>x.value);obj.tags=t.join(",");}
     /* v97 名字纠错：学生名册手工录入/编辑时也按规则归一写法 */
     if(store==="students"&&obj.name)obj.name=normNameAlias(obj.name);
     /* v111：改名=全库联动（历次成绩行/异动/值日/沟通记录一并更名 + 自动登记纠错规则） */
@@ -1172,7 +1239,33 @@ function ico(k,cls){
   return `<svg class="ico${cls?" "+cls:""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 }
 
-/* ================= CRUD 配置 ================= */
+/* ================= v119 学生标签系统 =================
+   字典式配置：五类标签各一色；st.tags 存逗号分隔字符串（兼容数组），随学生记录进 年级.json 云同步。
+   打标入口：名册勾选批量 / 档案编辑弹窗勾选 / Excel 标签导入（按身份证匹配、只增不减） */
+const STU_TAG_DEFS=[
+  {k:"日语",bg:"#e6f1fb",fg:"#185FA5",bd:"#85B7EB"},
+  {k:"体育",bg:"#fef3c7",fg:"#b45309",bd:"#f0cf78"},
+  {k:"美术",bg:"#ede9fe",fg:"#7c3aed",bd:"#c4b5fd"},
+  {k:"传媒",bg:"#ccfbf1",fg:"#0d9488",bd:"#5eead4"},
+  {k:"书法",bg:"#fee2e2",fg:"#dc2626",bd:"#fca5a5"},
+];
+function stuTagsOf(st){
+  if(!st)return[];
+  const t=st.tags;
+  if(Array.isArray(t))return t.map(x=>String(x).trim()).filter(Boolean);
+  return String(t||"").split(/[,，、/;；|]/).map(x=>x.trim()).filter(Boolean);
+}
+function stuTagAdd(st,tag){
+  const cur=stuTagsOf(st);
+  if(!cur.includes(tag))cur.push(tag);
+  return cur.join(",");
+}
+function stuTagsHtml(st){
+  return stuTagsOf(st).map(t=>{
+    const d=STU_TAG_DEFS.find(x=>x.k===t)||{bg:"#f1efe8",fg:"#444441",bd:"#b4b2a9"};
+    return `<span style="display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;margin-left:3px;white-space:nowrap;background:${d.bg};color:${d.fg};border:0.5px solid ${d.bd}">${escA(t)}</span>`;
+  }).join("");
+}
 const CRUDCFG={
   /* v91：导入按钮收进「教务→数据出入口」面板，名册页只留搜索/筛选/新增，减少按钮堆砌 */
   students:{title:"学生名册",tools:``,fields:[
@@ -1186,7 +1279,7 @@ const CRUDCFG={
     cols:[{label:"学号",k:"sid"},{label:"姓名",k:"name"},{label:"性别",k:"sex",ctr:1},{label:"班级",k:"cls",ctr:1},
       {label:"住宿",k:"boarding",ctr:1},{label:"父亲",k:"father"},{label:"父亲电话",k:"fatherPhone"},
       {label:"母亲",k:"mother"},{label:"母亲电话",k:"motherPhone"},{label:"本人电话",k:"phone"},
-      {label:"家庭住址",k:"address"},{label:"身份证号",k:"idcard"},{label:"在读状态",k:"status",ctr:1},{label:"备注",k:"note"}]},
+      {label:"家庭住址",k:"address"},{label:"身份证号",k:"idcard"},{label:"在读状态",k:"status",ctr:1,f:r=>`${esc(r.status||"在读")}${stuTagsHtml(r)}`},{label:"备注",k:"note"}]},
   duties:{title:"班委与值日安排",fields:[
     {k:"role",label:"职务/任务",req:1,w:1},{k:"name",label:"姓名",req:1,w:.8},
     {k:"day",label:"时间/星期",type:"select",opts:["每日","周一","周二","周三","周四","周五","周六","随时"],w:.8},{k:"note",label:"备注",w:2}],
@@ -1303,7 +1396,7 @@ function gsInit(){
     if(!String(q).trim()){list.style.display="none";return;}
     const m=gsMatches(q);
     list.innerHTML=m.length
-      ?m.map(x=>`<div class="gs-hit" data-id="${x.id}"><b>${esc(x.name)}</b><span class="muted" style="font-size:12px">${escA(clsLabel(String(x.cls||"")))||"—"}${x.status&&x.status!=="在读"?" · "+escA(x.status):""}</span></div>`).join("")
+      ?m.map(x=>`<div class="gs-hit" data-id="${x.id}"><b>${esc(x.name)}</b><span class="muted" style="font-size:12px">${escA(clsLabel(String(x.cls||"")))||"—"}${x.status&&x.status!=="在读"?" · "+escA(x.status):""}${typeof stuTagsOf==="function"&&stuTagsOf(x).length?" · "+stuTagsOf(x).join("/"):""}</span></div>`).join("")
       :`<div class="gs-none muted">没有匹配的学生——可到「班主任 → 学生档案」用名单条查找</div>`;
     list.style.display="block";
     list.querySelectorAll(".gs-hit").forEach(el=>el.addEventListener("mousedown",e=>{e.preventDefault();gsGo(el.dataset.id);}));
@@ -2527,7 +2620,7 @@ function profileCard(st){
     <div style="display:flex;align-items:center;gap:10px">
       <div style="width:38px;height:38px;border-radius:50%;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px">${esc((st.name||"?").slice(0,1))}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:600">${esc(st.name)} <span class="tag t-green" style="font-size:11px">${esc(status)}</span></div>
+        <div style="font-size:14px;font-weight:600">${esc(st.name)} <span class="tag t-green" style="font-size:11px">${esc(status)}</span>${typeof stuTagsHtml==="function"?stuTagsHtml(st):""}</div>
         <div style="font-size:12px;color:#64748b;margin-top:1px">${escA((st.cls||"—")+"班")} · ${esc(st.sex||"—")} · ${esc(birthFromId(st.idcard)||"—")} · ${esc(dirTxt||"—")} · ${esc(st.boarding||"—")}</div>
       </div>
       <button class="btn sm" data-act="profEdit" data-id="${st.id}">✏️ 编辑</button>
@@ -3303,6 +3396,7 @@ function setTabUpload(){
     ${card("🏫","学生信息表（全年级基础信息）","官方无表头固定列位格式：补学号、住址、性别等档案字段；支持一个文件多个班的 sheet，逐班导入。",`<button class="btn primary" data-act="infoImport">🏫 导入学生信息表</button>`)}
     ${card("👪","家长联系信息","读《学生成绩管理系统》类表格的「学生信息表」sheet：父亲/母亲姓名与电话按「姓名+班级」匹配更新，导入前逐行预览变更。",`<button class="btn primary" data-act="profImport">📥 导入家长信息</button>`)}
     ${card("👩‍🏫","教师任课对照","从学校任课表 Excel 复制后粘贴导入：按「班级+科目」原位更新，不产生重复；驱动教师维度对比。",`<button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button>`)}
+    ${card("🏷","学生标签（日语/特长）","按身份证号码匹配，只给表内学生添加标签（日语/体育/美术/传媒/书法），<b>只增不减</b>：已有标签不动、名单外的学生不受影响。标签显示在档案卡与名册，领导端自动可见。",`<button class="btn" data-act="tagTpl">📄 下载标签模板</button><button class="btn primary" data-act="tagImport">📥 导入标签 Excel</button><input type="file" id="tagFile" accept=".xlsx,.xls" style="display:none">`)}
     </div>
     <div class="muted" style="margin-top:10px">💡 批量纠正整班信息（比如换了一版信息表）也走上面的「名册/学生信息表」导入——合并口径天然只补空缺、按名更新。单个人改信息请直接用「班主任→学生档案」的 ✏️ 编辑（保存即全站生效）。</div>
   </div>
@@ -3315,6 +3409,78 @@ function setTabUpload(){
       <input type="file" id="importFile" accept=".json" style="display:none">
     </div></div>`;
 }
+
+/* ================= v119 学生标签导入（按身份证匹配，只增不减） =================
+   模板四列：身份证号码/姓名/班级/标签；标签只能取 STU_TAG_DEFS 字典内五类；
+   匹配：优先身份证精确（忽略空格、X大写），无身份证则按 姓名+班级；
+   语义：名单外学生不受影响、已有标签不动、重复导入不产生重复；未识别标签跳过并报告 */
+const stuTagNormId=v=>String(v||"").trim().toUpperCase().replace(/\s/g,"");
+const stuTagParseList=t=>String(t||"").split(/[,，、/;；|]/).map(x=>x.trim()).filter(Boolean);
+ACTIONS.tagTpl=()=>{
+  const wb=XLSX.utils.book_new();
+  const ws1=XLSX.utils.aoa_to_sheet([
+    ["身份证号码","姓名","班级","标签"],
+    ["510000200901010011","李娜","15","日语"],
+    ["510000200902020022","王强","12","体育、美术"],
+    ["510000200903030033","张子涵","15","日语,传媒"],
+  ]);
+  ws1["!cols"]=[{wch:24},{wch:10},{wch:8},{wch:18}];
+  XLSX.utils.book_append_sheet(wb,ws1,"标签名单");
+  const ws2=XLSX.utils.aoa_to_sheet([
+    ["填写说明"],
+    ["1. 只填需要打标签的学生（约200人），普通学生不用写进来；名单外的学生不受任何影响。"],
+    ["2. 匹配规则：优先按「身份证号码」精确匹配（X 大写、忽略空格）；身份证没填则按「姓名+班级」匹配。"],
+    ["3. 标签只能写这五个（一个或多个）：日语 / 体育 / 美术 / 传媒 / 书法。"],
+    ["4. 同一格写多个标签用 顿号 、 逗号 ， 斜杠 / 任意分隔，如：体育、美术。"],
+    ["5. 导入=只增不减：已有标签不动，重复导入同一名单不会产生重复标签。"],
+    ["6. 取消标签（学生不学了）：到「年级→学生名册」勾选后点清除，或在档案编辑弹窗取消勾选保存。"],
+    ["7. 导入成功后标签立即显示在档案卡与名册，并自动云同步（领导端可见）。"],
+  ]);
+  ws2["!cols"]=[{wch:100}];
+  XLSX.utils.book_append_sheet(wb,ws2,"填写说明");
+  XLSX.writeFile(wb,"学生标签导入模板_"+todayStr()+".xlsx");
+  toast("标签模板已下载（含填写说明）");
+};
+ACTIONS.tagImport=()=>{
+  const f=$("#tagFile");
+  f.onchange=async()=>{
+    const file=f.files[0];if(!file)return;
+    try{
+      const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
+      const pick=(r,keys)=>{for(const k of keys){if(r[k]!=null&&String(r[k]).trim())return String(r[k]).trim();}return "";};
+      let matched=0,tagged=0;const unknown=new Set();const misses=[];
+      for(const r of rows){
+        const idc=pick(r,["身份证号码","身份证","身份证号"]);
+        const name=pick(r,["姓名","名字"]);
+        const cls=pick(r,["班级","班"]);
+        const tags=stuTagParseList(pick(r,["标签","特长标签"]));
+        tags.forEach(t=>{if(!STU_TAG_DEFS.some(d=>d.k===t))unknown.add(t);});
+        const valid=tags.filter(t=>STU_TAG_DEFS.some(d=>d.k===t));
+        if(!valid.length)continue;
+        let st=null;
+        if(idc)st=State.data.students.find(s=>stuTagNormId(s.idcard)===stuTagNormId(idc));
+        if(!st&&name)st=State.data.students.find(s=>s.name===name&&(cls?String(s.cls||"")===String(cls):true));
+        if(!st){misses.push({name:name||"(空)",idc:idc||"(空)"});continue;}
+        const cur=stuTagsOf(st);
+        const add=valid.filter(t=>!cur.includes(t));
+        if(!add.length){matched++;continue;}
+        st.tags=cur.concat(add).join(",");
+        await putRec("students",st);matched++;tagged++;
+      }
+      render();
+      const unkTxt=unknown.size?`；<b style="color:#dc2626">未识别标签（已跳过）：${[...unknown].join("、")}</b>`:"";
+      if(misses.length){
+        openModal("导入完成 · 有未匹配行",`<div style="font-size:13px">已匹配 <b>${matched}</b> 行（新增标签 ${tagged} 行）${unkTxt}。以下 <b style="color:#dc2626">${misses.length}</b> 行未匹配到学生（请核对身份证号/姓名/班级）：<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>姓名</th><th>身份证号</th></tr></thead><tbody>${misses.map(m=>`<tr><td>${escA(m.name)}</td><td>${escA(m.idc)}</td></tr>`).join("")}</tbody></table></div></div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
+      }else{
+        toast(`导入完成：匹配 ${matched} 行，新增标签 ${tagged} 人${unknown.size?"；有未识别标签已跳过":""}`);
+      }
+    }catch(e){toast("导入失败："+((e&&e.message)||e));}
+    finally{f.value="";}
+  };
+  f.click();
+};
 
 /* ================= 年级模块（v111：「教务」正名「年级」——三身份导航：班主任/年级/教科室） ================= */
 /* 两级导航：大标签分组 → 子页签；选中组由当前子页自动反推（深链/其他模块跳转无需关心组） */
