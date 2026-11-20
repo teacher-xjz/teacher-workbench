@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v121";
+window.APP_VERSION="v122";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7774,7 +7774,8 @@ const Sync={
   async _syncAllOnce(){
     await this._migrateLegacy();
     for(const ch of this.activeChannels())await this._initChannel(ch);
-    if(this._anyDirty())await this._pushDirty();
+    /* v122 访客只读：跳过一切上传（只读令牌任何写操作必 403，脏标记直接忽略） */
+    if(!this.visitorRO()&&this._anyDirty())await this._pushDirty();
   },
   /* v114 一次性迁移：旧「工作台数据.json」存在 且 新分区文件缺失 → 读旧文件融入本机 → 各新通道标脏上传。
      旧文件迁移后弃用（不再读写，保留在仓库中备查）；访客只读模式不参与迁移。 */
@@ -7808,9 +7809,9 @@ const Sync={
     if(st&&st.sha&&this.chApplied(ch)===st.sha){this.setChSha(ch,st.sha);return;}
     const got=await this._readPayload(ch.file,ch.app,ch.label);
     this.setChSha(ch,got.sha);
-    if(!got.payload){ /* 云端还没有该文件：本机有数据 → 标脏待传（首建） */
+    if(!got.payload){ /* 云端还没有该文件：本机有数据 → 标脏待传（首建；访客只读不标脏） */
       const has=(ch.stores||[]).some(s=>(State.data[s]||[]).length)||(ch.meta||[]).some(k=>State.meta[k]!==undefined&&State.meta[k]!==null);
-      if(has)this.setChDirty(ch,true);
+      if(has&&!this.visitorRO())this.setChDirty(ch,true);
       return;
     }
     const pr=got.payload.rev||0;
@@ -7821,7 +7822,7 @@ const Sync={
         this.setChRev(ch,pr);
         await this.persistAll();
         this.setChApplied(ch,got.sha);
-      }else if(lr>pr){this.setChDirty(ch,true);this.setChApplied(ch,got.sha);}
+      }else if(lr>pr){if(!this.visitorRO())this.setChDirty(ch,true);this.setChApplied(ch,got.sha);}
       else this.setChApplied(ch,got.sha);
       return;
     }
@@ -7829,10 +7830,11 @@ const Sync={
     this.setChRev(ch,Math.max(this.chRev(ch),pr));
     await this.persistAll();
     this.setChApplied(ch,got.sha);
-    if(changed)this.setChDirty(ch,true);
+    if(changed&&!this.visitorRO())this.setChDirty(ch,true);
   },
   /* ===== 上传：只传脏通道 ===== */
   async _pushDirty(){
+    if(this.visitorRO())return; /* v122 访客只读：绝不尝试上传 */
     for(const ch of this.activeChannels()){
       if(!this.chDirty(ch))continue;
       const st=await this._statFile(ch.file).catch(e=>{throw e;});
