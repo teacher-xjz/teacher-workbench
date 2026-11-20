@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v114";
+window.APP_VERSION="v115";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7719,6 +7719,25 @@ const Sync={
     inp.click();
   },
   /* ===== 连接 / 断开 ===== */
+  /* v115 令牌写权限探测：连接时先做一次无害写探针（.tb_probe.txt，可写则随手清理）。
+     只读令牌 → 在首次全量同步【之前】识别身份（否则六文件上传会先撞 403 报错），
+     并自动建议访客只读模式；返回 true=可写 / false=只读 / null=网络原因无法定性 */
+  async _probeWrite(){
+    const name=".tb_probe.txt";
+    const body={message:"probe",content:btoa(unescape(encodeURIComponent("probe "+Date.now())))};
+    try{
+      const r=await this.ghFetch(this.ghUrlOf(name),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+      if(r.ok){
+        try{
+          const st=await this._statFile(name);
+          if(st&&st.sha){await this.ghFetch(this.ghUrlOf(name),{method:"DELETE",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify({message:"probe cleanup",sha:st.sha})});}
+        }catch(e){}
+        return true;
+      }
+      if(r.status===403||r.status===401)return false;
+      return null;
+    }catch(e){return null;}
+  },
   async connectGh(silent){
     const repo=(($("#ghRepo")&&$("#ghRepo").value.trim())||"teacher-workbench-data");
     const token=((($("#ghToken")&&$("#ghToken").value)||"")).replace(/[\s\u3000\u200b-\u200d\ufeff]/g,"");
@@ -7727,6 +7746,15 @@ const Sync={
     this.status="sync";this.updateChip("连接中…");
     toast("连接中…正在访问 GitHub 服务器（国内网络可能需要几秒到几十秒）");
     try{
+      if(!this.visitorRO()){
+        const w=await this._probeWrite();
+        if(w===false){
+          if(confirm("检测到【只读令牌】（无写入权限）。\n\n建议开启访客只读模式：仅拉取「配置/年级/成绩」三个文件，隐藏上传与编辑入口，上传全部停用。\n\n是否开启？")){
+            this.setVisitorRO(true);this.updateChip();
+            toast("👁 检测到只读令牌，已自动开启访客只读模式");
+          }
+        }
+      }
       await this._syncAllOnce();
       this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
       try{localStorage.setItem("tbGhCfg",JSON.stringify(this.ghCfg));}catch(e){}
