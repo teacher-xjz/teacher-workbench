@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v120";
+window.APP_VERSION="v121";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -709,11 +709,11 @@ function crudView(store,cfg,opts){
   }
   /* v119 学生标签：名册批量打标工具条 + 标签筛选（仅管理员可写的名册页） */
   let tagFilter="";
-  if(store==="students"&&!opts.readOnly&&typeof STU_TAG_DEFS!=="undefined"&&!(typeof visitorView==="function"&&visitorView())){
+  if(store==="students"&&!opts.readOnly&&typeof stuTagDefsAll==="function"&&!(typeof visitorView==="function"&&visitorView())){
     const cur=State.ftag_students||"";
-    tagFilter=`<select class="searchbox" id="stuTagFilter" style="max-width:120px"><option value="">全部标签</option>${STU_TAG_DEFS.map(d=>`<option value="${escA(d.k)}"${cur===d.k?" selected":""}>${escA(d.k)}生</option>`).join("")}<option value="__none"${cur==="__none"?" selected":""}>无标签</option></select>
+    tagFilter=`<select class="searchbox" id="stuTagFilter" style="max-width:120px"><option value="">全部标签</option>${stuTagDefsAll().map(d=>`<option value="${escA(d.k)}"${cur===d.k?" selected":""}>${escA(d.k)}生</option>`).join("")}<option value="__none"${cur==="__none"?" selected":""}>无标签</option></select>
     <span style="font-size:12px;color:var(--blue,#2563eb);white-space:nowrap">已选 <b id="stuTagN">${State._stuTagSel?State._stuTagSel.size:0}</b> 人</span>
-    ${STU_TAG_DEFS.map(d=>`<button class="btn sm" data-act="stuTagApply" data-tag="${escA(d.k)}" title="给勾选的学生加「${escA(d.k)}」标签" style="color:${d.fg}">+${escA(d.k)}</button>`).join("")}
+    ${stuTagDefsAll().map(d=>`<button class="btn sm" data-act="stuTagApply" data-tag="${escA(d.k)}" title="给勾选的学生加「${escA(d.k)}」标签" style="color:${d.fg}">+${escA(d.k)}</button>`).join("")}
     <button class="btn sm" data-act="stuTagClearSel" title="移除勾选学生的全部特长标签">清除</button>`;
   }
   return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(clsLabel(opts.cls))}·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}${tagFilter}
@@ -817,7 +817,7 @@ ACTIONS.stuTagClearSel=()=>{
   const ids=State._stuTagSel?[...State._stuTagSel]:[];
   if(!ids.length){toast("请先勾选学生");return;}
   (async()=>{
-    const known=typeof STU_TAG_DEFS!=="undefined"?STU_TAG_DEFS.map(d=>d.k):[];
+    const known=typeof stuTagDefsAll==="function"?stuTagDefsAll().map(d=>d.k):(typeof STU_TAG_DEFS!=="undefined"?STU_TAG_DEFS.map(d=>d.k):[]);
     let n=0;
     for(const id of ids){
       const st=State.data.students.find(s=>s.id===id);if(!st)continue;
@@ -844,8 +844,8 @@ function openCrudModal(btn){
     else if(f.type==="datetime")defaults[f.k]=nowLocal();
   });}
   const body=`<div class="frow">${cfg.fields.map(f=>fHtml(f,id?rec[f.k]:(rec[f.k]||defaults[f.k]||""))).join("")}</div>`
-    +(store==="students"&&typeof STU_TAG_DEFS!=="undefined"
-      ?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px dashed var(--line,#e2e8f0)"><div class="muted" style="font-size:12px;margin-bottom:6px">🏷 特长标签（可多选；不学了取消勾选保存即可）</div><div style="display:flex;gap:8px;flex-wrap:wrap">${STU_TAG_DEFS.map(d=>`<label style="display:flex;align-items:center;gap:5px;font-size:13px;padding:5px 12px;border:0.5px solid ${d.bd};border-radius:8px;cursor:pointer;background:${stuTagsOf(rec).includes(d.k)?d.bg:"transparent"}"><input type="checkbox" class="stuTagEdit" value="${escA(d.k)}"${stuTagsOf(rec).includes(d.k)?" checked":""}> ${escA(d.k)}</label>`).join("")}</div></div>`:"");
+    +(store==="students"&&typeof stuTagDefsAll==="function"
+      ?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px dashed var(--line,#e2e8f0)"><div class="muted" style="font-size:12px;margin-bottom:6px">🏷 特长标签（可多选；不学了取消勾选保存即可）</div><div style="display:flex;gap:8px;flex-wrap:wrap">${stuTagDefsAll().map(d=>`<label style="display:flex;align-items:center;gap:5px;font-size:13px;padding:5px 12px;border:0.5px solid ${d.bd};border-radius:8px;cursor:pointer;background:${stuTagsOf(rec).includes(d.k)?d.bg:"transparent"}"><input type="checkbox" class="stuTagEdit" value="${escA(d.k)}"${stuTagsOf(rec).includes(d.k)?" checked":""}> ${escA(d.k)}</label>`).join("")}</div></div>`:"");
   openModal(id?"编辑 — "+cfg.title:"新增 — "+cfg.title,body,`<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="modalOk">保存</button>`);
   $("#modalOk").onclick=async()=>{
     const obj=Object.assign({},rec);
@@ -1249,6 +1249,27 @@ const STU_TAG_DEFS=[
   {k:"传媒",bg:"#ccfbf1",fg:"#0d9488",bd:"#5eead4"},
   {k:"书法",bg:"#fee2e2",fg:"#dc2626",bd:"#fca5a5"},
 ];
+/* v121 动态标签字典：内置五类 + settings.stuTags 自定义标签（口径=以导入表为准，字典没有的自动登记）。
+   自定义标签存配置 → 随 配置.json 云同步，全部设备（含访客）自动跟上；配色从调色板轮转。 */
+const STU_TAG_PALETTE=["#b45309","#0d9488","#7c3aed","#dc2626","#2563eb","#059669","#c026d3","#ea580c","#4f46e5","#0e7490","#65a30d","#be185d"];
+function stuTagDefsAll(){
+  const extra=(typeof settings==="function"&&(settings().stuTags||[]))||[];
+  const arr=STU_TAG_DEFS.slice();
+  for(const e of extra){
+    if(!e||!e.k||arr.some(d=>d.k===e.k))continue;
+    arr.push({k:String(e.k),bg:"#f1efe8",fg:e.fg||STU_TAG_PALETTE[arr.length%STU_TAG_PALETTE.length],bd:"#b4b2a9"});
+  }
+  return arr;
+}
+function stuTagDefAdd(k){
+  if(STU_TAG_DEFS.some(d=>d.k===k))return false;
+  const st=settings();
+  st.stuTags=st.stuTags||[];
+  if(st.stuTags.some(x=>x&&x.k===k))return false;
+  st.stuTags.push({k:String(k)});
+  if(typeof saveMeta==="function")saveMeta("settings",st);
+  return true;
+}
 function stuTagsOf(st){
   if(!st)return[];
   const t=st.tags;
@@ -1262,7 +1283,7 @@ function stuTagAdd(st,tag){
 }
 function stuTagsHtml(st){
   return stuTagsOf(st).map(t=>{
-    const d=STU_TAG_DEFS.find(x=>x.k===t)||{bg:"#f1efe8",fg:"#444441",bd:"#b4b2a9"};
+    const d=stuTagDefsAll().find(x=>x.k===t)||{bg:"#f1efe8",fg:"#444441",bd:"#b4b2a9"};
     return `<span style="display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;margin-left:3px;white-space:nowrap;background:${d.bg};color:${d.fg};border:0.5px solid ${d.bd}">${escA(t)}</span>`;
   }).join("");
 }
@@ -3411,7 +3432,7 @@ function setTabUpload(){
 }
 
 /* ================= v119 学生标签导入（按身份证匹配，只增不减） =================
-   模板四列：身份证号码/姓名/班级/标签；标签只能取 STU_TAG_DEFS 字典内五类；
+   模板四列：身份证号码/姓名/班级/标签；标签不限类别——以导入表为准，字典里没有的自动登记；
    匹配：优先身份证精确（忽略空格、X大写），无身份证则按 姓名+班级；
    语义：名单外学生不受影响、已有标签不动、重复导入不产生重复；未识别标签跳过并报告 */
 const stuTagNormId=v=>String(v||"").trim().toUpperCase().replace(/\s/g,"");
@@ -3430,9 +3451,10 @@ ACTIONS.tagTpl=()=>{
     ["填写说明"],
     ["1. 只填需要打标签的学生（约200人），普通学生不用写进来；名单外的学生不受任何影响。"],
     ["2. 匹配规则：优先按「身份证号码」精确匹配（X 大写、忽略空格）；身份证没填则按「姓名+班级」匹配。"],
-    ["3. 标签只能写这五个（一个或多个）：日语 / 体育 / 美术 / 传媒 / 书法。"],
+    ["3. 标签不限类别，以本表为准：内置 日语/体育/美术/传媒/书法；表里出现的新标签（如舞蹈）会自动登记进字典。"],
     ["4. 同一格写多个标签用 顿号 、 逗号 ， 斜杠 / 任意分隔，如：体育、美术。"],
     ["5. 导入=只增不减：已有标签不动，重复导入同一名单不会产生重复标签。"],
+    ["5a. 新标签自动登记后，名册批量打标按钮、档案编辑勾选框、标签筛选会自动出现该标签（全设备同步）。"],
     ["6. 取消标签（学生不学了）：到「年级→学生名册」勾选后点清除，或在档案编辑弹窗取消勾选保存。"],
     ["7. 导入成功后标签立即显示在档案卡与名册，并自动云同步（领导端可见）。"],
   ]);
@@ -3450,14 +3472,15 @@ ACTIONS.tagImport=()=>{
       const ws=wb.Sheets[wb.SheetNames[0]];
       const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
       const pick=(r,keys)=>{for(const k of keys){if(r[k]!=null&&String(r[k]).trim())return String(r[k]).trim();}return "";};
-      let matched=0,tagged=0;const unknown=new Set();const misses=[];
+      let matched=0,tagged=0;const misses=[];const autoAdded=[];
+      /* v121 口径统一：以导入表为准——字典里没有的标签自动登记进字典（存配置、云同步到所有设备），不再跳过 */
       for(const r of rows){
         const idc=pick(r,["身份证号码","身份证","身份证号"]);
         const name=pick(r,["姓名","名字"]);
         const cls=pick(r,["班级","班"]);
         const tags=stuTagParseList(pick(r,["标签","特长标签"]));
-        tags.forEach(t=>{if(!STU_TAG_DEFS.some(d=>d.k===t))unknown.add(t);});
-        const valid=tags.filter(t=>STU_TAG_DEFS.some(d=>d.k===t));
+        tags.forEach(t=>{if(stuTagDefAdd(t))autoAdded.push(t);});
+        const valid=tags;
         if(!valid.length)continue;
         let st=null;
         if(idc)st=State.data.students.find(s=>stuTagNormId(s.idcard)===stuTagNormId(idc));
@@ -3470,14 +3493,14 @@ ACTIONS.tagImport=()=>{
         await putRec("students",st);matched++;tagged++;
       }
       render();
-      const unkTxt=unknown.size?`；<b style="color:#dc2626">未识别标签（已跳过）：${[...unknown].join("、")}</b>`:"";
+      const unkTxt=autoAdded.length?`；<b style="color:#2563eb">已自动登记新标签：${[...new Set(autoAdded)].join("、")}</b>`:"";
       /* v120 体检：未匹配比例过高 → 提示本机名册可能未同步/过期（数据问题而非文件问题） */
       const stale=rows.length&&misses.length>rows.length*0.5;
       const staleTip=stale?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:8px"><b>⚠️ 本机名册可能未同步到最新</b>：本机当前只有 <b>${State.data.students.length}</b> 名学生，而未匹配比例超过一半——大概率是这台设备/这个浏览器还没同步好。请先到「同步与备份」确认已连接、点「立即检查云端更新」后<b>重新导入本文件</b>（文件不用改）。</div>`:"";
       if(misses.length){
         openModal(stale?"导入未完成 · 本机数据可能未同步":"导入完成 · 有未匹配行",`<div style="font-size:13px">已匹配 <b>${matched}</b> 行（新增标签 ${tagged} 行）· 本机学生总数 <b>${State.data.students.length}</b>${unkTxt}。以下 <b style="color:#dc2626">${misses.length}</b> 行未匹配到学生（请核对身份证号/姓名/班级）：${staleTip}<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>姓名</th><th>身份证号</th></tr></thead><tbody>${misses.map(m=>`<tr><td>${escA(m.name)}</td><td>${escA(m.idc)}</td></tr>`).join("")}</tbody></table></div></div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
       }else{
-        toast(`导入完成：匹配 ${matched} 行，新增标签 ${tagged} 人${unknown.size?"；有未识别标签已跳过":""}`);
+        toast(`导入完成：匹配 ${matched} 行，新增标签 ${tagged} 人${autoAdded.length?"；新标签已自动登记":""}`);
       }
     }catch(e){toast("导入失败："+((e&&e.message)||e));}
     finally{f.value="";}
