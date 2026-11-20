@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v115";
+window.APP_VERSION="v116";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7746,13 +7746,14 @@ const Sync={
     this.status="sync";this.updateChip("连接中…");
     toast("连接中…正在访问 GitHub 服务器（国内网络可能需要几秒到几十秒）");
     try{
+      /* v116：只读令牌检测到后【不再弹窗询问】——confirm 弹窗可能被浏览器的
+         "阻止此页面创建更多对话框"机制静默吞掉，导致访客模式永远开不起来。
+         只读令牌→访客只读模式是唯一正确行为，直接自动开启 */
       if(!this.visitorRO()){
         const w=await this._probeWrite();
         if(w===false){
-          if(confirm("检测到【只读令牌】（无写入权限）。\n\n建议开启访客只读模式：仅拉取「配置/年级/成绩」三个文件，隐藏上传与编辑入口，上传全部停用。\n\n是否开启？")){
-            this.setVisitorRO(true);this.updateChip();
-            toast("👁 检测到只读令牌，已自动开启访客只读模式");
-          }
+          this.setVisitorRO(true);this.updateChip();
+          toast("👁 检测到只读令牌，已自动开启访客只读模式");
         }
       }
       await this._syncAllOnce();
@@ -7762,8 +7763,21 @@ const Sync={
       if(!silent)render();
       toast(this.visitorRO()?"已连接（访客只读：仅拉取 配置/年级/成绩 三个文件，上传停用）":"已连接云端：数据已对齐，改动会自动同步");
     }catch(e){
-      this._ghErr=(e&&e.message)||String(e);this.status="err";this.updateChip();
-      toast("连接失败："+this._ghErr);
+      /* v116 兜底：若探测漏网、连接因 403 写入失败 → 自动进访客模式重试一次 */
+      const msg=(e&&e.message)||String(e);
+      if(!this.visitorRO()&&msg.includes("403")){
+        this.setVisitorRO(true);this.updateChip();
+        try{
+          await this._syncAllOnce();
+          this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
+          try{localStorage.setItem("tbGhCfg",JSON.stringify(this.ghCfg));}catch(e2){}
+          this.updateChip();if(!silent)render();
+          toast("👁 检测到只读令牌，已自动开启访客只读模式并连接成功");
+          return;
+        }catch(e3){/* 重试仍失败 → 走正常错误出口 */}
+      }
+      this._ghErr=msg;this.status="err";this.updateChip();
+      toast("连接失败："+msg);
       if(!silent)render();
     }
   },
@@ -7811,6 +7825,7 @@ const Sync={
       return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
       ${location.protocol==="file:"?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是本地文件方式打开（地址栏 file:// 开头）</b>：浏览器禁止本地文件联网，无法使用云端同步。请用网址 <b>https://teacher-xjz.github.io/teacher-workbench/</b> 打开本工作台并收藏书签；本地文件仅作离线备份。</div>`:""}
       ${errBox}
+      ${this.visitorRO()?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff"><b>👁 访客只读模式已开启</b>：连接后将仅拉取「配置/年级/成绩」三个文件，上传全部停用。<button class="btn sm" data-act="visitorOff" style="margin-left:8px">退出访客模式</button></div>`:""}
       <div class="notice blue"><b>原理（v114 六文件分区）：</b>数据上传到你 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（外人不可见），按身份域分成六个文件：<b>配置 / 年级 / 成绩 / 班级 / 教科室 / 个人</b>——改哪域只传哪域，云端变化只下载该域，一个域出问题其他域无感。家校沟通另有独立文件。<br>
       <b>怎么用：</b>① 粘贴 GitHub 访问令牌；② 点「连接云端」（首次会自动把旧版单文件迁移成六文件分区）；③ 其他设备同样粘贴令牌连接。<br>
       <b>安全：</b>令牌只保存在本设备浏览器里；仓库私有，只有持令牌的人能访问。给领导/同事用请发<b>只读令牌</b>并开启下方「访客只读模式」。</div>
