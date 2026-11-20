@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v117";
+window.APP_VERSION="v118";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -574,15 +574,18 @@ const Lock={
 function visitorView(){return typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO();}
 const VISITOR_HIDE_ROUTES=["bzr","jks","gr"];
 /* 访客模式动作白名单：只放行"只读浏览+同步状态"类操作，其余（导入/导出/编辑/备份恢复/退出访客）一律拦截 */
-const VISITOR_OK_ACTS=new Set(["closeModal","ghConnect","ghDisconnect","syncCheckNow","ghTogglePwd","ghNetDiag","ghBackupPanel","ghRefreshSizes","projToggle","stuDetail","profPrint","profPick","profAllScope","copyClsTable"]);
+const VISITOR_OK_ACTS=new Set(["closeModal","ghConnect","ghDisconnect","syncCheckNow","ghTogglePwd","ghNetDiag","ghBackupPanel","ghRefreshSizes","projToggle","stuDetail","profPrint","profPick","profAllScope","copyClsTable","cmpClsAll","cmpClsToggle"]);
 function go(route,sub){
   /* v80：全局统计口径收口到「设置→成绩统计口径」，旧深链 jw/lines 自动改道 */
   if(route==="jw"&&sub==="lines"){route="set";sub="lines";}
   /* v111 导航精简改道：移除页签的旧深链自动跳到替代页面（功能零损失） */
   if(route==="jw"&&sub==="students"){route="bzr";sub="profile";} /* 学生查询 → 学生档案（查人统一入口） */
   if(route==="bzr"&&sub==="students"){sub="profile";}            /* 只读名册 → 学生档案 */
-  /* v117 访客模式：班主任/教科室/个人三模块整块封锁，深链一律改道年级总览 */
-  if(visitorView()&&VISITOR_HIDE_ROUTES.includes(route)){route="jw";sub="overview";toast("访客模式：仅可浏览 首页 / 年级");}
+  /* v117 访客模式：教科室/个人整块封锁；v118 班主任放行「学生档案」单页（领导查学生刚需），其余页签强制归位档案 */
+  if(visitorView()){
+    if(route==="bzr"){sub="profile";}
+    else if(VISITOR_HIDE_ROUTES.includes(route)){route="jw";sub="overview";toast("访客模式：仅可浏览 首页 / 年级 / 学生档案");}
+  }
   if(route==="set"&&Lock.has()&&!Lock.unlocked()){Lock.prompt();return;}
   State.route=route;if(sub)State.sub[route]=sub;render();
 }
@@ -1284,12 +1287,10 @@ function gsMatches(q){
 }
 function gsGo(id){
   const st=State.data.students.find(x=>x.id===id);if(!st)return;
-  const inp=document.getElementById("gsq");if(inp)inp.value="";
-  const l=document.getElementById("gsList");if(l)l.style.display="none";
-  /* v117 领导视图：访客没有班主任档案卡，直达 年级→学生名册 并预填搜索 */
-  if(visitorView()){State.q_students=st.name;go("jw","roster");return;}
   if(typeof profRemember==="function")profRemember(id);
   State.bzrSelId=id;State.bzrQ="";
+  const inp=document.getElementById("gsq");if(inp)inp.value="";
+  const l=document.getElementById("gsList");if(l)l.style.display="none";
   go("bzr","profile");
 }
 function gsInit(){
@@ -1527,8 +1528,8 @@ function renderHome(){
      v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册
      v112：图标扁平化（ico 键），⚠️ 离线版变换 4e 锚点同步维护 */
   const qnAll=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
-  /* v117 领导视图：访客快捷入口只剩年级类（班主任/个人模块整块隐藏） */
-  const qn=visitorView()?qnAll.filter(q=>q[0]==="jw"):qnAll;
+  /* v118 领导视图：访客快捷入口=年级类 + 学生档案（班主任模块仅开放档案单页） */
+  const qn=visitorView()?qnAll.filter(q=>q[0]==="jw"||(q[0]==="bzr"&&q[1]==="profile")):qnAll;
   return `
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${ico(q[2])}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
@@ -4016,6 +4017,9 @@ function jwClasses(){
     <button class="btn sm${!cmpOn?" primary":""}" data-act="cmpClsAll">全部班级</button>
     ${allCls.slice().sort((a,b)=>(Number(a)||999)-(Number(b)||999)).map(c=>`<button class="btn sm${cmpOn&&selCls.includes(c)?" primary":""}" data-act="cmpClsToggle" data-cls="${escA(c)}">${esc(clsLabel(c))}</button>`).join("")}
   </div>`;
+  /* v118 富对比卡：自选班级≥1 时，嫁接班主任成绩分析同款「班级对比」组件
+     （统计大卡+指标表+分科均分柱图+单科逐班对照）；以第一个选中班为基准，其余班并列入比 */
+  const richSec=(cmpOn&&selCls)?bzrCompareSection(exam,ce,selCls[0],selCls.slice(1),null):"";
   const sortKey=State.sortKey||"avg",sortDir=State.sortDir||-1;
   // 排名固定按均分降序计算，不受当前排序方式影响
   const rankMap={};
@@ -4038,6 +4042,7 @@ function jwClasses(){
   return `<div class="card"><h3>🏫 班级对比 · ${isTotal?"总分":esc(subj)}<span class="sub">排名按均分从高到低计算 · 点击表头可改排序 · ${classes.length} 个班</span><span class="spacer"></span>
     ${examSelector()} ${subSel(exam.subjects,subj,"subjSel")}</h3>
   ${chipsRow}
+  ${richSec}
   <details class="lnsec" style="margin-top:8px"><summary>📊 班级均分对比图（点击展开）</summary>
   <canvas class="chart" id="cCls"></canvas></details>
   <div class="twrap tscr" style="margin-top:14px"><table class="tb"><thead>${header}</thead><tbody>
@@ -4109,6 +4114,16 @@ jwClasses.after=()=>{
   const gstats=isTotal?totalStats(exam,exam.rows):ce.grade.bySubj[subj];
   const classes=ce.classes.filter(c=>isTotal?c.total&&c.total.avg!=null:(c.bySubj[subj]&&c.bySubj[subj].avg!=null));
   chartBar(cv,classes.map(c=>c.cls),classes.map(c=>isTotal?c.total.avg:c.bySubj[subj].avg),{h:300,hline:gstats?gstats.avg:null,hlineLabel:"年级均分 "+fmtN(gstats&&gstats.avg),color:"#2563eb"});
+  /* v118 富对比卡：分科均分多系列柱图（与 bzrCompareSection 的 #cClsCmp 配对） */
+  const cvC=$("#cClsCmp");
+  if(cvC&&State.cmpClsOn&&Array.isArray(State.cmpClsSet)&&State.cmpClsSet.length){
+    const clsList=ce.classes.map(c=>c.cls);
+    const clsArr=State.cmpClsSet.filter(c=>clsList.includes(c));
+    if(clsArr.length)chartBarN(cvC,exam.subjects,clsArr.map((c,i)=>{
+      const b=ce.classes.find(x=>x.cls===c);
+      return{color:CMP_COLORS[i%CMP_COLORS.length],values:exam.subjects.map(s=>{const m=b&&b.bySubj&&b.bySubj[s];return m&&m.avg!=null?m.avg:null;})};
+    }),{h:260});
+  }
 };
 /* ---------- 单科分析 ---------- */
 function jwSubject(){
