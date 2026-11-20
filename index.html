@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v119";
+window.APP_VERSION="v120";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3471,8 +3471,11 @@ ACTIONS.tagImport=()=>{
       }
       render();
       const unkTxt=unknown.size?`；<b style="color:#dc2626">未识别标签（已跳过）：${[...unknown].join("、")}</b>`:"";
+      /* v120 体检：未匹配比例过高 → 提示本机名册可能未同步/过期（数据问题而非文件问题） */
+      const stale=rows.length&&misses.length>rows.length*0.5;
+      const staleTip=stale?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:8px"><b>⚠️ 本机名册可能未同步到最新</b>：本机当前只有 <b>${State.data.students.length}</b> 名学生，而未匹配比例超过一半——大概率是这台设备/这个浏览器还没同步好。请先到「同步与备份」确认已连接、点「立即检查云端更新」后<b>重新导入本文件</b>（文件不用改）。</div>`:"";
       if(misses.length){
-        openModal("导入完成 · 有未匹配行",`<div style="font-size:13px">已匹配 <b>${matched}</b> 行（新增标签 ${tagged} 行）${unkTxt}。以下 <b style="color:#dc2626">${misses.length}</b> 行未匹配到学生（请核对身份证号/姓名/班级）：<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>姓名</th><th>身份证号</th></tr></thead><tbody>${misses.map(m=>`<tr><td>${escA(m.name)}</td><td>${escA(m.idc)}</td></tr>`).join("")}</tbody></table></div></div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
+        openModal(stale?"导入未完成 · 本机数据可能未同步":"导入完成 · 有未匹配行",`<div style="font-size:13px">已匹配 <b>${matched}</b> 行（新增标签 ${tagged} 行）· 本机学生总数 <b>${State.data.students.length}</b>${unkTxt}。以下 <b style="color:#dc2626">${misses.length}</b> 行未匹配到学生（请核对身份证号/姓名/班级）：${staleTip}<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>姓名</th><th>身份证号</th></tr></thead><tbody>${misses.map(m=>`<tr><td>${escA(m.name)}</td><td>${escA(m.idc)}</td></tr>`).join("")}</tbody></table></div></div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
       }else{
         toast(`导入完成：匹配 ${matched} 行，新增标签 ${tagged} 人${unknown.size?"；有未识别标签已跳过":""}`);
       }
