@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v122";
+window.APP_VERSION="v123";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7995,7 +7995,16 @@ const Sync={
       /* v116：只读令牌检测到后【不再弹窗询问】——confirm 弹窗可能被浏览器的
          "阻止此页面创建更多对话框"机制静默吞掉，导致访客模式永远开不起来。
          只读令牌→访客只读模式是唯一正确行为，直接自动开启 */
-      if(!this.visitorRO()){
+      /* v123 逃生口：已在访客模式的设备，若用户重新连接且令牌有写权限（=管理员本人，
+         领导手里只有只读令牌），自动退出访客模式并恢复完整同步 */
+      let exitedVisitor=false;
+      if(this.visitorRO()){
+        const w=await this._probeWrite();
+        if(w===true){
+          this.setVisitorRO(false);this.updateChip();exitedVisitor=true;
+          toast("🔓 检测到可写令牌，已自动退出访客只读模式");
+        }
+      }else{
         const w=await this._probeWrite();
         if(w===false){
           this.setVisitorRO(true);this.updateChip();
@@ -8003,6 +8012,10 @@ const Sync={
         }
       }
       await this._syncAllOnce();
+      /* 退出访客模式后：本机在访客期间的改动没标过脏（noteChange 被拦截），全通道补标一次，
+         走并集合并自动对齐（_ut 新者胜，安全幂等） */
+      if(exitedVisitor)this.CH.filter(ch=>ch.mode!=="replace").forEach(ch=>this.setChDirty(ch,true));
+      await this._pushDirty();
       this.ghConn=true;this._ghErr=null;this.status="on";this.lastSync=new Date();
       try{localStorage.setItem("tbGhCfg",JSON.stringify(this.ghCfg));}catch(e){}
       this.updateChip();
