@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v124";
+window.APP_VERSION="v125";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3397,30 +3397,44 @@ ACTIONS.resetPeriods=async()=>{
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
 AppModule({id:"set",icon:"cog",label:"设置",order:6,render:renderSet});
 
-/* ================= v111 设置 → 资料上传（全站导入收口） =================
-   定位：所有需要"上传/导入"的资料统一从这里进——成绩、课表、名册、学生信息表、
-   家长信息、教师任课；各原页面不再放导入按钮。底层流程（弹窗向导/合并口径/
-   名字纠错）全部复用原 ACTIONS，本页只做入口收拢，零逻辑改动。 */
+/* ================= v125 设置 → 资料上传（全站导入收口 + 学生信息总表） =================
+   v111 收口：成绩/课表/任课/备份统一从这里进。
+   v125 学生信息总表（官方①骨架）：学生类信息只有一个门——
+   模板=《平昌县学生信息表》官方格式前9列原样（户籍四列+住址两列+姓名/性别/身份证），
+   右侧追加 学号/考号/状态/住宿/电话/父母/标签（一标签一列，随字典动态生成）/备注；
+   一个班一个 sheet（sheet名=班号），名册已有学生整行预填，只填新增/变更部分即可。
+   导入口径：身份证优先匹配→姓名+班级→唯一姓名兜底；只补空缺不改已有；标签只增不减；
+   字典外标签自动登记（下次下载模板自动多一列）；名册没有的学生自动追加。
+   官方无表头原件与《学生成绩管理系统》文件仍走各自专属适配器（下方"官方格式文件"区）。 */
 function setTabUpload(){
   const nStu=State.data.students.length,nEx=State.data.exams.length;
-  const card=(icon,title,desc,btns)=>`
-    <div style="background:var(--card2,#f8fafc);border:1px solid var(--line,#e2e8f0);border-radius:12px;padding:12px 14px">
+  const tags=stuTagDefsAll();
+  const card=(icon,title,desc,btns,emphasis)=>`
+    <div style="background:var(--card2,#f8fafc);border:${emphasis?"2px solid var(--blue,#2563eb)":"1px solid var(--line,#e2e8f0)"};border-radius:12px;padding:12px 14px">
       <div style="font-size:13.5px;font-weight:600;margin-bottom:3px">${icon} ${title}</div>
       <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:9px">${desc}</div>
       <div class="flex" style="gap:8px">${btns}</div>
     </div>`;
   return `<div class="card"><h3>📤 资料上传 <span class="sub">全站所有「导入/上传」的统一入口</span></h3>
-    <div class="notice blue">需要进入工作台的资料都在这一页上传，按弹窗指引完成即可。导入规则全站一致：<b>姓名写法自动纠错</b>、按「姓名+班级」匹配去重（已有信息只更新、不会重复）。当前库：学生 ${nStu} 人 · 考试 ${nEx} 场。</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px">
+    <div class="notice blue">当前库：学生 ${nStu} 人 · 考试 ${nEx} 场。<b>学生信息只走「学生信息总表」一个门</b>：姓名/户籍/住址/家长/住宿/标签一张表全包，导入规则全站一致——<b>身份证优先匹配、姓名写法自动纠错、只补空缺不改已有、标签只增不减</b>。</div>
+    <div style="margin:10px 0 4px 2px;font-size:12px;color:var(--muted,#64748b)">— 学生信息（主入口）—</div>
+    <div style="display:grid;grid-template-columns:1fr;gap:12px">
+    ${card("👥","学生信息总表 <span class=\"chip\" style=\"margin-left:4px\">一表全包 · 主入口</span>",
+      `模板与《平昌县学生信息表》官方格式<b>前9列完全一致</b>（户籍四列+住址两列+姓名/性别/身份证），右侧追加学号、考号、状态、<b>住宿</b>、电话、父母姓名电话、<b>标签列</b>（${tags.map(t=>t.k).join("/")}，一标签一列，打 √ 即打标）、备注。一个班一个 sheet（sheet名=班号），<b>名册已有学生已整行预填</b>，只填要补的信息即可；新标签写进「其他标签」自动登记，下次下载模板自动多一列。`,
+      `<button class="btn" data-act="stuTotalTpl">📄 下载总表模板（含预填名单）</button><button class="btn primary" data-act="stuTotalImport">📥 导入学生信息总表</button><input type="file" id="stuTotalFile" accept=".xlsx,.xls" style="display:none">`,true)}
+    </div>
+    <div style="margin:14px 0 4px 2px;font-size:12px;color:var(--muted,#64748b)">— 其他资料 —</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
     ${card("📊","考试成绩","支持 .xlsx / .xls / .csv：自动定位表头、识别选科列与排名列。导入后自动进「年级→考试与成绩」。",`<button class="btn primary" data-act="importStart">＋ 导入考试成绩</button>`)}
     ${card("🏫","课表（班级+个人）","导入学校 Excel 课表：写入班级课表，并按「我的姓名」自动提取个人课表（驱动首页绿条与今日课程）。",`<button class="btn primary" data-act="schedImport">📥 导入 Excel 课表</button>`)}
-    ${card("👥","学生名册","首次建库 / 整体更新用；支持联系簿等常见格式，自动定位表头与双电话列。日常零星增减请直接在「年级→学生名册」新增/编辑。",`<button class="btn" data-act="ioTemplate">📄 下载填写模板</button><button class="btn primary" data-act="rosterImport">📥 导入名册 Excel</button>`)}
-    ${card("🏫","学生信息表（全年级基础信息）","官方无表头固定列位格式：补学号、住址、性别等档案字段；支持一个文件多个班的 sheet，逐班导入。",`<button class="btn primary" data-act="infoImport">🏫 导入学生信息表</button>`)}
-    ${card("👪","家长联系信息","读《学生成绩管理系统》类表格的「学生信息表」sheet：父亲/母亲姓名与电话按「姓名+班级」匹配更新，导入前逐行预览变更。",`<button class="btn primary" data-act="profImport">📥 导入家长信息</button>`)}
     ${card("👩‍🏫","教师任课对照","从学校任课表 Excel 复制后粘贴导入：按「班级+科目」原位更新，不产生重复；驱动教师维度对比。",`<button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button>`)}
-    ${card("🏷","学生标签（日语/特长）","按身份证号码匹配，只给表内学生添加标签（日语/体育/美术/传媒/书法），<b>只增不减</b>：已有标签不动、名单外的学生不受影响。标签显示在档案卡与名册，领导端自动可见。",`<button class="btn" data-act="tagTpl">📄 下载标签模板</button><button class="btn primary" data-act="tagImport">📥 导入标签 Excel</button><input type="file" id="tagFile" accept=".xlsx,.xls" style="display:none">`)}
     </div>
-    <div class="muted" style="margin-top:10px">💡 批量纠正整班信息（比如换了一版信息表）也走上面的「名册/学生信息表」导入——合并口径天然只补空缺、按名更新。单个人改信息请直接用「班主任→学生档案」的 ✏️ 编辑（保存即全站生效）。</div>
+    <div style="margin:14px 0 4px 2px;font-size:12px;color:var(--muted,#64748b)">— 官方格式文件（上级/系统下发的原件，无法要求按总表填，各自专属解析；平时不用管）—</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+    ${card("🏫","学生信息表（无表头固定列位）","《平昌县高2025级学生信息表》类官方原件：无表头、第1行即数据，按内容特征自动识别户籍/住址/姓名/性别/身份证；一个班一个 sheet 逐班导入。",`<button class="btn primary" data-act="infoImport">🏫 导入官方信息表</button>`)}
+    ${card("👪","家长信息（学生成绩管理系统）","读《学生成绩管理系统》的「学生信息表」sheet（学生姓名/家长姓名/联系电话/与学生关系，一个家长一行）：按「姓名+班级」匹配更新父母字段，导入前逐行预览变更。",`<button class="btn primary" data-act="profImport">📥 导入家长信息</button>`)}
+    </div>
+    <div class="muted" style="margin-top:10px">💡 批量补信息/换新版信息表都走「学生信息总表」——只补空缺的合并口径天然不会冲掉已有数据。单个人改信息请直接用「班主任→学生档案」的 ✏️ 编辑（保存即全站生效）。原「学生名册导入」「标签导入」已并入总表（v125）。</div>
   </div>
   <div class="card"><h3>💾 整份备份与恢复</h3>
     <div class="notice blue">备份/恢复是系统级操作，与日常资料导入不同：<b>导出全部数据</b>得到 JSON 备份文件（含课表/名册/成绩/沟通全部数据），<b>导入备份文件</b>会覆盖当前设备全部数据（换机迁移用）。日常云同步配置在「同步与备份」页签。</div>
@@ -3432,76 +3446,172 @@ function setTabUpload(){
     </div></div>`;
 }
 
-/* ================= v119 学生标签导入（按身份证匹配，只增不减） =================
-   模板四列：身份证号码/姓名/班级/标签；标签不限类别——以导入表为准，字典里没有的自动登记；
-   匹配：优先身份证精确（忽略空格、X大写），无身份证则按 姓名+班级；
-   语义：名单外学生不受影响、已有标签不动、重复导入不产生重复；未识别标签跳过并报告 */
-const stuTagNormId=v=>String(v||"").trim().toUpperCase().replace(/\s/g,"");
-const stuTagParseList=t=>String(t||"").split(/[,，、/;；|]/).map(x=>x.trim()).filter(Boolean);
-ACTIONS.tagTpl=()=>{
+/* ---------- 学生信息总表：列定义（官方①骨架 + 追加列） ---------- */
+const STU_TOT_COLS=[
+  {k:"__hj1",label:"户籍·县",w:10},{k:"__hj2",label:"户籍·乡镇",w:10},
+  {k:"__hj3",label:"户籍·村",w:10},{k:"__hj4",label:"户籍·组",w:8},
+  {k:"__st",label:"住址·街道",w:12},{k:"__ad",label:"住址·详细",w:26},
+  {k:"name",label:"姓名",w:10},{k:"sex",label:"性别",w:6},{k:"idcard",label:"身份证号",w:24},
+  {k:"sid",label:"学号",w:12},{k:"kid",label:"考号",w:12},{k:"status",label:"在读状态",w:10},
+  {k:"boarding",label:"住宿情况",w:10},{k:"phone",label:"本人电话",w:14},
+  {k:"father",label:"父亲姓名",w:10},{k:"fatherPhone",label:"父亲电话",w:14},
+  {k:"mother",label:"母亲姓名",w:10},{k:"motherPhone",label:"母亲电话",w:14},
+];
+/* 表头别名：官方文件常见写法也能认出来 */
+const STU_TOT_ALIAS={"身份证":"idcard","证件号码":"idcard","名字":"name","学生姓名":"name",
+  "班":"__cls","班级":"__cls","家庭住址":"__ad","住址":"__ad","详细地址":"__ad",
+  "标签":"__tagsX","特长":"__tagsX","特长标签":"__tagsX","其他标签":"__tagsX",
+  "备注":"note","住宿":"boarding","状态":"status",
+  "本人联系电话":"phone","联系电话":"phone","父亲":"father","母亲":"mother",
+  "父亲联系电话":"fatherPhone","母亲联系电话":"motherPhone"};
+/* 打标标记：这些写法都算打上 */
+const stuTotalMarked=v=>/^(√|✔|✓|✅|y|yes|是|1|对|打|true)$/i.test(String(v==null?"":v).trim());
+/* ---------- 模板生成：一个班一个 sheet，名册学生整行预填 ---------- */
+function stuTotalHead(){
+  return [...STU_TOT_COLS.map(c=>c.label),...stuTagDefsAll().map(d=>d.k),"其他标签","备注"];
+}
+function stuTotalRowOf(s,tags){
+  const r=["","","","","","",s.name||"",s.sex||"",String(s.idcard||""),String(s.sid||""),String(s.kid||""),
+    s.status||"在读",s.boarding||"",String(s.phone||""),s.father||"",String(s.fatherPhone||""),
+    s.mother||"",String(s.motherPhone||"")];
+  const tg=stuTagsOf(s);
+  tags.forEach(d=>r.push(tg.includes(d.k)?"√":""));
+  /* 字典列没盖到的标签写进「其他标签」，避免丢失 */
+  const rest=tg.filter(t=>!tags.some(d=>d.k===t));
+  r.push(rest.join("、"),s.note||"");
+  return r;
+}
+function stuTotalWorkbook(){
   const wb=XLSX.utils.book_new();
-  const ws1=XLSX.utils.aoa_to_sheet([
-    ["身份证号码","姓名","班级","标签"],
-    ["510000200901010011","李娜","15","日语"],
-    ["510000200902020022","王强","12","体育、美术"],
-    ["510000200903030033","张子涵","15","日语,传媒"],
+  const tags=stuTagDefsAll(),head=stuTotalHead();
+  const widths=[...STU_TOT_COLS.map(c=>c.w),...tags.map(()=>8),12,16];
+  const clss=[...new Set(State.data.students.map(s=>String(s.cls||"")).filter(Boolean))]
+    .sort((a,b)=>(Number(a)||999)-(Number(b)||999)||String(a).localeCompare(String(b),"zh"));
+  if(!clss.length){ /* 空名册：给示例 sheet 兜底 */
+    const ws=XLSX.utils.aoa_to_sheet([head,stuTotalRowOf({name:"张三",cls:"15",sex:"男",idcard:"510000200901010011",status:"在读"},tags)]);
+    ws["!cols"]=widths.map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,"示例班");
+  }
+  for(const c of clss){
+    const stus=State.data.students.filter(s=>String(s.cls||"")===c)
+      .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"zh"));
+    const ws=XLSX.utils.aoa_to_sheet([head,...stus.map(s=>stuTotalRowOf(s,tags))]);
+    ws["!cols"]=widths.map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,c+"班");
+  }
+  const wsHelp=XLSX.utils.aoa_to_sheet([
+    ["填写说明（学生信息总表）"],
+    ["1. 列结构：前9列=《平昌县学生信息表》官方格式原样（户籍四列+住址两列+姓名/性别/身份证号），后面是学号/考号/在读状态/住宿情况/本人电话/父亲/母亲/标签列/其他标签/备注。"],
+    ["2. 一个班一个工作表，sheet 名=班号（如 15班）；名册已有学生已整行预填，只填要补/要改新增的信息，空着的地方导入时不会动库里的数据。"],
+    ["3. 匹配规则：身份证号优先精确匹配（X 大写、忽略空格）；没有身份证按「姓名+班级」；姓名在全年级唯一也认。名册里没有的学生会自动新增（班级取 sheet 名）。"],
+    ["4. 合并口径=只补空缺：表里填了而档案里是空的才写入；档案里已有的值不会被覆盖（防止误冲手工改过的数据）。"],
+    ["5. 标签列：打 √（或 是/1/y）=打上该标签；留空=不动，绝不自动清除。要取消标签去「年级→学生名册」或档案卡编辑。"],
+    ["6. 新标签写在「其他标签」列（多个用 、，/ 分隔），导入后自动登记进字典；下次下载本模板自动多出一列。"],
+    ["7. 身份证号、电话、学号列请保持文本格式（模板已设置好），避免 Excel 科学计数法吃掉末尾数字。"],
+    ["8. 官方下发的无表头原件、《学生成绩管理系统》文件不用改成总表——到「资料上传→官方格式文件」走对应入口即可。"],
   ]);
-  ws1["!cols"]=[{wch:24},{wch:10},{wch:8},{wch:18}];
-  XLSX.utils.book_append_sheet(wb,ws1,"标签名单");
-  const ws2=XLSX.utils.aoa_to_sheet([
-    ["填写说明"],
-    ["1. 只填需要打标签的学生（约200人），普通学生不用写进来；名单外的学生不受任何影响。"],
-    ["2. 匹配规则：优先按「身份证号码」精确匹配（X 大写、忽略空格）；身份证没填则按「姓名+班级」匹配。"],
-    ["3. 标签不限类别，以本表为准：内置 日语/体育/美术/传媒/书法；表里出现的新标签（如舞蹈）会自动登记进字典。"],
-    ["4. 同一格写多个标签用 顿号 、 逗号 ， 斜杠 / 任意分隔，如：体育、美术。"],
-    ["5. 导入=只增不减：已有标签不动，重复导入同一名单不会产生重复标签。"],
-    ["5a. 新标签自动登记后，名册批量打标按钮、档案编辑勾选框、标签筛选会自动出现该标签（全设备同步）。"],
-    ["6. 取消标签（学生不学了）：到「年级→学生名册」勾选后点清除，或在档案编辑弹窗取消勾选保存。"],
-    ["7. 导入成功后标签立即显示在档案卡与名册，并自动云同步（领导端可见）。"],
-  ]);
-  ws2["!cols"]=[{wch:100}];
-  XLSX.utils.book_append_sheet(wb,ws2,"填写说明");
-  XLSX.writeFile(wb,"学生标签导入模板_"+todayStr()+".xlsx");
-  toast("标签模板已下载（含填写说明）");
+  wsHelp["!cols"]=[{wch:110}];
+  XLSX.utils.book_append_sheet(wb,wsHelp,"填写说明");
+  return wb;
+}
+ACTIONS.stuTotalTpl=()=>{
+  XLSX.writeFile(stuTotalWorkbook(),"学生信息总表_模板_"+todayStr()+".xlsx");
+  toast("总表模板已下载（名册学生已预填，含填写说明）");
 };
-ACTIONS.tagImport=()=>{
-  const f=$("#tagFile");
+/* ---------- 导入核心：逐 sheet 解析+合并（可单测，grid=header:1 二维数组） ---------- */
+async function stuTotalApplySheet(grid,sheetName,rep){
+  const rows=(grid||[]).filter(r=>(r||[]).some(c=>c!=null&&String(c).trim()!==""));
+  const hi=rows.findIndex(r=>r.some(c=>String(c==null?"":c).trim()==="姓名"));
+  if(hi<0)return;
+  rep.sheets++;
+  const headRow=rows[hi].map(c=>String(c==null?"":c).trim());
+  const tags=stuTagDefsAll();
+  const colMap=headRow.map(h=>{
+    if(!h)return null;
+    if(STU_TOT_ALIAS[h])return STU_TOT_ALIAS[h];
+    const fixed=STU_TOT_COLS.find(c=>c.label===h);if(fixed)return fixed.k;
+    if(h==="其他标签")return "__tagsX";
+    if(tags.some(d=>d.k===h))return "__tag:"+h;
+    return null;
+  });
+  const ci=k=>colMap.indexOf(k);
+  const FIELDS=["sex","sid","kid","status","boarding","phone","father","fatherPhone","mother","motherPhone","note","idcard","address"];
+  for(let i=hi+1;i<rows.length;i++){
+    const row=rows[i]||[];
+    const get=k=>{const c=ci(k);return c<0?"":String(row[c]==null?"":row[c]).trim();};
+    let name=normNameAlias(get("name"));
+    if(!name)continue;
+    const idc=fixSci(get("idcard")).replace(/\s+/g,"");
+    const clsCol=fixSci(get("__cls")).replace(/\s+/g,"").replace(/班$/,"");
+    const cls=clsCol||clsFromSheetName(sheetName);
+    /* 标签收集：打标列 √ + 其他标签列分隔拆分；字典外自动登记 */
+    const tagsRow=[];
+    colMap.forEach((k,c)=>{
+      if(k&&k.startsWith("__tag:")&&stuTotalMarked(row[c]))tagsRow.push(k.slice(6));
+    });
+    const tagsX=get("__tagsX");
+    if(tagsX)tagsRow.push(...tagsX.split(/[,，、/;；|]/).map(x=>x.trim()).filter(Boolean));
+    tagsRow.forEach(t=>{if(stuTagDefAdd(t)&&rep&&!rep.autoAdded.includes(t))rep.autoAdded.push(t);});
+    /* 地址=街道+详细 拼接（与官方①导入产出口径一致） */
+    const addr=[get("__st"),get("__ad")].filter(Boolean).join(" ");
+    const rec={};
+    FIELDS.forEach(k=>{
+      let v=k==="address"?addr:get(k);
+      if(["sid","kid","phone","fatherPhone","motherPhone","idcard"].includes(k))v=fixSci(v).replace(/\s+/g,"");
+      if(v)rec[k]=v;
+    });
+    /* 匹配：身份证优先 → 姓名+班级 → 全年级唯一姓名；同名多人都认不准 → 歧义名单 */
+    let ex=null;
+    if(idc)ex=State.data.students.find(s=>String(s.idcard||"").trim().toUpperCase()===idc.toUpperCase());
+    if(!ex&&name&&cls)ex=State.data.students.find(s=>s.name===name&&String(s.cls||"")===String(cls));
+    if(!ex){const same=State.data.students.filter(s=>s.name===name);
+      if(same.length===1)ex=same[0];else if(same.length>1){rep.ambig.push(name+(cls?"("+cls+"班)":""));continue;}}
+    if(!ex){
+      if(!cls){rep.misses.push({name,why:"新学生但认不出班级（sheet名/班级列都没有）"});continue;}
+      const rec0={id:uid(),name,cls:String(cls),status:rec.status||"在读"};
+      FIELDS.forEach(k=>{if(rec[k]&&k!=="status")rec0[k]=rec[k];});
+      if(tagsRow.length){rec0.tags=tagsRow.join(",");rep.tagged++;}
+      await putRec("students",rec0);rep.added++;continue;
+    }
+    /* 已有学生：只补空缺不改已有 + 标签只增不减 */
+    let ch=false,taggedRow=false;
+    FIELDS.forEach(k=>{const v=rec[k];if(!v)return;
+      const old=String(ex[k]==null?"":ex[k]).trim();
+      if(!old){ex[k]=v;ch=true;}});
+    const cur=stuTagsOf(ex),add=tagsRow.filter(t=>!cur.includes(t));
+    if(add.length){ex.tags=cur.concat(add).join(",");ch=true;taggedRow=true;}
+    if(ch){await putRec("students",ex);rep.updated++;if(taggedRow)rep.tagged++;}
+  }
+}
+ACTIONS.stuTotalImport=()=>{
+  const f=$("#stuTotalFile");
   f.onchange=async()=>{
     const file=f.files[0];if(!file)return;
     try{
       const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
-      const pick=(r,keys)=>{for(const k of keys){if(r[k]!=null&&String(r[k]).trim())return String(r[k]).trim();}return "";};
-      let matched=0,tagged=0;const misses=[];const autoAdded=[];
-      /* v121 口径统一：以导入表为准——字典里没有的标签自动登记进字典（存配置、云同步到所有设备），不再跳过 */
-      for(const r of rows){
-        const idc=pick(r,["身份证号码","身份证","身份证号"]);
-        const name=pick(r,["姓名","名字"]);
-        const cls=pick(r,["班级","班"]);
-        const tags=stuTagParseList(pick(r,["标签","特长标签"]));
-        tags.forEach(t=>{if(stuTagDefAdd(t))autoAdded.push(t);});
-        const valid=tags;
-        if(!valid.length)continue;
-        let st=null;
-        if(idc)st=State.data.students.find(s=>stuTagNormId(s.idcard)===stuTagNormId(idc));
-        if(!st&&name)st=State.data.students.find(s=>s.name===name&&(cls?String(s.cls||"")===String(cls):true));
-        if(!st){misses.push({name:name||"(空)",idc:idc||"(空)"});continue;}
-        const cur=stuTagsOf(st);
-        const add=valid.filter(t=>!cur.includes(t));
-        if(!add.length){matched++;continue;}
-        st.tags=cur.concat(add).join(",");
-        await putRec("students",st);matched++;tagged++;
+      const rep={added:0,updated:0,tagged:0,misses:[],ambig:[],autoAdded:[],sheets:0,skipped:0};
+      for(const sn of wb.SheetNames){
+        if(/填写说明|说明/.test(sn))continue;
+        const grid=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});
+        const before=rep.sheets;
+        await stuTotalApplySheet(grid,sn,rep);
+        if(rep.sheets===before)rep.skipped++;
       }
       render();
-      const unkTxt=autoAdded.length?`；<b style="color:#2563eb">已自动登记新标签：${[...new Set(autoAdded)].join("、")}</b>`:"";
-      /* v120 体检：未匹配比例过高 → 提示本机名册可能未同步/过期（数据问题而非文件问题） */
-      const stale=rows.length&&misses.length>rows.length*0.5;
-      const staleTip=stale?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:8px"><b>⚠️ 本机名册可能未同步到最新</b>：本机当前只有 <b>${State.data.students.length}</b> 名学生，而未匹配比例超过一半——大概率是这台设备/这个浏览器还没同步好。请先到「同步与备份」确认已连接、点「立即检查云端更新」后<b>重新导入本文件</b>（文件不用改）。</div>`:"";
-      if(misses.length){
-        openModal(stale?"导入未完成 · 本机数据可能未同步":"导入完成 · 有未匹配行",`<div style="font-size:13px">已匹配 <b>${matched}</b> 行（新增标签 ${tagged} 行）· 本机学生总数 <b>${State.data.students.length}</b>${unkTxt}。以下 <b style="color:#dc2626">${misses.length}</b> 行未匹配到学生（请核对身份证号/姓名/班级）：${staleTip}<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>姓名</th><th>身份证号</th></tr></thead><tbody>${misses.map(m=>`<tr><td>${escA(m.name)}</td><td>${escA(m.idc)}</td></tr>`).join("")}</tbody></table></div></div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
+      const unkTxt=rep.autoAdded.length?`；<b style="color:#2563eb">已自动登记新标签：${rep.autoAdded.join("、")}</b>（下次下载模板自动多一列）`:"";
+      const nRows=rep.added+rep.updated+rep.misses.length+rep.ambig.length;
+      const stale=rep.sheets&&nRows&&rep.misses.length+rep.ambig.length>nRows*0.5;
+      const staleTip=stale?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:8px"><b>⚠️ 本机名册可能未同步到最新</b>：未匹配比例超过一半，大概率是这台设备/浏览器还没同步好。请先到「同步与备份」点「立即检查云端更新」后重新导入（文件不用改）。</div>`:"";
+      const bad=rep.misses.length||rep.ambig.length||rep.skipped;
+      const badHtml=bad?`<div class="twrap" style="margin-top:8px;max-height:220px;overflow:auto"><table class="tb"><thead><tr><th>问题</th><th>明细</th></tr></thead><tbody>
+        ${rep.misses.map(m=>`<tr><td>未匹配</td><td>${escA(m.name)}（${escA(m.why||"名册无此人且认不出班级")}）</td></tr>`).join("")}
+        ${rep.ambig.map(n=>`<tr><td>同名歧义</td><td>${escA(n)} 全年级有多人同名，请补身份证号</td></tr>`).join("")}
+        ${rep.skipped?`<tr><td>跳过 sheet</td><td>${rep.skipped} 个（没有「姓名」表头，非总表格式）</td></tr>`:""}
+      </tbody></table></div>`:"";
+      if(bad){
+        openModal("导入完成 · 有需要核对的行",`<div style="font-size:13px">共识别 <b>${rep.sheets}</b> 个班表：<b style="color:#16a34a">新增 ${rep.added}</b> 人 · 更新 <b>${rep.updated}</b> 人（其中打标签 ${rep.tagged} 人）${unkTxt}${staleTip}${badHtml}</div>`,`<button class="btn primary" data-act="closeModal">知道了</button>`);
       }else{
-        toast(`导入完成：匹配 ${matched} 行，新增标签 ${tagged} 人${autoAdded.length?"；新标签已自动登记":""}`);
+        toast(`导入完成：${rep.sheets} 个班表 · 新增 ${rep.added} · 更新 ${rep.updated}（打标签 ${rep.tagged} 人）${rep.autoAdded.length?"；新标签 "+rep.autoAdded.join("、")+" 已登记":""}`);
       }
     }catch(e){toast("导入失败："+((e&&e.message)||e));}
     finally{f.value="";}
