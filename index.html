@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v116";
+window.APP_VERSION="v117";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -570,19 +570,26 @@ const Lock={
     setTimeout(()=>{const el=$("#lockPwd");if(el)el.focus();},50);
   }
 };
+/* v117 领导视图：访客只读模式下界面收敛（导航/路由/动作三重封锁） */
+function visitorView(){return typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO();}
+const VISITOR_HIDE_ROUTES=["bzr","jks","gr"];
+/* 访客模式动作白名单：只放行"只读浏览+同步状态"类操作，其余（导入/导出/编辑/备份恢复/退出访客）一律拦截 */
+const VISITOR_OK_ACTS=new Set(["closeModal","ghConnect","ghDisconnect","syncCheckNow","ghTogglePwd","ghNetDiag","ghBackupPanel","ghRefreshSizes","projToggle","stuDetail","profPrint","profPick","profAllScope","copyClsTable"]);
 function go(route,sub){
   /* v80：全局统计口径收口到「设置→成绩统计口径」，旧深链 jw/lines 自动改道 */
   if(route==="jw"&&sub==="lines"){route="set";sub="lines";}
   /* v111 导航精简改道：移除页签的旧深链自动跳到替代页面（功能零损失） */
   if(route==="jw"&&sub==="students"){route="bzr";sub="profile";} /* 学生查询 → 学生档案（查人统一入口） */
   if(route==="bzr"&&sub==="students"){sub="profile";}            /* 只读名册 → 学生档案 */
+  /* v117 访客模式：班主任/教科室/个人三模块整块封锁，深链一律改道年级总览 */
+  if(visitorView()&&VISITOR_HIDE_ROUTES.includes(route)){route="jw";sub="overview";toast("访客模式：仅可浏览 首页 / 年级");}
   if(route==="set"&&Lock.has()&&!Lock.unlocked()){Lock.prompt();return;}
   State.route=route;if(sub)State.sub[route]=sub;render();
 }
 function goSub(sub){State.sub[State.route]=sub;render();}
 function render(keepScroll){
   const nav=$("#navInner");
-  nav.innerHTML=NAVS.map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${ico(n.icon)}</span>${n.label}</div>`).join("");
+  nav.innerHTML=NAVS.filter(n=>!visitorView()||!VISITOR_HIDE_ROUTES.includes(n.id)).map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${ico(n.icon)}</span>${n.label}</div>`).join("");
   const v=App.routes[State.route];
   $("#main").innerHTML=(typeof heroBar==="function"?heroBar():"")+(v?v():"");
   const av=v&&v.after?v.after:null;
@@ -674,6 +681,8 @@ document.addEventListener("click",e=>{
   const el=e.target.closest("[data-act]");
   if(!el)return;
   const act=el.dataset.act,id=el.dataset.id;
+  /* v117 访客模式：白名单之外的一切动作（导入/导出/编辑/备份恢复/退出访客）一律拦截 */
+  if(visitorView()&&!VISITOR_OK_ACTS.has(act)){toast("访客模式：该操作不可用");return;}
   const fn=(ACTIONS[act]);if(fn){e.preventDefault();fn(id,el);}
 });
 /* ================= 弹窗 ================= */
@@ -750,7 +759,7 @@ document.addEventListener("input",e=>{
   if(_imeComposing||e.isComposing)return; // 拼音组字过程中不重绘，避免打断输入法
   renderKeep();const inp=$(`[data-search="${s.dataset.search}"]`);if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
 });
-document.addEventListener("click",e=>{const b=e.target.closest("[data-act='crudAdd'],[data-act='crudEdit']");if(!b)return;openCrudModal(b);});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-act='crudAdd'],[data-act='crudEdit']");if(!b||visitorView())return;openCrudModal(b);});
 /* 学生名册班级筛选 */
 document.addEventListener("change",e=>{
   if(e.target.id==="stuClsFilter"){State.f_students=e.target.value;renderKeep();}
@@ -831,7 +840,7 @@ function fHtml(f,val){
   return `<div class="field"${f.w?` style="flex:${f.w}"`:""}>${lab}${inp}</div>`;
 }
 document.addEventListener("click",async e=>{
-  const b=e.target.closest("[data-act='crudDel']");if(!b)return;
+  const b=e.target.closest("[data-act='crudDel']");if(!b||visitorView())return;
   const store=b.dataset.store,id=b.dataset.id;
   if(confirm("确定删除这条记录吗？")){await delRec(store,id);toast("已删除");render();}
 });
@@ -1275,10 +1284,12 @@ function gsMatches(q){
 }
 function gsGo(id){
   const st=State.data.students.find(x=>x.id===id);if(!st)return;
-  if(typeof profRemember==="function")profRemember(id);
-  State.bzrSelId=id;State.bzrQ="";
   const inp=document.getElementById("gsq");if(inp)inp.value="";
   const l=document.getElementById("gsList");if(l)l.style.display="none";
+  /* v117 领导视图：访客没有班主任档案卡，直达 年级→学生名册 并预填搜索 */
+  if(visitorView()){State.q_students=st.name;go("jw","roster");return;}
+  if(typeof profRemember==="function")profRemember(id);
+  State.bzrSelId=id;State.bzrQ="";
   go("bzr","profile");
 }
 function gsInit(){
@@ -1515,7 +1526,9 @@ function renderHome(){
   /* v105 快捷入口：修 kb→plan 深链 bug；加入学生档案；按使用频率排序
      v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册
      v112：图标扁平化（ico 键），⚠️ 离线版变换 4e 锚点同步维护 */
-  const qn=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
+  const qnAll=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
+  /* v117 领导视图：访客快捷入口只剩年级类（班主任/个人模块整块隐藏） */
+  const qn=visitorView()?qnAll.filter(q=>q[0]==="jw"):qnAll;
   return `
   <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${ico(q[2])}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
@@ -3178,10 +3191,12 @@ function setTabSecure(){
 }
 function renderSet(){
   const tab=State.sub.set||"basic";
-  /* v114 访客只读模式：隐藏「资料上传」页签（上传全部停用） */
-  const tabs=SET_TABS.filter(t=>!(typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO()&&t[0]==="upload"));
+  /* v117 领导视图：访客模式只留「同步与备份」一个页签（连接状态/六文件版本） */
+  const tabs=visitorView()?SET_TABS.filter(t=>t[0]==="sync")
+    :SET_TABS.filter(t=>!(typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO()&&t[0]==="upload"));
   const map={basic:setTabBasic,upload:(typeof setTabUpload==="function"?setTabUpload:setTabBasic),lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
   let sub=tab==="upload"&&tabs.every(t=>t[0]!=="upload")?"basic":tab;
+  if(visitorView()&&sub!=="sync")sub="sync";
   const body=(map[sub]||setTabBasic)();
   return `<div class="subtabs">${tabs.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${ico(t[2])}${t[1]}</div>`).join("")}</div>`+body;
 }
@@ -3989,7 +4004,18 @@ function jwClasses(){
   const st=settings();
   const isTotal=subj==="__total";
   const gstats=isTotal?totalStats(exam,exam.rows):ce.grade.bySubj[subj];
-  const classes=ce.classes.filter(c=>isTotal?c.total&&(c.total.n>0):c.bySubj[subj]&&c.bySubj[subj].n>0);
+  /* v117 自选班级模式：State.cmpClsOn+cmpClsSet（选中的班号集合），点亮几个班就只比几个班；
+     「全部班级」一键还原全班口径；排名/分数段图都在选中范围内计算 */
+  const allCls=ce.classes.map(c=>c.cls);
+  const cmpOn=!!State.cmpClsOn&&Array.isArray(State.cmpClsSet)&&State.cmpClsSet.length>0;
+  const selCls=cmpOn?State.cmpClsSet:null;
+  let classes=ce.classes.filter(c=>isTotal?c.total&&(c.total.n>0):c.bySubj[subj]&&c.bySubj[subj].n>0);
+  if(selCls)classes=classes.filter(c=>selCls.includes(c.cls));
+  const chipsRow=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px;align-items:center">
+    <span class="muted" style="font-size:12px;flex:none">对比范围：</span>
+    <button class="btn sm${!cmpOn?" primary":""}" data-act="cmpClsAll">全部班级</button>
+    ${allCls.slice().sort((a,b)=>(Number(a)||999)-(Number(b)||999)).map(c=>`<button class="btn sm${cmpOn&&selCls.includes(c)?" primary":""}" data-act="cmpClsToggle" data-cls="${escA(c)}">${esc(clsLabel(c))}</button>`).join("")}
+  </div>`;
   const sortKey=State.sortKey||"avg",sortDir=State.sortDir||-1;
   // 排名固定按均分降序计算，不受当前排序方式影响
   const rankMap={};
@@ -4011,6 +4037,7 @@ function jwClasses(){
   const header=`<tr><th class="ctr sortable" data-sk="cls">班级</th><th class="ctr sortable" data-sk="n">人数</th>${isTotal?'<th class="ctr">方向</th>':""}<th class="ctr sortable" data-sk="avg">${isTotal?"总分均分":esc(subj)+"均分"}</th><th class="ctr">排名</th><th class="ctr sortable" data-sk="pass">本科率</th><th class="ctr sortable" data-sk="exc">特控率</th><th class="ctr sortable" data-sk="max">最高</th><th class="ctr sortable" data-sk="min">最低</th><th class="ctr sortable" data-sk="sd">标准差</th><th class="ctr sortable" data-sk="low20">后20%均分</th>${isTotal?exam.subjects.map(s=>`<th class="ctr">${esc(s)}</th>`).join(""):""}</tr>`;
   return `<div class="card"><h3>🏫 班级对比 · ${isTotal?"总分":esc(subj)}<span class="sub">排名按均分从高到低计算 · 点击表头可改排序 · ${classes.length} 个班</span><span class="spacer"></span>
     ${examSelector()} ${subSel(exam.subjects,subj,"subjSel")}</h3>
+  ${chipsRow}
   <details class="lnsec" style="margin-top:8px"><summary>📊 班级均分对比图（点击展开）</summary>
   <canvas class="chart" id="cCls"></canvas></details>
   <div class="twrap tscr" style="margin-top:14px"><table class="tb"><thead>${header}</thead><tbody>
@@ -4058,6 +4085,14 @@ document.addEventListener("click",e=>{
   else{State[sk]=k;State[dk]=/^(cls|n|subj|teacher|name|s)$/.test(k)?1:-1;}
   renderKeep();
 });
+/* v117 自选班级：胶囊点选（data-cls=班号）点亮/取消；全部班级=还原全班口径 */
+ACTIONS.cmpClsAll=()=>{State.cmpClsOn=false;State.cmpClsSet=[];render();};
+ACTIONS.cmpClsToggle=(x,el)=>{const c=el&&el.dataset.cls;if(!c)return;
+  State.cmpClsOn=true;State.cmpClsSet=State.cmpClsSet||[];
+  const i=State.cmpClsSet.indexOf(c);
+  if(i>=0)State.cmpClsSet.splice(i,1);else State.cmpClsSet.push(c);
+  if(!State.cmpClsSet.length)State.cmpClsOn=false;
+  render();};
 ACTIONS.copyClsTable=(id,el)=>{
   const exam=examById(id);if(!exam)return;const subj=el.dataset.subj;const isTotal=subj==="__total";
   const ce=computeExam(exam);
@@ -6867,11 +6902,12 @@ function jwDataio(){
     <div class="notice blue">本页负责<b>导出</b>与<b>名字纠错</b>；所有「导入/上传」入口已统一收进「设置 → 📤 资料上传」。<b>考试成绩类</b>导出仍在各自页面：「考试与成绩」页导出全年级分析数据包、分析报告页导出汇报数据。</div>
 
     <h3 style="margin-top:14px">📤 导出 <span class="muted" style="font-size:12px">（当前库：学生 ${nStu} 人 · 异动 ${nTr} 条）</span></h3>
-    <div class="frow" style="gap:10px;flex-wrap:wrap">
+    ${visitorView()?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff">👁 访客模式：导出功能已停用（浏览数据不受影响）。</div>`
+    :`<div class="frow" style="gap:10px;flex-wrap:wrap">
       <button class="btn" data-act="rosterExport">📋 下次考试应考名单</button>
       <button class="btn primary" data-act="gradeInfoExport">🗂️ 全年级学生信息（给年级领导）</button>
     </div>
-    <div class="muted" style="margin:6px 0 0 4px">应考名单=按基准日期回放（在异动记录页也可导出，只含姓名/班级两列）；全年级学生信息=双表 Excel：①在班学生花名册（全字段）②异动台账（含已离校/休学等全部记录），供年级领导掌握全局。</div>
+    <div class="muted" style="margin:6px 0 0 4px">应考名单=按基准日期回放（在异动记录页也可导出，只含姓名/班级两列）；全年级学生信息=双表 Excel：①在班学生花名册（全字段）②异动台账（含已离校/休学等全部记录），供年级领导掌握全局。</div>`}
 
     <h3 style="margin-top:14px">💾 备份 <span class="muted" style="font-size:12px">（系统级，全数据）</span></h3>
     <div class="frow" style="gap:10px;flex-wrap:wrap">
@@ -7825,7 +7861,7 @@ const Sync={
       return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">电脑 / 手机通用</span></h3>
       ${location.protocol==="file:"?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed"><b>⚠️ 当前是本地文件方式打开（地址栏 file:// 开头）</b>：浏览器禁止本地文件联网，无法使用云端同步。请用网址 <b>https://teacher-xjz.github.io/teacher-workbench/</b> 打开本工作台并收藏书签；本地文件仅作离线备份。</div>`:""}
       ${errBox}
-      ${this.visitorRO()?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff"><b>👁 访客只读模式已开启</b>：连接后将仅拉取「配置/年级/成绩」三个文件，上传全部停用。<button class="btn sm" data-act="visitorOff" style="margin-left:8px">退出访客模式</button></div>`:""}
+      ${this.visitorRO()?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff"><b>👁 访客只读模式已开启</b>：连接后将仅拉取「配置/年级/成绩」三个文件，上传全部停用。</div>`:""}
       <div class="notice blue"><b>原理（v114 六文件分区）：</b>数据上传到你 GitHub 账号下的<b>私有仓库 teacher-workbench-data</b>（外人不可见），按身份域分成六个文件：<b>配置 / 年级 / 成绩 / 班级 / 教科室 / 个人</b>——改哪域只传哪域，云端变化只下载该域，一个域出问题其他域无感。家校沟通另有独立文件。<br>
       <b>怎么用：</b>① 粘贴 GitHub 访问令牌；② 点「连接云端」（首次会自动把旧版单文件迁移成六文件分区）；③ 其他设备同样粘贴令牌连接。<br>
       <b>安全：</b>令牌只保存在本设备浏览器里；仓库私有，只有持令牌的人能访问。给领导/同事用请发<b>只读令牌</b>并开启下方「访客只读模式」。</div>
@@ -7859,7 +7895,7 @@ const Sync={
     return `<div class="card" style="margin-top:10px"><h3>👁 访客只读模式<span class="sub">给领导/同事的设备开启</span></h3>
     <div class="notice blue">开启后：本机只<b>拉取</b>「配置 / 年级 / 成绩」三个文件（名册、成绩分析全部可用），<b>上传全部停用</b>——任何误操作都改不了云端；班级 / 教科室 / 个人 / 家校沟通四个文件不下载。<br>
     <b>配套要求：给这台设备配的令牌必须是<b>只读令牌</b></b>（GitHub → Settings → Developer settings → Fine-grained tokens → 仅选 teacher-workbench-data 仓库 → Contents 权限选 <b>Read-only</b>）。双保险：就算有人绕过工作台直接调 GitHub 接口，只读令牌也写不进仓库。</div>
-    ${ro?`<button class="btn primary" data-act="visitorOff">🔓 退出访客只读模式</button>`
+    ${ro?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff"><b>👁 访客只读模式已开启</b>：仅拉取「配置/年级/成绩」三个文件，上传全部停用。退出需联系管理员操作（本机不提供退出入口）。</div>`
         :`<button class="btn" data-act="visitorOn">👁 开启访客只读模式</button>`}</div>`;
   },
   _panelHtml(){
