@@ -1653,11 +1653,12 @@ function renderHome(){
       ${todayTodos.map(t=>todoItemHtml(t)).join("")||""}
       ${!overdue.length&&!todayTodos.length?`<div class="empty">今天没有到期事项 ✨</div>`:""}
     </div>
-    <div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}<span class="muted"> · 已结束的自动收起</span></span>
+    ${visitorView()?`<div class="card"><h3>📅 今天的课</h3><div class="empty">访客模式不含班级课表（属班级域数据）</div></div>`
+    :`<div class="card"><h3>📅 今天的课 <span class="sub">${esc(sched.day)}<span class="muted"> · 已结束的自动收起</span></span>
       <span class="spacer"></span><button class="btn sm" data-go="bzr" data-sub="sched">班级课表 →</button><button class="btn sm" data-go="gr" data-sub="mysched">个人课表 →</button></h3>
       <div id="homeClsBarBox">${homeClsBarHtml()}</div>
       <div id="homeTlBox">${homeTlHtml()}</div>
-    </div>
+    </div>`}
   </div>
   <div class="grid2">
     <div class="card"><h3>🗓 近7天安排 <span class="sub">日程 / 考试 / 监考 / 课题节点 / 截止事项</span></h3>
