@@ -410,7 +410,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v135";
+window.APP_VERSION="v136";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7978,10 +7978,19 @@ const Sync={
     const b64=(j.content||"").replace(/\n/g,"");
     let txt;
     if(!b64&&j.encoding==="none"&&(j.size|0)>0){
-      const r2=await this.ghFetch(this.ghUrlOf(name),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
-      if(!r2.ok)throw new Error("读取云端大文件失败（HTTP "+r2.status+"），为保护数据已中止");
-      txt=await r2.text();
-      if(!txt)throw new Error("云端大文件读取为空（HTTP "+r2.status+"），为保护数据已中止");
+      /* v136 大文件（>1MB raw 直读）自动重试 3 次：国内网络下载 MB 级文件截断率高 */
+      let lastErr=null;
+      for(let i=0;i<3;i++){
+        try{
+          const r2=await this.ghFetch(this.ghUrlOf(name),{headers:this.ghHeaders({"Accept":"application/vnd.github.raw"}),cache:"no-store"});
+          if(!r2.ok)throw new Error("HTTP "+r2.status);
+          txt=await r2.text(); /* 注意：赋值给外层 txt（勿再遮蔽） */
+          if(txt)break;
+          throw new Error("响应为空");
+        }catch(e){lastErr=e;txt=null;}
+        if(i<2)await new Promise(r=>setTimeout(r,900));
+      }
+      if(!txt)throw new Error("云端大文件读取失败（已重试3次"+(lastErr&&lastErr.message?"："+lastErr.message:"")+"）");
     }else if(!b64&&(j.size|0)>0){
       throw new Error("云端文件超 1MB 且接口未按预期返回（encoding="+j.encoding+"），为保护数据已中止，请截图发我");
     }else{
@@ -8148,9 +8157,31 @@ const Sync={
   },
   async _syncAllOnce(){
     await this._migrateLegacy();
-    for(const ch of this.activeChannels())await this._initChannel(ch);
-    /* v122 访客只读：跳过一切上传（只读令牌任何写操作必 403，脏标记直接忽略） */
+    /* v136 单通道容错：一个通道下载失败（大文件截断/网络抖动）不再中断循环，
+       其余通道照常同步；失败通道 applied 不写 → 下轮轮询自动重试 */
+    for(const ch of this.activeChannels()){
+      try{await this._initChannel(ch);}
+      catch(e){this._chFail(ch,e);}
+    }
     if(!this.visitorRO()&&this._anyDirty())await this._pushDirty();
+  },
+  /* v136：单通道失败记录。applied 不写=下轮轮询自动补拉；toast 节流 5 分钟防轰炸。
+     例外：401/403 令牌错误必须立即浮出（旧行为，用户需要看到"令牌无效"） */
+  _chFail(ch,e){
+    const msg=(e&&e.message)||String(e);
+    try{console.error("[同步] "+ch.label+"通道下载失败，稍后自动重试：",msg);}catch(_e){}
+    if(msg.includes("令牌无效或无权限")||/\(HTTP 40[13]\)/.test(msg)){
+      this._ghErr=msg;this._authErr=true;this.status="err";this.updateChip();
+      return;
+    }
+    if(!this._failSet)this._failSet=new Set();
+    this._failSet.add(ch.key);
+    const now=Date.now();
+    if(!this._chFailAt)this._chFailAt={};
+    if(now-(this._chFailAt[ch.key]||0)>300000){
+      this._chFailAt[ch.key]=now;
+      toast("⚠️ "+ch.label+"数据下载失败（网络不稳），其他数据已同步，稍后自动重试");
+    }
   },
   /* v114 一次性迁移：旧「工作台数据.json」存在 且 新分区文件缺失 → 读旧文件融入本机 → 各新通道标脏上传。
      旧文件迁移后弃用（不再读写，保留在仓库中备查）；访客只读模式不参与迁移。 */
@@ -8252,8 +8283,12 @@ const Sync={
       this.ghChecking=true;
       try{
         for(const ch of this.activeChannels()){
+          /* v136 单通道容错：一个通道失败不中断其余通道（失败通道 applied 不写→下轮自动重试） */
+          try{
+          this._failSet&&this._failSet.delete(ch.key);
           /* 401/403/网络错误必须浮出（让用户看到"令牌无效"），只有 404 由 _statFile 返回 null 表示 */
           const st=await this._statFile(ch.file);
+          if(this._authErr){this._authErr=false;this._ghErr=null;} /* v136：令牌恢复探测成功即清除认证错误 */
           if(!st){continue;}
           const cached=this.chSha(ch),applied=this.chApplied(ch);
           if(st.sha===cached&&st.sha===applied)continue; /* 指纹没变且已应用 → 跳过 */
@@ -8284,9 +8319,11 @@ const Sync={
               if(["home","bzr","jw","gr","set"].includes(r))render();
             }
           }
+          }catch(e){this._chFail(ch,e);}
         }
         if(typeof CommSync!=="undefined"&&!this.visitorRO())await CommSync.poll();
-        if(this.status==="err"){this.status="on";this._ghErr=null;}
+        /* v136：仅当无失败通道且无认证错误时才恢复 on（否则保留 err/部分同步状态） */
+        if(this.status==="err"&&!this._authErr&&(!this._failSet||!this._failSet.size)){this.status="on";this._ghErr=null;}
         this.updateChip();
       }catch(e){this._ghErr=(e&&e.message)||String(e);if(this.status!=="sync")this.status="err";this.updateChip();}
       finally{this.ghChecking=false;}
@@ -8306,11 +8343,12 @@ const Sync={
     const el=document.getElementById("cloudChip");if(!el)return;
     const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
     const ro=this.visitorRO();
+    const partOk=this.status==="on"&&this._failSet&&this._failSet.size>0;
     /* v131 视觉语义重排：数据就绪（本机秒开可用）与云同步状态分开表达——
        同步中用蓝色（正常进行≠警示），err/off 文案强调"数据可用/已就绪" */
-    const map={off:["💾","数据已就绪 · 云未连接"],on:[ro?"👁":"☁️",ro?"访客只读"+(this.lastSync?" "+hm(this.lastSync):""):"✓ 已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","数据可用 · 同步中…"],err:["⚠️","数据可用 · 同步失败，自动重试中"]};
+    const map={off:["💾","数据已就绪 · 云未连接"],on:[ro?"👁":"☁️",partOk?"部分同步 · "+[...this._failSet].map(k=>{const c=this.CH.find(x=>x.key===k);return c?c.label:k;}).join("/")+"重试中":ro?"访客只读"+(this.lastSync?" "+hm(this.lastSync):""):"✓ 已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","数据可用 · 同步中…"],err:["⚠️","数据可用 · 同步失败，自动重试中"]};
     const[m1,m2]=map[this.status]||["☁️",""];
-    const bg={on:"rgba(22,163,74,.9)",err:"rgba(220,38,38,.9)",sync:"rgba(37,99,235,.85)"}[this.status]||"rgba(255,255,255,.18)";
+    const bg={on:this._failSet&&this._failSet.size?"rgba(37,99,235,.85)":"rgba(22,163,74,.9)",err:"rgba(220,38,38,.9)",sync:"rgba(37,99,235,.85)"}[this.status]||"rgba(255,255,255,.18)";
     const glow=this.status==="on"?";box-shadow:0 0 0 2px rgba(255,255,255,.45),0 0 8px rgba(34,197,94,.8)":this.status==="err"?";box-shadow:0 0 8px rgba(239,68,68,.7)":"";
     el.innerHTML=`<span style="cursor:pointer;background:${bg}${glow};padding:3px 10px;border-radius:12px;white-space:nowrap;font-weight:${this.status==="on"?"600":"normal"}" data-act="cloudChipClick" title="数据保存在本机，打开即可直接使用；云同步只负责备份与多设备，同步失败不影响使用 · 点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
   },
