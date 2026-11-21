@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v130";
+window.APP_VERSION="v131";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -8310,11 +8310,13 @@ const Sync={
     const el=document.getElementById("cloudChip");if(!el)return;
     const hm=d=>{const z=n=>String(n).padStart(2,"0");return (d.getMonth()+1)+"-"+z(d.getDate())+" "+z(d.getHours())+":"+z(d.getMinutes());};
     const ro=this.visitorRO();
-    const map={off:["🔗","连接云端同步"],on:[ro?"👁":"☁️",ro?"访客只读"+(this.lastSync?" "+hm(this.lastSync):""):"已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","同步中…"],err:["⚠️","同步异常 · 点击查看"]};
+    /* v131 视觉语义重排：数据就绪（本机秒开可用）与云同步状态分开表达——
+       同步中用蓝色（正常进行≠警示），err/off 文案强调"数据可用/已就绪" */
+    const map={off:["💾","数据已就绪 · 云未连接"],on:[ro?"👁":"☁️",ro?"访客只读"+(this.lastSync?" "+hm(this.lastSync):""):"✓ 已同步"+(this.lastSync?" "+hm(this.lastSync):"")],sync:["☁️","数据可用 · 同步中…"],err:["⚠️","数据可用 · 同步失败，自动重试中"]};
     const[m1,m2]=map[this.status]||["☁️",""];
-    const bg={on:"rgba(22,163,74,.9)",err:"rgba(220,38,38,.9)",sync:"rgba(217,119,6,.85)"}[this.status]||"rgba(255,255,255,.18)";
+    const bg={on:"rgba(22,163,74,.9)",err:"rgba(220,38,38,.9)",sync:"rgba(37,99,235,.85)"}[this.status]||"rgba(255,255,255,.18)";
     const glow=this.status==="on"?";box-shadow:0 0 0 2px rgba(255,255,255,.45),0 0 8px rgba(34,197,94,.8)":this.status==="err"?";box-shadow:0 0 8px rgba(239,68,68,.7)":"";
-    el.innerHTML=`<span style="cursor:pointer;background:${bg}${glow};padding:3px 10px;border-radius:12px;white-space:nowrap;font-weight:${this.status==="on"?"600":"normal"}" data-act="cloudChipClick" title="点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
+    el.innerHTML=`<span style="cursor:pointer;background:${bg}${glow};padding:3px 10px;border-radius:12px;white-space:nowrap;font-weight:${this.status==="on"?"600":"normal"}" data-act="cloudChipClick" title="数据保存在本机，打开即可直接使用；云同步只负责备份与多设备，同步失败不影响使用 · 点击打开同步设置">${m1} ${esc(msg||m2)}</span>`;
   },
   /* ===== 手动导出/导入（全量单文件，保底通道，格式不变） ===== */
   manualExport(){
@@ -8815,6 +8817,15 @@ async function boot(){
   $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
   render();
   if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
+  /* v131 开机轻提示（每会话一次）：纠正"等云朵变绿才能用"的误解——本机数据秒开即可用 */
+  setTimeout(()=>{
+    try{
+      if(!sessionStorage.getItem("tbReadyToast")){
+        sessionStorage.setItem("tbReadyToast","1");
+        toast("本机数据已加载，可直接使用 · 云同步仅负责备份与多设备");
+      }
+    }catch(e){}
+  },2500);
 }
 boot();
 
