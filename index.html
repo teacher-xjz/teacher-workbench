@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v128";
+window.APP_VERSION="v129";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1467,6 +1467,25 @@ document.addEventListener("keydown",e=>{
   if(inp){e.preventDefault();inp.focus();}
 });
 gsInit();
+/* ===== v129 深链直达：URL 带 #q=名字（桌面小组件查学生用）=====
+   唯一匹配 → 直接打开档案卡；多个候选 → 填入搜索框展示候选让用户选 */
+function gsDeepLink(){
+  try{
+    const m=/[?#]q=([^&]+)/.exec(location.href);
+    if(!m)return;
+    const name=decodeURIComponent(m[1].replace(/\+/g," "));
+    if(!String(name).trim())return;
+    setTimeout(()=>{
+      const hits=gsMatches(name);
+      if(hits.length===1){gsGo(hits[0].id);}
+      else{
+        const inp=document.getElementById("gsq");
+        if(inp){inp.value=name;inp.focus();inp.dispatchEvent(new Event("input"));}
+      }
+    },700);
+  }catch(e){console.error(e);}
+}
+gsDeepLink();
 
 /* ================= 首页 ================= */
 function collectAgenda(){
@@ -3392,13 +3411,47 @@ function todosView(){
   const order={高:0,中:1,低:2};
   rows.sort((a,b)=>(a.done-b.done)||((a.due||"9999").localeCompare(b.due||"9999"))||((order[a.priority]??1)-(order[b.priority]??1)));
   const chips=[["all","全部",cnt.all],["open","未完成",cnt.all-cnt.done],["over","逾期",cnt.over],["today","今天",cnt.today],["week","7天内",cnt.week],["done","已完成",cnt.done]];
-  return `<div class="card"><h3>✅ 待办事项<span class="spacer"></span>
+  return `${qnBlock()}<div class="card"><h3>✅ 待办事项<span class="spacer"></span>
     <button class="btn primary" data-act="crudAdd0" data-store="todos">＋ 新增待办</button></h3>
     <div class="flex" style="margin-bottom:10px">${chips.map(c=>`<div class="stab${f===c[0]?" active":""}" data-act="todoFilter" data-id="${c[0]}" style="cursor:pointer">${c[1]}（${c[2]}）</div>`).join("")}</div>
     ${rows.length?rows.map(t=>todoItemHtml(t,t.due&&!t.done&&daysFromToday(t.due)<0)).join(""):`<div class="empty">这里空空如也 ✨</div>`}
   </div>`;
 }
 ACTIONS.todoFilter=id=>{State.todoFilter=id;render();};
+/* ===== v129 桌面速记：桌面小组件随手记在此落地 =====
+   数据=State.meta.quickNotes [{id,text,t,done,del,_ut}]，第七通道 qn（桌面速记.json）随云同步；
+   小组件端按同构合并（按 id、_ut 新者胜），两端同写不冲突。 */
+function qnTime(t){
+  if(!t)return "";
+  const d=new Date(t),today=todayStr(),iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const hm=String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+  return iso===today?hm:(d.getMonth()+1)+"/"+d.getDate()+" "+hm;
+}
+function qnBlock(){
+  const rows=(State.meta.quickNotes||[]).filter(n=>n&&!n.done&&!n.del).sort((a,b)=>(b.t||0)-(a.t||0));
+  if(!rows.length)return "";
+  return `<div class="card" style="border:1px dashed #6366f1;margin-bottom:12px"><h3>📝 桌面速记<span class="sub">来自桌面小组件的随手记 · 待办页独有</span></h3>
+    ${rows.map(n=>`<div class="flex" style="align-items:center;background:#f8fafc;border-radius:10px;padding:8px 12px;margin-bottom:8px">
+      <span style="white-space:pre-wrap;flex:1;min-width:0;word-break:break-all">${esc(n.text||"")}</span>
+      <span class="muted" style="flex:none">${qnTime(n.t)}</span>
+      <button class="btn sm primary" data-act="qnTodo" data-id="${n.id}">转待办</button>
+      <button class="btn sm" data-act="qnDone" data-id="${n.id}" title="标记完成">✔</button>
+      <button class="btn sm danger" data-act="qnDel" data-id="${n.id}" title="删除">✖</button></div>`).join("")}</div>`;
+}
+async function qnUpdate(id,patch){
+  const a=State.meta.quickNotes||[];const n=a.find(x=>x&&x.id===id);if(!n)return;
+  Object.assign(n,patch,{_ut:Date.now()});
+  await saveMeta("quickNotes",a);render();
+}
+ACTIONS.qnDone=id=>qnUpdate(id,{done:true});
+ACTIONS.qnDel=id=>qnUpdate(id,{del:true});
+ACTIONS.qnTodo=async id=>{
+  const a=State.meta.quickNotes||[];const n=a.find(x=>x&&x.id===id);if(!n)return;
+  await putRec("todos",{content:n.text||"",due:todayStr(),priority:"中",done:false,_ut:Date.now()});
+  Object.assign(n,{done:true,_ut:Date.now()});
+  await saveMeta("quickNotes",a);
+  toast("已转为今日待办");render();
+};
 function notesView(){
   const q=(State.q_notes||"").toLowerCase();
   let rows=State.data.notes.slice().sort((a,b)=>String(b.time||"").localeCompare(String(a.time||"")));
@@ -7830,6 +7883,9 @@ const Sync={
     {key:"cls",file:"班级.json",app:"tbCls",meta:["classSched","mySched","weekend","commMigrated"],stores:["duties","activities","contacts"],label:"班级"},
     {key:"jks",file:"教科室.json",app:"tbJks",meta:[],stores:["projects","projTasks","docs","archive","achievements","jyacts","files"],label:"教科室"},
     {key:"gr",file:"个人.json",app:"tbGr",meta:[],stores:["todos","notes","events"],label:"个人"},
+    /* v129 桌面速记：独立第七通道——桌面小组件（外部 Python 程序）也读写此文件，
+       独立文件保证小组件的写入绝不碰其他任何数据；meta.quickNotes 按 metaTime 新者胜合并 */
+    {key:"qn",file:"桌面速记.json",app:"tbQn",meta:["quickNotes"],stores:[],label:"速记"},
   ],
   /* 访客只读通道：只拉取 配置/年级/成绩（班级/教科室/个人/家校沟通不进访客设备） */
   VISITOR_KEYS:["cfg","jd","ex"],
