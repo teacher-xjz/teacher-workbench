@@ -17,23 +17,25 @@ html{-webkit-text-size-adjust:100%}
 body{font-family:"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
 button{font-family:inherit}
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
-/* ===== 顶栏（v139 蓝卡连体：品牌行+悬浮白导航+hero，修正二四段渐变） ===== */
-#bluecard{background:linear-gradient(180deg,#16337A 0%,#17418F 30%,#1D4ED8 65%,#3B82F6 100%);color:#fff;padding-bottom:10px}
-#bluecard .brandrow{max-width:1200px;margin:0 auto;padding:7px 16px 6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#bluecard .brand{font-size:17px;font-weight:700;letter-spacing:.5px}
-#bluecard .brand .logo{vertical-align:-4px;margin-right:7px}
-#bluecard .brandt{display:inline-flex;align-items:center;flex-wrap:wrap}
-#bluecard .brandt small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px;letter-spacing:0}
-#bluecard .brandver{font-size:10px;font-weight:400;opacity:.75;margin-left:8px}
-#bluecard .datebox{margin-left:auto;font-size:12.5px;opacity:.92;text-align:right;white-space:nowrap}
-#nav{background:var(--card);position:relative;z-index:49;margin:0 12px;border-radius:10px}
-#nav.docked{position:fixed;top:0;left:0;right:0;margin:0;border-radius:0;box-shadow:0 2px 12px rgba(15,23,42,.14)}
+/* ===== 顶栏（v140c：纯色校徽蓝拆两块——bluefix 品牌行+导航 sticky 常驻吸顶，bluebody hero 可滚动，同色无缝拼接） ===== */
+#bluefix{background:#123D82;color:#fff;width:calc(min(1168px,100vw - 32px));margin:0 auto;position:sticky;top:0;z-index:49;padding-bottom:8px}
+#bluefix .brandrow{max-width:1200px;margin:0 auto;padding:8px 16px 8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#bluefix .brand{font-size:17px;font-weight:700;letter-spacing:.5px}
+#bluefix .brand .logo{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,.55);margin-right:7px;object-fit:cover;box-sizing:border-box;background:#fff;align-self:center}
+#bluefix .brandt{display:inline-flex;align-items:baseline;flex-wrap:wrap}
+#bluefix .brandt small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px;letter-spacing:0}
+#bluefix .brandver{font-size:11px;font-weight:400;opacity:.75;margin-left:8px;letter-spacing:0}
+#bluefix .datebox{margin-left:auto;display:flex;align-items:center;gap:8px;text-align:right;white-space:nowrap}
+#bluefix .pill-date{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 12px;font-size:12px;font-weight:500}
+#bluefix .wx{background:rgba(255,255,255,.16);color:#fff;margin-left:0}
+#bluefix .wx .wxhi{color:rgba(255,255,255,.85)}
+#nav{background:#FAF6ED;color:var(--text);position:relative;z-index:49;margin:0 16px;border-radius:10px}
+#bluebody{background:#123D82;color:#fff;width:calc(min(1168px,100vw - 32px));margin:0 auto;border-radius:0 0 22px 22px;padding-bottom:14px}
 #nav .navbar{max-width:1200px;margin:0 auto;padding:0 10px;display:flex;align-items:center;gap:8px}
 #navInner{display:flex;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;min-width:0;flex:1}
-#gsq{width:200px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#F8FAFC;color:#0f172a;font-size:13px;outline:none}
+#gsq{width:200px;padding:6px 10px;border-radius:8px;border:1px solid #E7E1D2;background:#F5F1E4;color:#0f172a;font-size:13px;outline:none}
 #gsq::placeholder{color:#94a3b8}
 #gsq:focus{background:#fff;border-color:#85B7EB}
-#navSpace{height:0;transition:height .15s}
 .gsearch{position:relative;flex:0 0 auto}
 #navInner::-webkit-scrollbar{display:none}
 #gsList{position:absolute;top:112%;right:0;width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.18);display:none;z-index:80;overflow:hidden}
@@ -43,11 +45,12 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 /* v112 扁平导航图标（描边 SVG，单色随主题） */
 .ico{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-right:4px}
 #nav .tab .icon .ico{width:27px;height:27px;vertical-align:-7.5px;margin-right:0}
-@media(max-width:600px){#gsq{width:120px}#gsList{width:230px}}
+@media(max-width:600px){#gsq{width:120px}#gsList{width:230px}#bluefix,#bluebody{width:calc(100vw - 20px)}}
 #cloudChip{flex:0 0 auto;font-size:12px}
-#nav .tab{flex:0 0 auto;padding:5px 15px;font-size:15px;color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;user-select:none}
+#nav .tab{flex:0 0 auto;padding:6px 15px;font-size:15px;color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;user-select:none}
 #nav .tab .icon{margin-right:5px}
-#nav .tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+/* v140b：去掉 active 下划线（用户反馈蓝条与米白条不搭），当前页用品牌色加粗文字区分 */
+#nav .tab.active{color:var(--primary);border-bottom-color:transparent;font-weight:700}
 /* ===== 主区 ===== */
 #main{max-width:1200px;margin:0 auto;padding:16px 16px 60px}
 .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
@@ -199,10 +202,12 @@ table.tb tr.hl td{background:#fffbeb}
 .nexttag{color:#0d9488;font-weight:600;font-size:10px;margin-left:2px;opacity:.85}
 .sched td.breakrow.nowbreak{background:repeating-linear-gradient(45deg,#ecfdf5,#ecfdf5 8px,#d1fae5 8px,#d1fae5 16px)}
 /* 首页 hero 问候条 + 快捷入口（v58；v139 融入蓝卡：透明底、行内统计胶囊） */
-.hero{max-width:1200px;margin:0 auto;padding:4px 16px 0;color:#fff}
+.hero{max-width:1200px;margin:0 auto;padding:6px 16px 0;color:#fff}
+.hero .wx{background:rgba(255,255,255,.16);color:#fff}
+.hero .wx .wxhi{color:rgba(255,255,255,.85)}
 .hero-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}.hero-greet{font-size:18px;font-weight:700}
-.hero-date{font-size:12.5px;opacity:.88;margin-top:2px}
-.hero-stats{display:flex;gap:7px;flex-wrap:wrap}.hero-quick{display:flex;gap:7px;overflow-x:auto;border-top:1px solid rgba(255,255,255,.28);margin-top:8px;padding-top:8px;scrollbar-width:none}.hero-quick::-webkit-scrollbar{display:none}.hqi{background:rgba(255,255,255,.14);border:none;border-radius:9px;padding:5px 11px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:500}.hqi:hover{background:rgba(255,255,255,.26)}.hqi .ico{width:15px;height:15px;flex:none}
+.hero-date{font-size:12.5px;font-weight:400;opacity:.85;margin-left:12px;letter-spacing:0}
+.hero-stats{display:flex;gap:7px;flex-wrap:wrap}.hero-quick{display:flex;gap:7px;overflow-x:auto;border-top:1px solid rgba(255,255,255,.28);margin-top:12px;padding-top:10px;scrollbar-width:none}.hero-quick::-webkit-scrollbar{display:none}.hqi{background:rgba(255,255,255,.14);border:none;border-radius:9px;padding:5px 11px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:500}.hqi:hover{background:rgba(255,255,255,.26)}.hqi .ico{width:15px;height:15px;flex:none}
 .hpill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 12px;color:#fff;cursor:pointer;font-size:12.5px;white-space:nowrap}
 .hpill:hover{background:rgba(255,255,255,.28)}
 .hpill b{font-size:14px;font-weight:700}
@@ -257,8 +262,8 @@ canvas.chart{width:100%;display:block}
 @media(max-width:600px){
   #main{padding:12px 10px 60px}
   .card{padding:12px}
-  #bluecard .brand{font-size:16px}
-  #bluecard .datebox{font-size:11px}
+  #bluefix .brand{font-size:16px}
+  #bluefix .datebox{font-size:11px}
   table.tb{font-size:12px}
   .field{min-width:100px}
 }
@@ -272,9 +277,9 @@ canvas.chart{width:100%;display:block}
 </style>
 </head>
 <body>
-<div id="bluecard">
+<div id="bluefix">
   <div class="brandrow">
-    <div class="brand"><span class="brandt"><svg class="logo" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="rgba(255,255,255,.22)"/><path d="M11 5.5H7.5A1.8 1.8 0 0 0 5.7 7.3v9.4a1.8 1.8 0 0 0 1.8 1.8H11z" fill="#fff"/><path d="M13 5.5h3.5a1.8 1.8 0 0 1 1.8 1.8v9.4a1.8 1.8 0 0 1-1.8 1.8H13z" fill="#fff" opacity=".72"/></svg>教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small></span><span id="brandVer" class="brandver"></span></div>
+    <div class="brand"><span class="brandt"><img class="logo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRINDQoOFRIWFhUSFBQXGiEcFxgfGRQUHScdHyIjJSUlFhwpLCgkKyEkJST/2wBDAQYGBgkICREJCREkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCT/wAARCABgAGADASIAAhEBAxEB/8QAHAAAAgIDAQEAAAAAAAAAAAAABgcEBQACAwEI/8QAQBAAAgECBQEFBAcECQUAAAAAAQIDBAUABhESITEHEyJBURQyYXEVFiNSgaGxQnKCkSQzQ2KDwcLR0iVTkrLh/8QAGwEAAgMBAQEAAAAAAAAAAAAABQYBAgQDBwD/xAAzEQABAgMGBAQFBQEBAAAAAAABAgMABBEFEiExQWETIlFxBpGh8BQyQoHBcrHR4fEzUv/aAAwDAQACEQMRAD8A+qcZjMVuYcw0GWba9fXybY14VRy0jeSqPM4shClqCUipMQpQSLyjhE6pqYKOB6ipljhhjG53dgqqPiThf3TtZFTWG3ZVtk94qvvhTsHx0HJHxOgxQbbj2j1dPX5hrxaLFLMI6OlDhWqGOu0Lr66Hxnr0UYI85W/6t5TjostRihmkqY0jhp22yVLcnZ95ySBroQdup1ABwYRKsS6wh3nWdK0SO51I1Aw3gep511JU3ypGup7DT7xBFj7R8weO432CzxN/Y0/LAfwf5scV1u7ObTmCqq4mzXcq+ekZRMyxAKdwJBVm13A6HkE9MH+Xq+tuVhpq2c0vfzwrJG8bEqxKjQtwNDu11A4HTApkSy3y1XaR2ts1DR1TSSVAfaU4HgVQSXUh2f1BUa+eLotB5IXdIQRkAAP7MQqUbJTeBVXqT/kU9+7PrVlOmWr+s9zpNzcbUQtoPebQMpIUHU6an0BxaGydo+X/AB22/QXiJf7KoOjEfx/8hjfPeW8w3u7QymkNZb6ON5IxTIisCzodujyfaNoh14AOoA5JIIsx3efL+W5J6mcz1ZXu+9plSI7j1kVXLAbRzp4unQ4lU+6pKLxSsnMEA9tKjziBKoClUBSB0J/yKS1drYpqwW7NdrntFV/3Np2H4kHkD4jUYYFLVQVsCVFNNHNDINUkjYMrD4EYWWQ6Crzdaqn6zz/SFMkcVNFS1ABkTRdwmJ4ZHcOD11I05xFq7Vfeyqpa5WaaS4WFm1nppTqYh6t/zH8QxV2Ul3lltrkc6V5T2JxB2OG8Sh91tIWvmT11Hcaw3MZisy7mKgzPbUr6CTch4dG4aNvNWHrizwFWhSFFKhQiCKVBQvJyjnVVMNFTS1NRIscMSl3duiqBqThT22CXtUzM91uIZbFRMUp6Zjp3xGh0/QsfiFxb9rl2qZo6DK9vOtVc5F3j+5u0APwJ5PwU4zMFpSwUFjobfRFVo3CR15G0I7nQgyKS0ZckncUZCdFbgnBiVR8OyHBgtyoGw1PcnAbVge8riuFJ+VOe56fbOI3aBYLlPd6KvtUaSVMMZ7mOnHdTrGit3gDjr78ewdAQfXQ2lXnZMrWKnmzSirdvEI6eAq0k4HAk0B0TUe9zoDqBrxj3MmaKvJVlmqbq1HW1bN3NAYwUec6anvF6Lt6kqdDxwCQMIivuFXda2aur53qKqY7pJG8/QAeQHkBwMELKstU8kcb/AJp11Ow264Z75YLRtBMoohv51aaDc79IKbv2p5grw0NveOzUhZiIqQePkknVyNddSfdAwK1FfWVbl6msqp2P7UszMfzOOGLrKGV5833pLbDMIFCGWWUruKICAdB5nkAYb0y8rJNlYSEgZmnsmFkvTE04ElRJPvtFZTXCso330tbVQMPOKZl/Q4KLZ2oX2miNLc2S80Tja8VTxIV8wJF5/nriZ2pWy25cez2G1wiKOCGSolJOryOxChnPmdFPy144wCE6Y5NIl7QYDq2xQ1pXPPrpHRxT8k6W0rxHl/cP2wX6gzNZ5BlCopLTWpKJ5qealU6EnVt6KRqG++p/2x3y17fLerql0mro5yiGahl2yUh3cCWB9oO0hSCh5B11HmULQ11dZK+GtpJJaSrhO6N9pB+RB6g9COhw9LVnZMzZPmraT2iC4lTTGGli72SKoKnQqp4I/aBYgadTwcKVq2WZVN9rmQrXUY6nUb+yyWbaSZrlXgoaaH+/fYculJP2VZlju9tR2sVc3dz046RHrt/UqfmuGxS1UNbTRVNPIskMqB0dejKRqDhY2rLGbbqPonNEkzWv2aSIEVEUm1yqlHZgA0jK2umoAGmup85vZFd6iGO4ZXuB0qrZI2wH7u7RgPgG5HwYYyzjfHZ4l4KWilSMapOAPcZH7Rrl18Ny5QhKsgdDr9jESyr9Yu1651z+KK1xmKP0Df1Y/wBZxb5Kzdccx1tSslNG9EQ0kU0YCGIbtqow3Hdrzo3B8J1UAqTS9jbGpfMFcxJeaoj8RPP7bf6sGtBZLXlqKrqbfS9yWTfITI76hASB4idANTwPXFbTKUOqZIqUhKR9hj6mLSQUpsOg4EknzhJdp9/a+5uqlVyaagJpIRrxqD42/FtfwUYE8YJWm+1c6vIS7E+ZPJ/XGY9ElZdMuyllOQFIRZh4vOKcVqY8ZgoLMdAPPHaz1t8mqpKLL/twnqk2OlGD3roDqQSOVX15HxOK+cSzuqBSqnpr+pw/OxiyQWzJ8dZ3SCatlkkeUjxMinaoJ9PCTp8cIfiC0ZqbvtNAoZSaEnAqOflr6nMCPTbBs+QshtEzMUdmFiqU1BSgZVNMK1w71AyJhC3K1VtqrJ4K2JoqmBtsoLhmVtNeSCeefXFpY54oK+nmqtFXT3j0ViODjldq83q7VtaeUqKmSZj97ViQPl0xxLdSSAPMnBGyrCbbYfbCyG1puk11obxGw0PfSkBvFVuO2mllp5sB4EnlBwSaXUnM3jmRpUa1AJMy1lJNRxxRyxyzbwy7WDbR54ldl2YGsebKeJn0pbhpSyjXjU+434Nx/EcAslQXYJEp0114/a/+YlxTSwbZjoskbBxtPQg6j9MV8Oy8mJN2zJZSlpFeYjCp6aYYU6nGBloWLN2SGZuZISpWN2ovAbjPHGugyrXAP3NOfBZKhY6R6SZyzRLTyqwM0gJDbZAdAFI0IK6kkAdRgXpr0i9pNnvsUMlPFd4xFNG6ldH9w9f8M/jhkfQ1ouCtVyWuieSshKyuYV3SJIBuVjpyDoOvpgE7YEW3/VyphUIKaZ0QLxtACEAf+OBVmFtToYAxUFA+R/NIMToWEcUnAEEecedjxakTMVHuCyQzI3iUnTQOupA5Pu9MGFhrq3MOXppa1acSTd9EhgUhGXQqDoSSD14PTAjat2Xe1u628sI47rGzREjUbiN68efIcYIclzPa56uwVbhquKV6hCkeilCRq3npqx1G46kMMVtQXnS8PqCVDyofWJkcEBo6Ej1/iPnuNSqKp4KjQ/MY9wQ5/sbZfzbX0wTbDM5qYPQo5J/I7h+GB7r0x6Mw8l5tLqciKwhvNKaWW1Zg0jViFBbTkDH0LUD6rdmbryr0lq2/4hTT/wBmwhLOkNZc6OOoljhppKhA8jnRVj3DcxPpoDg+7SO1OjvlBPZrVC5o5WXvKqTVTIFYMAiddNQOT/LC3bITMFm7g3W8o5ClRjXfGnWGSy23mluNmpdwSkDE1AyptgD0hcKqxxqo0CoAPkBiHLK1S4jT3fIf5nHrySVTbFGi+n++JMMKwroOSep9cZHXXbdXwJaqZZOasr2w29nQQxMsseFmzNTlFzihypzCK/Uo9f3yGpjIYVhXQct5k+eNmUupQDUtwPmce4Iez+xtf820FMV3QwuKmfjgIhB/M7R+OGkIZkJY8MXUoGUITz8xaMzxHlFS1nM+8h5AQ9rxVzWHLUk0LQpNTQIiGYMUDeFfFpzp8sAva20tdHlmkkUCeodnZFBGhIReAeerHrgrzcY7hXWmzM531M/euu4AbE516HnUHQcefTjA1dSMx9sFuok0MNqRS+nQMPtG/MoMefWVyuh4/SFKPlQesOc8ao4Q1IHrX9ondsFnqI4aHM9v8NVbZF3sPJd2qn5BvyY42r79TPSWvPFHKEjcLT1UBcAFSSGXqNWU7tOdOh08wwKqlhraaWmqI1khlUo6N0YEaEYUVDPP2UZmkttxDTWCtfvI5WXd3ZHR9PUcBh16EYmVPxTAZzWitB/6Scx3GYiHxwHeJ9Ks9jofxBN2h5QXOljiqqFf+oU697TFhtMisATG2vTXgjXofmcIOWORGkidGjkQlGRxoVYcEEeRGH8khyhW+1LClTZK0bmqoVLyqxJYPIQPGDuIB6kaDqAGi5syFZ89w/Strq4Ia9gP6TH4o5uAQJAPPQjnqNRrrjdZVqiXQZZ+vDVkelc/ekZJ+QU44mZYA4iaGnWmUfPwFUoCBW2jgdP1xslJI53Svp+Op/ngivuUr5lqRhcrdNHGDxOg3xN8nHA/HQ4pw6t0YH5HXBOW8NyboStbqnUjIFVQPKO0z43n27yWGW2VqzKUUUfOsS7fbFqVjCTLHvkaPbt1OoC6ckgc7vXoD8Ad5rZ3EQd6gf1PecJwG+4TrwegHmSRxpziEJjFyJTH16Ntxd2HLGYsxkR2ykq3gYBDNIzRwhfQseCOTwNflg24ky6ahYQgaUAEKgc+JWStJWs5mpJJ6mKVFeR0jjRpJHYKiINWZj0AHmTh85AyrFkawy1dyZErZwJKpieIlHuxg+emvOnUn5YjZXyNZ8gxJcrlUJVXJyI0mK+FGIPgiU+ZAPJ50B6DEt2qc4mZqqWGny5CxcttKmqQfeLcBdBrqONCD73uKls2wJscFnBsZnr2hhsqzDLHiu/PoOkaUtxgsdmuObq+eaqMurU/frskKk6JDtBK+9wCvkTr0xG7HrLUNBXZmuGrVVykbaxHVd2rMPgW/JRijqpZ+1fMsFtt4eHL1uIJkA2hh036epHCjyGpw4KWmho6eKmp41jhiUIiL0VQNAMDZo/CsFo/OuhOyRkO5zMb2BxneIPlTludTHTFZmLLtDma2vQV8e5Dyjrw0beTKfXFnjMB0LUhQUk0IggpIULqsoTkNXfuymo+j7nA1zy/KxCMo4UHrt14B9UPB8jghtdPT3ShrK3Jt7QTTSLL7O3gWLad2xk6gs3DOdfCSBpxg+qaWCtgenqYY5oZBo8cihlYfEHC7vXY9CKr2/LVwltdSvKpubaP3WHiUfDkYMial5rF7kX1pVJ7jQ7iMBZdZwb5k9NR2P8AMXtLf6+BKaluVskSrmqRT8HwyRgeKbUDaAOTtJGunHlrRtmHIV0jeartVLvWPvGE1Cm/XnwDTq3Gug9RriALp2nZb+zq7al4gHG8JvJH7yaH+a4i1Hasg3JdsmLv18QZh1B153x4u3Zr1as0VulQ/OMUXON0o5h+pMEltr8ipXey2+gty1BcJD3dGo79tCdEYjnp1Og5HOJEebLldI4foazNLujO81LlFiboNDpoyghgdNORx8RKDtWRjttWTF7wtuG1h7x8/BHrrycSTc+0/Mn2dJbo7NAeN5QIQP3n1P8AJcfLs14Gr9E7qUPxjHyZxulGqn9KYt7ilLaop7lna6U7CqhEXsCL4WXXXYFHicg9COmrc8nA7NV3/tZqfYbfA1sy9Gw3sw9/T72nDH0QcDzOLuydjsHtX0hmWvlutU3LLubaT/eYncw+HAwxKamgo4Egp4o4YYxtVI1Cqo+AGOapqXlcWedfWlEjsNTuYuGXXsHOVPTU9z/EQcvZeocs21KCgj2ovLOeWkbzZj5nFljMZgOtalqKlGpMEEpCRdTlH//Z" width="24" height="24" alt="校徽">教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small><small id="brandVer" class="brandver"></small></span></div>
     <div class="datebox" id="dateBox"></div>
   </div>
   <div id="nav"><div class="navbar">
@@ -282,7 +287,8 @@ canvas.chart{width:100%;display:block}
     <span id="cloudChip"></span>
     <div class="gsearch"><input id="gsq" placeholder="🔍 搜学生（按 /）" autocomplete="off"><div id="gsList"></div></div>
   </div></div>
-  <div id="navSpace"></div>
+</div>
+<div id="bluebody">
   <div id="heroHost"></div>
 </div>
 <div id="main"></div>
@@ -410,7 +416,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v139";
+window.APP_VERSION="v140";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1154,16 +1160,7 @@ function schedToday(key){
   });
   return{day,items};
 }
-/* 15班课表种子（来自学校真实课表，首次启动自动填入班级课表） */
-const CLS_SCHED_SEED={
- "周一":{"p01":"英语 桂花","p02":"英语 桂花","p04":"地理 殷亮","p06":"历史 丁映","p08":"物理 李德明","p09":"体育 何力","p12":"数学 孙洲","p14":"政治 付玉华","p16":"语文 谢俊中","p17":"班会 谢俊中","p19":"数学 孙洲","p20":"地理 殷亮","p21":"历史 丁映"},
- "周二":{"p01":"语文 谢俊中","p02":"数学 孙洲","p04":"数学 孙洲","p06":"语文 谢俊中","p08":"语文 谢俊中","p09":"体育 何力","p12":"英语 桂花","p14":"英语 桂花","p16":"历史 丁映","p17":"美术 习政武","p19":"数学 孙洲","p20":"历史 丁映","p21":"英语 桂花"},
- "周三":{"p01":"英语 桂花","p02":"英语 桂花","p04":"英语 桂花","p06":"语文 谢俊中","p08":"数学 孙洲","p09":"体育 何力","p12":"政治 付玉华","p14":"通用 刘栗君","p16":"地理 殷亮","p17":"历史 丁映","p19":"政治 付玉华","p20":"地理 殷亮","p21":"数学 孙洲"},
- "周四":{"p01":"语文 谢俊中","p02":"语文 谢俊中","p04":"语文 谢俊中","p06":"英语 桂花","p08":"数学 孙洲","p09":"历史 丁映","p12":"政治 付玉华","p14":"信息 李宜芯","p16":"地理 殷亮","p17":"音乐 郭熊烈","p19":"语文 谢俊中","p20":"政治 付玉华","p21":"地理 殷亮"},
- "周五":{"p01":"英语 桂花","p02":"英语 桂花","p04":"数学 孙洲","p06":"数学 孙洲","p08":"语文 谢俊中","p09":"综合 谢俊中","p12":"物理 李德明","p14":"历史 丁映","p16":"地理 殷亮","p17":"政治 付玉华","p19":"政治 付玉华","p20":"数学 孙洲","p21":"历史 丁映"},
- "周六":{"p01":"语文 谢俊中"},
- "周日":{"p19":"自习","p20":"自习","p21":"自习"},
-};
+/* v140b：15 班种子课表已移除（用户要求删除，待导入真实课表；boot 里有一次性清理逻辑） */
 /* 教师任课对照表种子（来自学校任课表，首次启动自动填入） */
 const TEACHER_SEED=[
  ["1","语文","裴蕊"],["1","数学","付旭"],["1","外语","刘馨雅"],["1","物理","何冬见"],["1","化学","罗杨"],["1","生物","周继军"],["1","政治","丁双双"],
@@ -1642,11 +1639,11 @@ function heroBar(){
   const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
   /* v118 领导视图：访客快捷入口=年级类 + 学生档案（班主任模块仅开放档案单页） */
   const hq=visitorView()?HQ_NAV.filter(q=>q[0]==="jw"||(q[0]==="bzr"&&q[1]==="profile")):HQ_NAV;
-  /* v139：日期与天气已在蓝卡日期行（dateBox/dateWx），此处改提醒文字；统计块改行内胶囊 */
+  /* v140b：提醒文字并入问候同一行（用户反馈）；日期天气在蓝卡日期行 */
   const heroHint=overdue.length?`⚠️ ${overdue.length} 项待办已逾期`:todayTodos.length?`今日 ${todayTodos.length} 项待办待处理`:"今天没有到期事项 ✨";
   return `<div class="hero">
     <div class="hero-top">
-      <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${heroHint}</div></div>
+      <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}<span class="hero-date">${heroHint}</span></div></div>
       <div class="hero-stats">
         <button class="hpill${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期</span></button>
         <button class="hpill" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
@@ -9022,33 +9019,21 @@ async function boot(){
       for(const[c,s,t]of TEACHER_SEED)await putRec("teachers",{id:uid(),cls:c,subject:s,teacher:t,note:""});
       await saveMeta("seededTeachers",true);
     }
-    if(!State.meta.seededClsSched&&!State.meta.classSched){
-      await saveMeta("classSched",JSON.parse(JSON.stringify(CLS_SCHED_SEED)));
-      await saveMeta("seededClsSched",true);
+    /* v140b：移除 15 班种子课表——本机若仍是种子版（seededClsSched 标记）则清空待导入真实课表；
+       classSched=null 以新 metaTime 参与同步，会反推云端覆盖种子 */
+    if(State.meta.seededClsSched&&!State.meta.classSchedCleaned){
+      await saveMeta("classSched",null);
+      await saveMeta("seededClsSched",false);
+      await saveMeta("classSchedCleaned",true);
     }
   }catch(e){console.error(e);}
   /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
      合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
   const d=new Date();
-  /* v139：天气胶囊从 hero 迁到蓝卡日期行（dateWx）；日期行整体收窄一行 */
-  $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<span class="wx" id="dateWx"></span><br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
+  /* v140b：日期与天气都做成品牌行右侧的半透明胶囊，天气在日期左边（用户拍板） */
+  $("#dateBox").innerHTML=`<span class="wx" id="dateWx"></span><span class="pill-date">📅 ${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}</span>`;
   render();
-  /* v139 导航悬浮条滚动停靠：白条离开蓝卡后全宽吸顶 + 占位补偿防跳动 */
-  window._navTop=0;
-  const _measureNav=()=>{const n=document.getElementById("nav");if(n&&!n.classList.contains("docked"))window._navTop=n.getBoundingClientRect().top+window.scrollY;};
-  function dockNav(){
-    const n=document.getElementById("nav"),sp=document.getElementById("navSpace");
-    if(!n||!sp)return;
-    if(n.classList.contains("docked")){
-      if(window.scrollY<window._navTop-2){n.classList.remove("docked");sp.style.height="0";}
-    }else{
-      const t=n.getBoundingClientRect().top;
-      if(t<=1){window._navTop=window.scrollY+t;n.classList.add("docked");sp.style.height=n.offsetHeight+"px";}
-    }
-  }
-  _measureNav();
-  window.addEventListener("scroll",dockNav,{passive:true});
-  window.addEventListener("resize",()=>{_measureNav();dockNav();});
+  /* v140c：品牌行+导航整体 sticky 常驻吸顶（bluefix），hero 区随页面滚动——旧 dockNav JS 已删 */
   if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
   /* v131 开机轻提示（每会话一次）：纠正"等云朵变绿才能用"的误解——本机数据秒开即可用 */
   setTimeout(()=>{
