@@ -17,26 +17,25 @@ html{-webkit-text-size-adjust:100%}
 body{font-family:"Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
 button{font-family:inherit}
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
-/* ===== 顶栏 ===== */
-#topbar{position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;box-shadow:var(--shadow)}
-#topbar .inner{max-width:1200px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#topbar .brand{font-size:18px;font-weight:700;letter-spacing:.5px}
-#topbar .brand .logo{vertical-align:-4px;margin-right:7px}
-#topbar .brandt{display:inline-flex;align-items:center}
-#topbar .brandt small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px;letter-spacing:0}
-.projbtn{background:rgba(255,255,255,.16);color:#fff;border:none;border-radius:12px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap}
-.projbtn:hover{background:rgba(255,255,255,.28)}
-.projbtn.on{background:#f59e0b;color:#fff}
-#projIdle{position:fixed;right:22px;bottom:22px;z-index:70;display:flex;align-items:center;gap:8px;background:rgba(29,78,216,.93);color:#fff;border:none;border-radius:14px;padding:14px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 8px 30px rgba(0,0,0,.3);animation:projPulse 2s infinite}
-@keyframes projPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
-#topbar .brandver{display:block;font-size:10px;font-weight:400;opacity:.75;line-height:1.3;margin-top:1px}
-#topbar .brand small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px}
-#topbar .datebox{margin-left:auto;font-size:13px;opacity:.92;text-align:right}
-/* v111 顶栏全局学生搜索（任何页面按 / 唤起，候选直达学生档案卡） */
-#topbar .gsearch{position:relative}
-#gsq{width:200px;padding:6px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.16);color:#fff;font-size:13px;outline:none}
-#gsq::placeholder{color:rgba(255,255,255,.72)}
-#gsq:focus{background:rgba(255,255,255,.26)}
+/* ===== 顶栏（v139 蓝卡连体：品牌行+悬浮白导航+hero，修正二四段渐变） ===== */
+#bluecard{background:linear-gradient(180deg,#16337A 0%,#17418F 30%,#1D4ED8 65%,#3B82F6 100%);color:#fff;padding-bottom:10px}
+#bluecard .brandrow{max-width:1200px;margin:0 auto;padding:7px 16px 6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#bluecard .brand{font-size:17px;font-weight:700;letter-spacing:.5px}
+#bluecard .brand .logo{vertical-align:-4px;margin-right:7px}
+#bluecard .brandt{display:inline-flex;align-items:center;flex-wrap:wrap}
+#bluecard .brandt small{font-weight:400;font-size:12px;opacity:.85;margin-left:8px;letter-spacing:0}
+#bluecard .brandver{font-size:10px;font-weight:400;opacity:.75;margin-left:8px}
+#bluecard .datebox{margin-left:auto;font-size:12.5px;opacity:.92;text-align:right;white-space:nowrap}
+#nav{background:var(--card);position:relative;z-index:49;margin:0 12px;border-radius:10px}
+#nav.docked{position:fixed;top:0;left:0;right:0;margin:0;border-radius:0;box-shadow:0 2px 12px rgba(15,23,42,.14)}
+#nav .navbar{max-width:1200px;margin:0 auto;padding:0 10px;display:flex;align-items:center;gap:8px}
+#navInner{display:flex;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;min-width:0;flex:1}
+#gsq{width:200px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#F8FAFC;color:#0f172a;font-size:13px;outline:none}
+#gsq::placeholder{color:#94a3b8}
+#gsq:focus{background:#fff;border-color:#85B7EB}
+#navSpace{height:0;transition:height .15s}
+.gsearch{position:relative;flex:0 0 auto}
+#navInner::-webkit-scrollbar{display:none}
 #gsList{position:absolute;top:112%;right:0;width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.18);display:none;z-index:80;overflow:hidden}
 .gs-hit{padding:8px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#0f172a}
 .gs-hit:hover{background:#eff6ff}
@@ -46,9 +45,6 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 #nav .tab .icon .ico{width:27px;height:27px;vertical-align:-7.5px;margin-right:0}
 @media(max-width:600px){#gsq{width:120px}#gsList{width:230px}}
 #cloudChip{flex:0 0 auto;font-size:12px}
-#nav{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:49}
-#nav .inner{max-width:1200px;margin:0 auto;padding:0 8px;display:flex;gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-#nav .inner::-webkit-scrollbar{display:none}
 #nav .tab{flex:0 0 auto;padding:5px 15px;font-size:15px;color:var(--text2);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;user-select:none}
 #nav .tab .icon{margin-right:5px}
 #nav .tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
@@ -202,16 +198,16 @@ table.tb tr.hl td{background:#fffbeb}
 .sched td.cell.nextcell{box-shadow:inset 0 0 0 1.5px #a7f3d0;border-radius:4px}
 .nexttag{color:#0d9488;font-weight:600;font-size:10px;margin-left:2px;opacity:.85}
 .sched td.breakrow.nowbreak{background:repeating-linear-gradient(45deg,#ecfdf5,#ecfdf5 8px,#d1fae5 8px,#d1fae5 16px)}
-/* 首页 hero 问候条 + 快捷入口（v58） */
-.hero{background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:14px;padding:12px 18px 10px;color:#fff;margin-bottom:12px;box-shadow:0 8px 24px rgba(37,99,235,.22)}
-.hero-top{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}.hero-greet{font-size:19px;font-weight:700}
-.hero-date{font-size:13px;opacity:.85;margin-top:2px}
-.hero-stats{display:flex;gap:8px;flex-wrap:wrap}.hero-quick{display:flex;gap:7px;overflow-x:auto;border-top:1px solid rgba(255,255,255,.28);margin-top:8px;padding-top:8px;scrollbar-width:none}.hero-quick::-webkit-scrollbar{display:none}.hqi{background:rgba(255,255,255,.14);border:none;border-radius:9px;padding:5px 11px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:500}.hqi:hover{background:rgba(255,255,255,.26)}.hqi .ico{width:15px;height:15px;flex:none}
-.hstat{display:flex;flex-direction:column;align-items:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:8px 14px;color:#fff;cursor:pointer;min-width:78px}
-.hstat:hover{background:rgba(255,255,255,.28)}
-.hstat b{font-size:20px;line-height:1.2}
-.hstat span{font-size:11px;opacity:.92}
-.hstat.bad{background:#dc2626;border-color:#fca5a5}
+/* 首页 hero 问候条 + 快捷入口（v58；v139 融入蓝卡：透明底、行内统计胶囊） */
+.hero{max-width:1200px;margin:0 auto;padding:4px 16px 0;color:#fff}
+.hero-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}.hero-greet{font-size:18px;font-weight:700}
+.hero-date{font-size:12.5px;opacity:.88;margin-top:2px}
+.hero-stats{display:flex;gap:7px;flex-wrap:wrap}.hero-quick{display:flex;gap:7px;overflow-x:auto;border-top:1px solid rgba(255,255,255,.28);margin-top:8px;padding-top:8px;scrollbar-width:none}.hero-quick::-webkit-scrollbar{display:none}.hqi{background:rgba(255,255,255,.14);border:none;border-radius:9px;padding:5px 11px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:500}.hqi:hover{background:rgba(255,255,255,.26)}.hqi .ico{width:15px;height:15px;flex:none}
+.hpill{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 12px;color:#fff;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.hpill:hover{background:rgba(255,255,255,.28)}
+.hpill b{font-size:14px;font-weight:700}
+.hpill span{opacity:.9}
+.hpill.bad{background:#dc2626;border-color:#fca5a5}
 /* 首页·今天的课：时间轴（v58） */
 .tl{margin-left:8px}
 .tl-item{position:relative;padding:0 0 14px 18px;border-left:2px solid var(--line)}
@@ -228,7 +224,7 @@ table.tb tr.hl td{background:#fffbeb}
 .tl-cd{width:42%;max-width:210px;flex-shrink:0;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:6px 10px;display:flex;flex-direction:column;gap:4px}
 .tl-cdtime{font-size:13.5px;font-weight:700;white-space:nowrap}
 .tl-cdsub{font-size:11px;color:var(--text2)}
-@media(max-width:640px){.hero{padding:14px 16px}.hero-greet{font-size:17px}.hstat{min-width:64px;padding:6px 10px}}
+@media(max-width:640px){.hero-greet{font-size:16px}.hpill{padding:2px 9px;font-size:12px}}
 /* 提醒列表 */
 .ag-item{display:flex;gap:10px;padding:10px 6px;border-bottom:1px solid var(--line);align-items:baseline;font-size:14.5px}
 .ag-item:last-child{border-bottom:none}
@@ -261,8 +257,8 @@ canvas.chart{width:100%;display:block}
 @media(max-width:600px){
   #main{padding:12px 10px 60px}
   .card{padding:12px}
-  #topbar .brand{font-size:16px}
-  #topbar .datebox{font-size:11px}
+  #bluecard .brand{font-size:16px}
+  #bluecard .datebox{font-size:11px}
   table.tb{font-size:12px}
   .field{min-width:100px}
 }
@@ -276,15 +272,19 @@ canvas.chart{width:100%;display:block}
 </style>
 </head>
 <body>
-<div id="topbar"><div class="inner">
-  <div class="brand"><span class="brandt"><svg class="logo" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="rgba(255,255,255,.22)"/><path d="M11 5.5H7.5A1.8 1.8 0 0 0 5.7 7.3v9.4a1.8 1.8 0 0 0 1.8 1.8H11z" fill="#fff"/><path d="M13 5.5h3.5a1.8 1.8 0 0 1 1.8 1.8v9.4a1.8 1.8 0 0 1-1.8 1.8H13z" fill="#fff" opacity=".72"/></svg>教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small></span><span id="brandVer" class="brandver"></span></div>
-  <span id="cloudChip"></span>
-  <button id="projBtn" class="projbtn" data-act="projToggle">📺 投屏模式</button>
-  <div class="datebox" id="dateBox"></div>
-  <div class="gsearch"><input id="gsq" placeholder="🔍 搜学生（按 /）" autocomplete="off"><div id="gsList"></div></div>
-</div></div>
-<button id="projIdle" data-act="projGoFull" style="display:none">🖥️ 回到全屏</button>
-<div id="nav"><div class="inner" id="navInner"></div></div>
+<div id="bluecard">
+  <div class="brandrow">
+    <div class="brand"><span class="brandt"><svg class="logo" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="rgba(255,255,255,.22)"/><path d="M11 5.5H7.5A1.8 1.8 0 0 0 5.7 7.3v9.4a1.8 1.8 0 0 0 1.8 1.8H11z" fill="#fff"/><path d="M13 5.5h3.5a1.8 1.8 0 0 1 1.8 1.8v9.4a1.8 1.8 0 0 1-1.8 1.8H13z" fill="#fff" opacity=".72"/></svg>教师工作台<small id="brandSub">高2025级 · 四川省平昌县第二中学</small></span><span id="brandVer" class="brandver"></span></div>
+    <div class="datebox" id="dateBox"></div>
+  </div>
+  <div id="nav"><div class="navbar">
+    <div id="navInner"></div>
+    <span id="cloudChip"></span>
+    <div class="gsearch"><input id="gsq" placeholder="🔍 搜学生（按 /）" autocomplete="off"><div id="gsList"></div></div>
+  </div></div>
+  <div id="navSpace"></div>
+  <div id="heroHost"></div>
+</div>
 <div id="main"></div>
 <div id="modalMask"><div id="modalBox"></div></div>
 <div id="toast"></div>
@@ -410,7 +410,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v138";
+window.APP_VERSION="v139";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -569,7 +569,7 @@ const Lock={
 function visitorView(){return typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO();}
 const VISITOR_HIDE_ROUTES=["bzr","jks","gr"];
 /* 访客模式动作白名单：只放行"只读浏览+同步状态"类操作，其余（导入/导出/编辑/备份恢复/退出访客）一律拦截 */
-const VISITOR_OK_ACTS=new Set(["closeModal","ghConnect","ghDisconnect","syncCheckNow","ghTogglePwd","ghNetDiag","ghBackupPanel","ghRefreshSizes","projToggle","stuDetail","profPrint","profPick","profAllScope","copyClsTable","cmpClsAll","cmpClsToggle"]);
+const VISITOR_OK_ACTS=new Set(["closeModal","ghConnect","ghDisconnect","syncCheckNow","ghTogglePwd","ghNetDiag","ghBackupPanel","ghRefreshSizes","stuDetail","profPrint","profPick","profAllScope","copyClsTable","cmpClsAll","cmpClsToggle"]);
 function go(route,sub){
   /* v80：全局统计口径收口到「设置→成绩统计口径」，旧深链 jw/lines 自动改道 */
   if(route==="jw"&&sub==="lines"){route="set";sub="lines";}
@@ -589,7 +589,9 @@ function render(keepScroll){
   const nav=$("#navInner");
   nav.innerHTML=NAVS.filter(n=>!visitorView()||!VISITOR_HIDE_ROUTES.includes(n.id)).map(n=>`<div class="tab${State.route===n.id?" active":""}" data-go="${n.id}"><span class="icon">${ico(n.icon)}</span>${n.label}</div>`).join("");
   const v=App.routes[State.route];
-  $("#main").innerHTML=(typeof heroBar==="function"?heroBar():"")+(v?v():"");
+  /* v139：hero 问候条渲染进蓝卡 #heroHost，页面正文渲染进 #main，二者分离 */
+  $("#heroHost").innerHTML=(typeof heroBar==="function"?heroBar():"");
+  $("#main").innerHTML=(v?v():"");
   const av=v&&v.after?v.after:null;
   window._lastAfter=av||null;
   if(av){try{av();}catch(e){console.error(e);toast("图表渲染异常："+e.message);}}
@@ -605,55 +607,6 @@ function updateBrand(){
   if(el&&s)el.textContent=((s.grade||"")+" · "+(s.school||"")).replace(/^ · /,"").replace(/ · $/,"");
   document.title="教师工作台"+(s&&s.grade?" · "+s.grade:"");
 }
-/* ===== 投屏模式（v65 方案A）：点按钮进全屏；真实使用（大幅移动鼠标/按键/点触）自动退出；闲置 1 分钟右下角浮现"回到全屏" ===== */
-const Proj={on:false,armed:false,lastAct:Date.now(),lx:0,ly:0,_init:false};
-function projInit(){
-  if(Proj._init)return;Proj._init=true;
-  document.addEventListener("mousemove",e=>{
-    const dx=e.clientX-Proj.lx,dy=e.clientY-Proj.ly;
-    if(Math.hypot(dx,dy)>18){Proj.lx=e.clientX;Proj.ly=e.clientY;projAct();}
-  },{passive:true});
-  document.addEventListener("keydown",()=>projAct(),true);
-  document.addEventListener("touchstart",()=>projAct(),{passive:true});
-  document.addEventListener("wheel",()=>projAct(),{passive:true});
-  document.addEventListener("click",()=>projAct(),true);
-  document.addEventListener("fullscreenchange",()=>{
-    const o=document.getElementById("projIdle");if(o)o.style.display="none";
-    if(document.fullscreenElement){Proj.armed=false;setTimeout(()=>{Proj.armed=true;},1500);}
-    else Proj.armed=false;
-    projBtn();
-  });
-  setInterval(()=>{
-    if(!Proj.on)return;
-    const o=document.getElementById("projIdle");
-    if(o)o.style.display=(!document.fullscreenElement&&Date.now()-Proj.lastAct>60000)?"flex":"none";
-  },5000);
-}
-function projAct(){
-  Proj.lastAct=Date.now();
-  const o=document.getElementById("projIdle");if(o)o.style.display="none";
-  if(Proj.on&&Proj.armed&&document.fullscreenElement){Proj.armed=false;try{document.exitFullscreen();}catch(e){}}
-}
-function projBtn(){
-  const b=document.getElementById("projBtn");if(!b)return;
-  b.classList.toggle("on",Proj.on);
-  b.textContent=Proj.on?"🛑 退出投屏":"📺 投屏模式";
-}
-ACTIONS.projToggle=async()=>{
-  projInit();
-  Proj.on=!Proj.on;
-  if(Proj.on){
-    try{await document.documentElement.requestFullscreen();}
-    catch(e){Proj.on=false;projBtn();toast("浏览器拒绝了全屏（需要页面点击授权），请再点一次");return;}
-    toast("投屏模式已开启：大幅动鼠标即退出全屏；闲置 1 分钟后点右下角「回到全屏」恢复");
-  }else{
-    if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
-    const o=document.getElementById("projIdle");if(o)o.style.display="none";
-    toast("投屏模式已关闭");
-  }
-  projBtn();
-};
-ACTIONS.projGoFull=()=>{try{document.documentElement.requestFullscreen();}catch(e){}};
 /* details 折叠区展开时重绘其中的图表（折叠期间 canvas 宽度不正确） */
 document.addEventListener("toggle",e=>{
   const d=e.target;
@@ -1689,14 +1642,16 @@ function heroBar(){
   const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
   /* v118 领导视图：访客快捷入口=年级类 + 学生档案（班主任模块仅开放档案单页） */
   const hq=visitorView()?HQ_NAV.filter(q=>q[0]==="jw"||(q[0]==="bzr"&&q[1]==="profile")):HQ_NAV;
+  /* v139：日期与天气已在蓝卡日期行（dateBox/dateWx），此处改提醒文字；统计块改行内胶囊 */
+  const heroHint=overdue.length?`⚠️ ${overdue.length} 项待办已逾期`:todayTodos.length?`今日 ${todayTodos.length} 项待办待处理`:"今天没有到期事项 ✨";
   return `<div class="hero">
     <div class="hero-top">
-      <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
+      <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${heroHint}</div></div>
       <div class="hero-stats">
-        <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
-        <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
-        <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
-        <button class="hstat" data-go="gr" data-sub="events"><b>${week7}</b><span>近7天事项</span></button>
+        <button class="hpill${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期</span></button>
+        <button class="hpill" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
+        <button class="hpill" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
+        <button class="hpill" data-go="gr" data-sub="events"><b>${week7}</b><span>近7天</span></button>
       </div>
     </div>
     <div class="hero-quick">${hq.map(q=>`<button class="hqi" data-go="${q[0]}" data-sub="${q[1]}">${ico(q[2])}${q[3]}</button>`).join("")}</div>
@@ -1782,7 +1737,7 @@ function wxHtml(w){
   return `<span class="wxico">${wxIcon(w.code)}</span>${WX_LOC.name} ${w.temp}°C ${d} <span class="wxhi">↑${w.max}° ↓${w.min}°</span>`;
 }
 async function loadWeather(){
-  const box=document.getElementById("heroWx");if(!box)return;
+  const box=document.getElementById("dateWx");if(!box)return;
   let w=null;
   try{w=JSON.parse(localStorage.getItem("tbWeather")||"null");}catch(e){}
   if(w&&w.t){
@@ -1795,7 +1750,7 @@ async function loadWeather(){
     const j=await r.json();
     w={t:Date.now(),temp:Math.round(j.current.temperature_2m),code:j.current.weather_code,max:Math.round(j.daily.temperature_2m_max[0]),min:Math.round(j.daily.temperature_2m_min[0])};
     try{localStorage.setItem("tbWeather",JSON.stringify(w));}catch(e){}
-    const b2=document.getElementById("heroWx");
+    const b2=document.getElementById("dateWx");
     if(b2)b2.innerHTML=wxHtml(w);
   }catch(e){/* 断网/被拦：静默，保留缓存或空 */}
 }
@@ -9075,8 +9030,25 @@ async function boot(){
   /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
      合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
   const d=new Date();
-  $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
+  /* v139：天气胶囊从 hero 迁到蓝卡日期行（dateWx）；日期行整体收窄一行 */
+  $("#dateBox").innerHTML=`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${WEEK[d.getDay()]}<span class="wx" id="dateWx"></span><br><span style="font-size:11px">数据保存在本机浏览器 · 记得定期备份</span>`;
   render();
+  /* v139 导航悬浮条滚动停靠：白条离开蓝卡后全宽吸顶 + 占位补偿防跳动 */
+  window._navTop=0;
+  const _measureNav=()=>{const n=document.getElementById("nav");if(n&&!n.classList.contains("docked"))window._navTop=n.getBoundingClientRect().top+window.scrollY;};
+  function dockNav(){
+    const n=document.getElementById("nav"),sp=document.getElementById("navSpace");
+    if(!n||!sp)return;
+    if(n.classList.contains("docked")){
+      if(window.scrollY<window._navTop-2){n.classList.remove("docked");sp.style.height="0";}
+    }else{
+      const t=n.getBoundingClientRect().top;
+      if(t<=1){window._navTop=window.scrollY+t;n.classList.add("docked");sp.style.height=n.offsetHeight+"px";}
+    }
+  }
+  _measureNav();
+  window.addEventListener("scroll",dockNav,{passive:true});
+  window.addEventListener("resize",()=>{_measureNav();dockNav();});
   if(typeof Sync!=="undefined"){Sync.init().catch(e=>console.error(e));}
   /* v131 开机轻提示（每会话一次）：纠正"等云朵变绿才能用"的误解——本机数据秒开即可用 */
   setTimeout(()=>{
