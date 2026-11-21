@@ -632,7 +632,13 @@ function dockPillsFor(){
   if(r==="jw"&&typeof JW_TABS!=="undefined")return JW_TABS;
   if(r==="jks"&&typeof JKS_TABS!=="undefined")return JKS_TABS;
   if(r==="gr"&&typeof GR_TABS!=="undefined")return GR_TABS;
-  if(r==="set"&&typeof SET_TABS!=="undefined")return SET_TABS;
+  if(r==="set"&&typeof SET_TABS!=="undefined"){
+    /* 与 renderSet 同一套可见性：访客只留同步与备份；只读令牌隐藏资料上传 */
+    let ts=SET_TABS;
+    if(typeof visitorView==="function"&&visitorView())ts=ts.filter(t=>t[0]==="sync");
+    else if(typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO())ts=ts.filter(t=>t[0]!=="upload");
+    return ts;
+  }
   return null;
 }
 let _dockKey="";
