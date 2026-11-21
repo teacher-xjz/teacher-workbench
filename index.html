@@ -410,7 +410,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v137";
+window.APP_VERSION="v138";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4143,20 +4143,49 @@ function jwManage(){
   const exs=examsSorted().slice().reverse();
   return `<div class="card"><h3>🗂 考试与成绩<span class="sub">导入入口已收口到「设置→资料上传」</span><span class="spacer"></span><a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">＋ 去导入考试成绩 →</a></h3>
     <div class="muted">支持 .xlsx / .xls / .csv，自动识别表头与选科列（序号 / 姓名 / 班级 / 学号 / 考号 / 各科分数 / 总分 / 排名，表头可在任意行）。</div></div>
-  <div class="card"><h3>🗂 已导入的考试（${exs.length}）</h3>
-    ${exs.length?exs.map(e=>`<div style="background:#f8fafc;border-radius:10px;padding:10px 14px;margin-bottom:10px" class="flex">
-      <div><b>${esc(e.name)}</b> <span class="muted">${esc(e.date||"")} · ${e.rows.length} 名学生 · 科目：${(e.subjects||[]).map(esc).join("、")||"—"}${e.zeroAsMissing?" · 0分视为缺考":""}</span></div>
-      <span class="spacer"></span>
-      <button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>
+  <div class="card"><h3>🗂 已导入的考试（${exs.length}）${exs.some(e=>e.arch)?`<span class="sub">其中 ${exs.filter(e=>e.arch).length} 场已归档（独立文件存储、主文件已瘦身）</span>`:""}</h3>
+    <div class="muted">支持 .xlsx / .xls / .csv，自动识别表头与选科列（序号 / 姓名 / 班级 / 学号 / 考号 / 各科分数 / 总分 / 排名，表头可在任意行）。较早的考试可点「📦 归档」移入独立归档文件——归档后本机分析照常可用，云端主文件保持瘦小；归档考试锁定不可改分/改线/删除。</div></div>
+  <div class="card">
+    ${exs.length?exs.map(e=>{
+      const arcTag=e.arch?`<span class="tag t-blue" title="已归档：独立归档文件一次写入永不改动，主文件不再随它膨胀">📦已归档</span>`:"";
+      const btns=e.arch
+        ?`<button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>`
+        :`<button class="btn sm" data-act="viewExam" data-id="${e.id}">查看分析</button>
       <button class="btn sm" data-act="examLinesModal" data-id="${e.id}">📐 划线覆盖${e.lines?"（已自定义）":""}</button>
       <button class="btn sm" data-act="examRosterCheck" data-id="${e.id}">🔍 考后核对</button>
-      <button class="btn sm danger" data-act="delExam" data-id="${e.id}">删除</button></div>`).join("")
+      <button class="btn sm" data-act="archExam" data-id="${e.id}" title="移入独立归档文件（一次写入永不改动），云端主文件瘦身为索引+近期考试">📦 归档</button>
+      <button class="btn sm danger" data-act="delExam" data-id="${e.id}">删除</button>`;
+      return `<div style="background:#f8fafc;border-radius:10px;padding:10px 14px;margin-bottom:10px" class="flex">
+      <div><b>${esc(e.name)}</b> ${arcTag} <span class="muted">${esc(e.date||"")} · ${e.rows.length} 名学生 · 科目：${(e.subjects||[]).map(esc).join("、")||"—"}${e.zeroAsMissing?" · 0分视为缺考":""}</span></div>
+      <span class="spacer"></span>
+      ${btns}</div>`;}).join("")
     :`<div class="empty"><div class="big">📭</div>还没有导入任何考试</div>`}
   </div>`;
 }
+/* v138 手动归档：先写云端归档文件（成功才动本机），再标脏让主文件瘦身重传 */
+ACTIONS.archExam=async id=>{
+  const e=examById(id);if(!e)return;
+  if(e.arch){toast("该考试已归档");return;}
+  if(!confirm(`将考试「${e.name}」归档？\n\n归档后：\n· 该考试移入独立归档文件（一次写入、云端不再整份重传），主文件保持瘦小；\n· 本机与各设备的分析功能照常可用（自动补拉）；\n· 归档考试锁定：不能改分/改线/考后核对/删除；\n· 若之后修改了该考试数据，会自动解除归档回到主文件。`))return;
+  if(!Sync.ghConn){toast("未连接云端同步，无法归档");return;}
+  Sync.status="sync";Sync.updateChip("归档中…");
+  try{
+    await Sync.examArchive(e);
+    Sync.status="on";Sync.lastSync=new Date();Sync.updateChip();
+    toast("✅ 已归档「"+e.name+"」：归档文件已上传，主文件正在瘦身重传");
+  }catch(err){
+    Sync.status=Sync.ghConn?"on":"off";Sync.updateChip();
+    const m=(err&&err.message)||String(err);
+    toast(m==="EXISTS"
+      ?"云端已存在该考试的归档文件（此前可能归档过）。本机数据未变动，该考试仍在主文件中正常使用。"
+      :"归档失败："+m+"（本机数据未变动）");
+  }
+  render();
+};
 ACTIONS.viewExam=id=>{State.currentExamId=id;go("jw","overview");};
 ACTIONS.delExam=async id=>{
   const e=examById(id);if(!e)return;
+  if(e.arch){toast("已归档考试锁定，不能删除（归档文件一次写入永不改动；修改数据会自动解除归档）");return;}
   if(!confirm(`确定删除考试「${e.name}」及其全部成绩数据吗？`))return;
   await delRec("exams",id);toast("已删除");render();
 };
@@ -5526,6 +5555,7 @@ ACTIONS.saveLines=async()=>{
 };
 ACTIONS.clearExamLines=async id=>{
   const exam=examById(id);if(!exam)return;
+  if(exam.arch){toast("已归档考试锁定，划线不可修改（修改数据会自动解除归档）");return;}
   if(!confirm("清除该考试的自定义分数线，改用全局默认线？"))return;
   delete exam.lines;
   await putRec("exams",exam);
@@ -5534,6 +5564,7 @@ ACTIONS.clearExamLines=async id=>{
 /* v80：考试级划线覆盖入口 —— 「考试与成绩」每场考试行的「📐 划线覆盖」按钮弹窗 */
 ACTIONS.examLinesModal=id=>{
   const exam=examById(id);if(!exam){toast("考试不存在");return;}
+  if(exam.arch){toast("已归档考试锁定，划线覆盖不可修改（修改数据会自动解除归档）");return;}
   State.lnScope=id; /* saveLines/clearExamLines 按此定位考试 */
   openModal("📐 划线覆盖 · "+exam.name,linesPanel(exam,true),
     `<button class="btn" data-act="closeModal">关闭</button>`);
@@ -7408,6 +7439,7 @@ function rosterCheckResult(exam){
 }
 ACTIONS.examRosterCheck=id=>{
   const e=examById(id);if(!e)return;
+  if(e.arch){toast("已归档考试锁定，考后核对不可再用（补缺考行等操作会改动数据）");return;}
   const C=rosterCheckResult(e);
   const snap=C.snap,rows=C.rows,absent=C.absent,missing=C.missing,extra=C.extra,moved=C.moved;
   const lis=(arr,f)=>arr.length?arr.slice(0,30).map(f).join("、")+(arr.length>30?` 等${arr.length}人`:""):"<b>无 ✓</b>";
@@ -7892,6 +7924,8 @@ const Sync={
      mode 缺省=按记录合并；"replace"=整份覆盖（成绩）。
      legacy:"工作台数据.json" 已弃用（v114 迁移后不再读写，仅迁移期读一次）。 */
   LEGACY_FILE:"工作台数据.json",
+  /* v138 成绩归档文件的应用标识（归档文件一次写入永不改动） */
+  EX_ARC_APP:"teacherBoardExamsArc",
   CH:[
     {key:"cfg",file:"配置.json",app:"tbCfg",meta:["settings","periods","seededClsSched","seededTeachers"],stores:[],label:"配置"},
     {key:"jd",file:"年级.json",app:"tbJd",meta:["kbKid","kbCombo","kbDef"],stores:["students","transfers","teachers","examplan","invigilate"],label:"年级"},
@@ -7925,6 +7959,96 @@ const Sync={
   setExamsRev(n){this.setChRev(this.CH[2],n);},
   examsChanged(){this._setExamsDirty(this.CH[2],true);this.noteChange("exams");},
   _setExamsDirty(ch,on){this.setChDirty(ch,on);},
+  /* ===== v138 按考试分片存储 =====
+     成绩数据.json 主文件只存「未归档考试 + 归档索引」，每场归档考试独立文件（成绩归档_<id>.json，
+     一次写入、永不改动、不随同步重传）——解决主文件随考试增加持续膨胀、被 GitHub 上传/下载限制
+     卡住的问题（26.11 时已 2.7MB，raw 直读截断率高）。
+     本机 State.data.exams 永远是全量（归档+未归档），所有分析功能无感；
+     归档考试带 arch 标记：改分/改线/考后核对等修改（_ut 变新）自动解除归档回到主文件。 */
+  archSha(id){try{return localStorage.getItem("tbArchSha_"+id)||null;}catch(e){return null;}},
+  setArchSha(id,v){try{v?localStorage.setItem("tbArchSha_"+id,v):localStorage.removeItem("tbArchSha_"+id);}catch(e){}},
+  _clearArchShas(){try{const rm=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf("tbArchSha_")===0)rm.push(k);}rm.forEach(k=>localStorage.removeItem(k));}catch(e){}},
+  /* 归档索引缓存（最近一次主文件里的 arch 列表）：主文件指纹没变时也据此补拉缺失归档 */
+  archIdx(){try{const s=localStorage.getItem("tbArchIdx");const a=s?JSON.parse(s):[];return a instanceof Array?a:[];}catch(e){return [];}},
+  setArchIdx(list){try{localStorage.setItem("tbArchIdx",JSON.stringify(list||[]));}catch(e){}},
+  /* 归档考试被修改（_ut 晚于归档时间）→ 自动解除归档，回主文件随下次上传 */
+  _exReconcileArch(){
+    let ch=false;
+    (State.data.exams||[]).forEach(e=>{
+      if(e&&e.arch&&(e._ut||0)>(e.archAt||0)){
+        delete e.arch;delete e.archFile;delete e.archAt;ch=true;
+        try{console.log("[同步] 归档考试被修改，自动解除归档并回到主文件：",e.name);}catch(_e){}
+      }
+    });
+    return ch;
+  },
+  /* 用主文件的 exams 列表覆盖本机：云端未归档考试整份接管，本机已归档考试（不在云端主列表）保留 */
+  _exApplyMain(list){
+    const remote=(list||[]).filter(Boolean);
+    const rids=new Set(remote.map(e=>e.id));
+    const localArch=(State.data.exams||[]).filter(e=>e&&e.arch&&!rids.has(e.id));
+    State.data.exams=remote.concat(localArch);
+  },
+  /* 补拉缺失的归档考试（幂等：本机有数据且有指纹 → 秒过；失败不缓存指纹 → 下轮自动重试） */
+  async _exSyncArchives(list){
+    const arr=(list||[]).filter(a=>a&&a.id&&a.file);
+    if(!arr.length)return;
+    let added=0,failed=0;
+    for(const a of arr){
+      const local=(State.data.exams||[]).some(e=>e&&e.id===a.id);
+      if(local&&this.archSha(a.id))continue;
+      try{
+        if(local){ /* 数据在、指纹缺（手动导入/清过缓存）：补一次指纹即可，不重下载 */
+          const st=await this._statFile(a.file);
+          if(st)this.setArchSha(a.id,st.sha);
+          continue;
+        }
+        const got=await this._readPayload(a.file,this.EX_ARC_APP,"成绩归档");
+        if(!got.payload){ /* 云端文件确实不存在（如重建云端后丢失）：哨兵指纹防每分钟空转重试 */
+          this.setArchSha(a.id,"404");
+          failed++;try{console.warn("[同步] 归档文件云端缺失（已记录，不再自动重试）：",a.file);}catch(_e){}
+          continue;
+        }
+        const ex=got.payload.exam;
+        if(ex&&ex.id===a.id){
+          Object.assign(ex,{arch:1,archFile:a.file,archAt:a.at||Date.now()});
+          State.data.exams.push(ex);
+          this.setArchSha(a.id,got.sha);
+          added++;
+        }else{failed++;try{console.warn("[同步] 归档文件内容与索引不符：",a.file);}catch(_e){}}
+      }catch(e){failed++;try{console.warn("[同步] 归档考试下载失败（稍后自动重试）：",a.file,(e&&e.message)||e);}catch(_e){}}
+    }
+    if(added){await this.persistAll();toast("📦 已从云端补齐 "+added+" 场归档考试");}
+    if(failed){
+      const now=Date.now();
+      if(now-(this._archFailAt||0)>300000){this._archFailAt=now;toast("⚠️ "+failed+" 场归档考试下载失败（网络不稳），稍后自动重试");}
+    }
+  },
+  /* 归档文件只允许"新建"，绝不覆盖（422/409=已存在 → 明确报错，不取新 sha 重写） */
+  async _createFileOnce(name,p,label){
+    const body={message:(label||"工作台数据")+" rev"+(p.rev||1)+"（设备 "+this.device+"）",content:btoa(unescape(encodeURIComponent(JSON.stringify(p))))};
+    const r=await this.ghFetch(this.ghUrlOf(name),{method:"PUT",headers:this.ghHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+    if(r.status===409||r.status===422)throw new Error("EXISTS");
+    if(!r.ok)throw new Error("写入云端失败（HTTP "+r.status+"）");
+    let j=null;try{j=await r.json();}catch(e){}
+    return (j&&j.content&&j.content.sha)||null;
+  },
+  /* 手动归档一场考试：先写归档文件（成功才动本机），再标脏让主文件瘦身重传 */
+  async examArchive(e){
+    if(!e||e.arch)throw new Error("该考试已归档或不存在");
+    if(!this.ghCfg){toast("未连接云端同步，归档需要先连接");throw new Error("未连接云端");}
+    const fid=String(e.id||"").replace(/[^A-Za-z0-9_-]/g,"_")||("arc"+Date.now());
+    const name="成绩归档_"+fid+".json";
+    const copy=Object.assign({},e);delete copy.arch;delete copy.archFile;delete copy.archAt;delete copy._gr;delete copy._cr;
+    copy.rows=(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;});
+    const p={app:this.EX_ARC_APP,device:this.device,rev:1,savedAt:new Date().toISOString(),exam:copy};
+    const sha=await this._createFileOnce(name,p,"成绩归档");
+    if(!sha)throw new Error("云端未返回归档文件指纹");
+    e.arch=1;e.archFile=name;e.archAt=Date.now();
+    await DB.put("exams",e);
+    this.setArchSha(e.id,sha);
+    this.examsChanged(); /* 主文件重传：该考试从 exams 退出、进入 arch 索引 */
+  },
   /* ===== GitHub 私有仓库通道（原语不变） ===== */
   ghCfg:null,
   ghLoadCfg(){try{const c=localStorage.getItem("tbGhCfg");this.ghCfg=c?JSON.parse(c):null;}catch(e){this.ghCfg=null;}},
@@ -8033,7 +8157,17 @@ const Sync={
   /* ===== 通道 payload 构建 / 应用 ===== */
   chBuild(ch,rev){
     const p={app:ch.app,device:this.device,rev:rev,savedAt:new Date().toISOString()};
-    if(ch.mode==="replace"){p.exams=this.cleanExams();return p;}
+    if(ch.mode==="replace"){
+      /* v138 分片：主文件=未归档考试+归档索引（被修改的归档考试先自动解除归档） */
+      this._exReconcileArch();
+      const active=[],arch=[];
+      this.cleanExams().forEach(e=>{
+        if(e.arch)arch.push({id:e.id,name:e.name,date:e.date,file:e.archFile||("成绩归档_"+String(e.id).replace(/[^A-Za-z0-9_-]/g,"_")+".json"),n:(e.rows||[]).length,at:e.archAt});
+        else active.push(e);
+      });
+      p.exams=active;p.arch=arch;
+      return p;
+    }
     if(ch.meta&&ch.meta.length){
       const m={};ch.meta.forEach(k=>{if(State.meta[k]!==undefined)m[k]=State.meta[k];});
       m.metaTime={};ch.meta.forEach(k=>{m.metaTime[k]=((State.meta.metaTime||{})[k])||0;});
@@ -8045,7 +8179,7 @@ const Sync={
   },
   async applyChannel(ch,p,merge){
     let changed=false;
-    if(ch.mode==="replace"){State.data.exams=p.exams||[];return true;}
+    if(ch.mode==="replace"){this._exApplyMain(p.exams);return true;}
     const hasMeta=ch.meta&&ch.meta.length;
     if(merge===false){
       if(hasMeta)(ch.meta||[]).forEach(k=>{if(p.meta&&p.meta[k]!==undefined&&State.meta[k]!==p.meta[k]){State.meta[k]=p.meta[k];changed=true;}});
@@ -8180,6 +8314,7 @@ const Sync={
       try{localStorage.removeItem(this._stKey(ch,"applied"));localStorage.removeItem(this._stKey(ch,"rev"));localStorage.removeItem(this._stKey(ch,"sha"));}catch(e){}
       this.setChDirty(ch,false);
     }
+    this._clearArchShas(); /* v138：归档指纹同步重置（IndexedDB 被清时归档数据也要重拉） */
     this._failSet&&this._failSet.clear();
     return true;
   },
@@ -8192,6 +8327,8 @@ const Sync={
       try{await this._initChannel(ch);}
       catch(e){this._chFail(ch,e);}
     }
+    /* v138 分片：补拉缺失的归档考试（幂等，缺什么拉什么；失败自动下轮重试） */
+    try{const ai=this.archIdx();if(ai.length)await this._exSyncArchives(ai);}catch(e){try{console.warn("[同步] 归档补拉异常：",e&&e.message||e);}catch(_e){}}
     if(!this.visitorRO()&&this._anyDirty())await this._pushDirty();
   },
   /* v136：单通道失败记录。applied 不写=下轮轮询自动补拉；toast 节流 5 分钟防轰炸。
@@ -8253,10 +8390,12 @@ const Sync={
     if(ch.mode==="replace"){
       const lr=this.chRev(ch);
       if(pr>lr||!lr){
-        State.data.exams=got.payload.exams||[];
+        this._exApplyMain(got.payload.exams); /* v138：云端未归档考试接管 + 本机已归档保留 */
+        this.setArchIdx(got.payload.arch||[]);
         this.setChRev(ch,pr);
         await this.persistAll();
         this.setChApplied(ch,got.sha);
+        try{const ai=got.payload.arch||[];if(ai.length)await this._exSyncArchives(ai);}catch(e){}
       }else if(lr>pr){if(!this.visitorRO())this.setChDirty(ch,true);this.setChApplied(ch,got.sha);}
       else this.setChApplied(ch,got.sha);
       return;
@@ -8328,10 +8467,12 @@ const Sync={
           if(ch.mode==="replace"){
             const lr=this.chRev(ch);
             if(pr>lr||!lr){
-              State.data.exams=got.payload.exams||[];
+              this._exApplyMain(got.payload.exams); /* v138 */
+              this.setArchIdx(got.payload.arch||[]);
               this.setChRev(ch,pr);
               await this.persistAll();
               this.setChApplied(ch,got.sha);
+              try{const ai=got.payload.arch||[];if(ai.length)await this._exSyncArchives(ai);}catch(e){}
               toast("🔄 云端成绩已更新");
               const r=State.route||"";
               if(r==="jw"||r==="bzr")render();
@@ -8350,6 +8491,8 @@ const Sync={
           }
           }catch(e){this._chFail(ch,e);}
         }
+        /* v138 分片：主文件指纹没变也要补拉缺失的归档考试（tbArchIdx 缓存最近索引，幂等） */
+        try{const ai=this.archIdx();if(ai.length)await this._exSyncArchives(ai);}catch(e){try{console.warn("[同步] 归档补拉异常：",e&&e.message||e);}catch(_e){}}
         if(typeof CommSync!=="undefined"&&!this.visitorRO())await CommSync.poll();
         /* v136：仅当无失败通道且无认证错误时才恢复 on（否则保留 err/部分同步状态） */
         if(this.status==="err"&&!this._authErr&&(!this._failSet||!this._failSet.size)){this.status="on";this._ghErr=null;}
@@ -8515,6 +8658,14 @@ const Sync={
     const out={files:[],repo:0};
     for(const ch of this.CH){try{const a=await this._statFile(ch.file);out.files.push({label:ch.label,file:ch.file,size:a?a.size:0});}catch(e){out.files.push({label:ch.label,file:ch.file,size:0});}}
     try{if(typeof CommSync!=="undefined"&&!this.visitorRO()){const a=await this._statFile(CommSync.FILE);out.files.push({label:"家校沟通",file:CommSync.FILE,size:a?a.size:0});}}catch(e){}
+    /* v138：归档文件占用（索引来自本机归档标记，逐个 stat，缺失/失败显示 —） */
+    if(!this.visitorRO()){
+      for(const e of (State.data.exams||[])){
+        if(!e||!e.arch||!e.archFile)continue;
+        try{const a=await this._statFile(e.archFile);out.files.push({label:"归档·"+(e.name||e.id),file:e.archFile,size:a?a.size:0});}
+        catch(e2){out.files.push({label:"归档·"+(e.name||e.id),file:e.archFile,size:0});}
+      }
+    }
     try{const r=await this.ghRepoInfo();out.repo=r?r.sizeKB:0;}catch(e){}
     return out;
   },
@@ -8645,6 +8796,7 @@ ACTIONS.ghResyncAll=async()=>{
       try{localStorage.removeItem(Sync._stKey(ch,"applied"));localStorage.removeItem(Sync._stKey(ch,"rev"));localStorage.removeItem(Sync._stKey(ch,"sha"));}catch(e){}
       Sync.setChDirty(ch,false);
     }
+    Sync._clearArchShas(); /* v138：归档指纹一并重置，归档考试强制重拉 */
     Sync._failSet&&Sync._failSet.clear();
     await Sync._syncAllOnce();
     Sync.status="on";Sync.lastSync=new Date();Sync._ghErr=null;Sync.updateChip();
@@ -8724,7 +8876,8 @@ ACTIONS.ghRestore=async sha=>{
       toast("✅ 已恢复旧版全量数据并按六文件重新上传");
     }else if(ch&&ch.mode==="replace"){
       if(!(p.exams instanceof Array))throw new Error("该成绩版本内容异常");
-      State.data.exams=p.exams;
+      Sync._exApplyMain(p.exams); /* v138：保留本机已归档考试（历史主文件版本不含它们） */
+      if(p.arch)Sync.setArchIdx(p.arch);
       await Sync.persistAll();
       Sync.setChDirty(ch,true);
       await Sync._pushDirty();
@@ -8755,6 +8908,17 @@ ACTIONS.ghForcePush=async()=>{
       if(ns){Sync.setChSha(ch,ns);Sync.setChApplied(ch,ns);}
       Sync.setChRev(ch,rev);
       Sync.setChDirty(ch,false);
+    }
+    /* v138：重建云端时补建缺失的归档文件（仍只新建、绝不覆盖已存在的） */
+    for(const e of (State.data.exams||[])){
+      if(!e||!e.arch||!e.archFile)continue;
+      try{
+        const st=await Sync._statFile(e.archFile).catch(()=>null);
+        if(st)continue;
+        const copy=Object.assign({},e);delete copy.arch;delete copy.archFile;delete copy.archAt;delete copy._gr;delete copy._cr;
+        copy.rows=(e.rows||[]).map(r=>{const c=Object.assign({},r);delete c._gr;delete c._cr;return c;});
+        await Sync._createFileOnce(e.archFile,{app:Sync.EX_ARC_APP,device:Sync.device,rev:1,savedAt:new Date().toISOString(),exam:copy},"成绩归档");
+      }catch(err){try{console.warn("[重建] 归档文件补建失败：",e.archFile,(err&&err.message)||err);}catch(_e){}}
     }
     await Sync.persistAll();
     Sync.status="on";Sync.lastSync=new Date();Sync._ghErr=null;Sync.updateChip();
