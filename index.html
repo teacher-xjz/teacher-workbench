@@ -291,7 +291,7 @@ canvas.chart{width:100%;display:block}
 <div id="bluebody">
   <div id="heroHost"></div>
 </div>
-<div id="main"></div>
+<div id="main"><div class="empty" id="bootLoading"><div class="big">⏳</div>正在加载工作台…<br><span class="muted">数据加载后此提示自动消失</span></div></div>
 <div id="modalMask"><div id="modalBox"></div></div>
 <div id="toast"></div>
 <script>/*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
@@ -416,7 +416,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v140";
+window.APP_VERSION="v141";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1382,6 +1382,8 @@ function gsGo(id){
   const inp=document.getElementById("gsq");if(inp)inp.value="";
   const l=document.getElementById("gsList");if(l)l.style.display="none";
   go("bzr","profile");
+  /* v141：搜索直达后自动定位到档案卡（否则停在名单条顶部，卡片在视口外） */
+  setTimeout(()=>{const c=document.getElementById("profCard");if(c&&c.scrollIntoView)c.scrollIntoView({behavior:"smooth",block:"start"});},80);
 }
 function gsInit(){
   const inp=document.getElementById("gsq"),list=document.getElementById("gsList");
@@ -2199,7 +2201,7 @@ ACTIONS.schedImport=()=>{
     State.meta.mySched=ex.dst;
     await saveMeta("mySched",ex.dst);
     closeModal();render();
-    toast(`班级课表已导入（${parsed.filled} 格）`+(who?`，个人课表已同步「${who}」的 ${ex.n} 节课`:"，个人课表已同步（未筛选教师）"));
+    toast(`✓ 已保存本机（${parsed.filled} 格）${who?`，个人课表已同步「${who}」的 ${ex.n} 节课`:""} · 正在备份云端…`);
   };
 };
 ACTIONS.schedSyncMine=async()=>{
@@ -3010,6 +3012,7 @@ function commTimeline(list){
     return `<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0 6px 14px;border-bottom:1px dashed #f1f5f9;position:relative;cursor:pointer" data-act="commExpand" data-id="${r.id}">
       <span style="position:absolute;left:3px;top:12px;width:8px;height:8px;border-radius:50%;background:#378ADD"></span>
       <b style="font-size:12px;font-weight:600;white-space:nowrap;margin-top:2px">${esc(md)}</b>
+      <b style="font-size:12.5px;white-space:nowrap;min-width:52px">${escA(r.name||"—")}</b>
       <span class="tag t-blue" style="white-space:nowrap">${esc(r.way||"—")}·${esc(r.topic||"—")}</span>
       <span class="tag" style="white-space:nowrap">${esc(r.rel||r.who||"—")}</span>
       <span style="flex:1;min-width:0;font-size:12.5px;${open?"":"white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}">${esc(r.content||"")}</span>
@@ -3133,7 +3136,9 @@ ACTIONS.commExport=()=>{
   toast("✅ Word 文档已生成（用 Word/WPS 直接打开）");
 };
 /* ===== 交互事件 ===== */
-ACTIONS.profPick=id=>{profRemember(id);State.bzrSelId=id;renderKeep();};
+ACTIONS.profPick=id=>{profRemember(id);State.bzrSelId=id;renderKeep();
+  /* v141：点名单条学生后自动定位到档案卡（卡片在名单条下方，保持滚动会让用户以为没反应） */
+  setTimeout(()=>{const c=document.getElementById("profCard");if(c&&c.scrollIntoView)c.scrollIntoView({behavior:"smooth",block:"start"});},60);};
 /* v111 档案卡编辑：看到哪改到哪——复用名册同一套 CRUD 编辑弹窗（同一库同一条记录）；
    若改了姓名，保存时自动全库联动（见 core.js propagateStudentRename） */
 ACTIONS.profEdit=(id,el)=>{
@@ -8373,11 +8378,14 @@ const Sync={
     }
     await this.persistAll();
     this.lastSync=new Date();this.status="on";this._ghErr=null;this.updateChip();
+    /* v141：改动推送成功后给一次明确的云端确认（两段式提示的第二段） */
+    if(this._cloudToastPending){this._cloudToastPending=false;toast("✓ 已备份到云端");}
   },
   /* 改动通知：target=store 名 / meta 键 / "exams"；缺省=全部合并通道标脏 */
   noteChange(target){
     if(!this.ghConn)return;
     if(this.visitorRO())return; /* 访客只读：一切上传停用 */
+    this._cloudToastPending=true; /* v141：有改动待推送 → 云端推送成功后弹一次"已备份"确认 */
     let chs=null;
     if(target==="exams")chs=[]; /* v124 修复：成绩改动只脏成绩通道（examsChanged 已单独标脏），显式空数组=不标任何合并通道 */
     else if(target){
@@ -8647,7 +8655,7 @@ const Sync={
     return `<div class="card"><h3>☁️ 云端同步 · GitHub 私有仓库<span class="sub">六文件分区 · 电脑 / 手机通用</span></h3>
     ${ro?`<div class="notice" style="border-left:4px solid #7c3aed;background:#f5f3ff"><b>👁 访客只读模式已开启</b>：仅拉取「配置 / 年级 / 成绩」三个文件，所有上传已停用，班级/教科室/个人/家校沟通不下载。退出后恢复完整同步。</div>`:""}
     <div style="font-size:13px;margin:6px 0">当前连接：<b>${esc(c.owner)}/${esc(c.repo)}</b>（私有）　·　最后同步：<b>${this.lastSync?esc(this.lastSync.toLocaleString("zh-CN")):"—"}</b>　·　令牌尾号 <b title="用于与令牌文件比对，确认本机缓存的是不是最新令牌">${esc((c.token||"").slice(-6))}</b></div>
-    <div class="muted" style="font-size:12px;margin-bottom:4px">六文件版本：${this.CH.map(ch=>`${ch.label} <b>v${this.chRev(ch)}</b>`).join("　·　")}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:4px">六文件版本：${this.CH.map(ch=>`${ch.label} <b>v${this.chRev(ch)}</b>`).join("　·　")}${typeof CommSync!=="undefined"&&!ro?`　·　家校沟通 <b>v${CommSync.rev||0}</b>（${(State.data.comm||[]).filter(x=>!x.deleted).length} 条）`:``}</div>
     ${errBox}
     <div class="flex" style="margin-top:6px">
       ${ro?"":`<button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>`}
@@ -9012,6 +9020,13 @@ const CommSync={
 
 /* ================= 初始化 ================= */
 async function boot(){
+  /* v141 启动兜底：日期胶囊与同步芯片不依赖数据库/网络，抢先渲染——强刷/慢网时页面不再"死" */
+  try{
+    const d0=new Date();
+    $("#dateBox").innerHTML=`<span class="wx" id="dateWx"></span><span class="pill-date">📅 ${d0.getFullYear()}年${d0.getMonth()+1}月${d0.getDate()}日 ${WEEK[d0.getDay()]}</span>`;
+  }catch(e){}
+  try{if(typeof Sync!=="undefined"&&Sync.updateChip)Sync.updateChip();}catch(e){}
+  setTimeout(()=>{const b=document.getElementById("bootLoading");if(b)toast("网络较慢，仍在加载工作台…（不影响已保存的本机数据）");},8000);
   try{await loadData();}catch(e){console.error(e);}
   // 种子数据：任课教师对照表 + 15班班级课表（首次启动自动填入）
   try{
