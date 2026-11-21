@@ -648,7 +648,7 @@ function updateDockSub(){
   let cur=State.sub[State.route];
   if(State.route==="jw"&&(cur==="roster"||cur==="transfer"||cur==="watch"||cur==="trend"))cur="stu";
   if(!pills){el.classList.remove("show");el.innerHTML="";_dockKey="";return;}
-  const key=State.route+":"+cur;
+  const key=State.route+":"+cur+":"+((typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO())?"ro":"")+((typeof visitorView==="function"&&visitorView())?"vv":"");
   if(key!==_dockKey){
     _dockKey=key;
     el.innerHTML=pills.map(t=>`<div class="dpill${cur===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("");
