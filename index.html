@@ -410,7 +410,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v136";
+window.APP_VERSION="v137";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1115,9 +1115,12 @@ function wkendGridFor(dateStr,opt){
   const wd=new Date(dateStr+"T12:00:00").getDay();
   const segs=wkendSegsFor(wd);
   const my=(settings().myName||"").trim();
+  /* v137：班号规范化——settings().cls 实际值是"15班"（带班字），byCls 键是纯数字"15"，
+     不规范化永远查不到（v128 起绿条不显示补课表的最终根因，测试种子 cls="15" 掩盖了它） */
+  const optCls=opt&&opt.cls!=null?String(opt.cls).replace(/[^0-9]/g,""):null;
   const grid={};
   Object.keys(rot.byCls||{}).forEach(cls=>{
-    if(opt&&opt.cls!=null&&String(cls)!==String(opt.cls))return;
+    if(optCls&&String(cls)!==optCls)return;
     (rot.byCls[cls]||[]).forEach(it=>{
       if(!segs.includes(it.seg))return;
       if(opt&&opt.mine){
@@ -1624,6 +1627,8 @@ function homeClsBarHtml(){
     if(inner)inner+=`<span style="color:#86efac;flex:none">｜</span>`;
     inner+=`<span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">下节 <b>${esc(fmt(nextP))}</b> <span class="muted">${cdHM(r[0])} 开始</span></span>`;
   }
+  /* v137：今天有课但此刻不在任何节次内（节次间空档/全部上完）→ 常驻显示，不再开天窗 */
+  if(!inner&&periods.some(p=>p.type==="class"&&val(p)))inner=`<span style="flex:none">✅ 今日课程已结束</span>`;
   if(!inner)return "";
   return `<div id="homeClsBar" style="display:flex;align-items:center;gap:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:7px 12px;margin-bottom:10px;font-size:12.5px;color:#166534;max-width:100%">
     <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"")))}${isWk?"补课表":"课表"}</span>${inner}</div>`;
@@ -8155,7 +8160,31 @@ const Sync={
       delete State.meta.syncDir;delete State.meta.syncFile;
     }
   },
+  /* v137 指纹-数据一致性自检：清理工具可能只清 IndexedDB 不清 localStorage →
+     applied 指纹残留（与云端 sha 匹配）→ 通道被误判"已应用"而跳过下载 →
+     云端有数据、本机全空的"绿同步"假象（11-21 事故根因）。
+     判定：核心数据通道（jd/ex/gr）任一「有 applied 指纹但本机数据全空」→ 指纹全面失真，
+     重置全部通道指纹并全量重拉（合并语义幂等安全；正常设备不可能出现此状态） */
+  _fixStaleApplied(){
+    const stale=["jd","ex","gr"].some(k=>{
+      const ch=this.CH.find(c=>c.key===k);
+      if(!this.chApplied(ch))return false;
+      if(k==="ex")return !(State.data.exams||[]).length;
+      const stores=ch.stores||[],metas=ch.meta||[];
+      return !stores.some(s=>(State.data[s]||[]).length)&&metas.every(m=>State.meta[m]===undefined||State.meta[m]===null);
+    });
+    if(!stale)return false;
+    console.log("[同步] 指纹与本机数据不一致（可能清理工具只清了部分浏览器数据），重置指纹并重新拉取");
+    toast("🔄 检测到本机数据与同步状态不一致，正在从云端重新拉取全部资料…");
+    for(const ch of this.CH){
+      try{localStorage.removeItem(this._stKey(ch,"applied"));localStorage.removeItem(this._stKey(ch,"rev"));localStorage.removeItem(this._stKey(ch,"sha"));}catch(e){}
+      this.setChDirty(ch,false);
+    }
+    this._failSet&&this._failSet.clear();
+    return true;
+  },
   async _syncAllOnce(){
+    this._fixStaleApplied(); /* v137：先做指纹-数据一致性自检（误清事故根因） */
     await this._migrateLegacy();
     /* v136 单通道容错：一个通道下载失败（大文件截断/网络抖动）不再中断循环，
        其余通道照常同步；失败通道 applied 不写 → 下轮轮询自动重试 */
@@ -8520,6 +8549,7 @@ const Sync={
     <div class="flex" style="margin-top:6px">
       ${ro?"":`<button class="btn primary" data-act="ghUploadNow">⬆️ 立即上传到云端</button>`}
       <button class="btn" data-act="syncCheckNow">🔄 立即检查云端更新</button>
+      ${ro?"":`<button class="btn" data-act="ghResyncAll">⬇️ 从云端恢复全部资料</button>`}
       ${ro?"":`<button class="btn" data-act="ghBackupPanel">🗂 云端备份管理</button>`}
       <button class="btn danger" data-act="ghDisconnect">断开同步</button>
     </div>
@@ -8602,6 +8632,31 @@ ACTIONS.ghNetDiag=async()=>{
 };
 ACTIONS.ghTogglePwd=()=>{const el=$("#ghToken");if(el)el.type=el.type==="password"?"text":"password";};
 ACTIONS.ghDisconnect=()=>{if(confirm("断开后手机/电脑不再自动同步云端，本机数据不受影响。确定断开吗？"))Sync.ghDisconnect();};
+/* v137：从云端恢复全部资料——强制逐通道重拉（无视指纹/rev 门），解决
+   "指纹残留导致通道跳过下载"（11-21 事故）等一切同步失真；访客不提供 */
+ACTIONS.ghResyncAll=async()=>{
+  if(!Sync.ghConn){toast("未连接云端同步");return;}
+  if(Sync.visitorRO()){toast("访客只读模式不提供恢复功能");return;}
+  if(!confirm("将从云端重新拉取全部资料并覆盖本机对应数据：\n· 年级/班级/教科室/个人 = 与云端按记录并集合并\n· 成绩 = 以云端整份覆盖\n· 本机独有的未上传改动会先自动上传再拉取\n\n继续？"))return;
+  Sync.status="sync";Sync.updateChip("恢复中…");
+  try{
+    try{await Sync._pushDirty();}catch(e){console.warn("[恢复] 先推本机改动失败（忽略，继续拉取）:",e&&e.message||e);}
+    for(const ch of Sync.CH){
+      try{localStorage.removeItem(Sync._stKey(ch,"applied"));localStorage.removeItem(Sync._stKey(ch,"rev"));localStorage.removeItem(Sync._stKey(ch,"sha"));}catch(e){}
+      Sync.setChDirty(ch,false);
+    }
+    Sync._failSet&&Sync._failSet.clear();
+    await Sync._syncAllOnce();
+    Sync.status="on";Sync.lastSync=new Date();Sync._ghErr=null;Sync.updateChip();
+    const stat="学生 "+(State.data.students||[]).length+" · 考试 "+(State.data.exams||[]).length+" 场 · 待办 "+(State.data.todos||[]).length+" · 沟通 "+((typeof CommSync!=="undefined"&&CommSync.recs)?CommSync.recs().length:0)+" 条";
+    toast("✅ 云端资料恢复完成："+stat);
+    try{await CommSync.init();}catch(e){}
+    render();
+  }catch(e){
+    Sync._ghErr=(e&&e.message)||String(e);Sync.status="err";Sync.updateChip();
+    toast("恢复中断："+Sync._ghErr+"（已拉取的部分已保存，重试将继续）");
+  }
+};
 ACTIONS.ghUploadNow=async()=>{
   if(!Sync.ghConn){toast("未连接云端同步");return;}
   if(Sync.visitorRO()){toast("访客只读模式：上传已停用");return;}
@@ -8774,7 +8829,13 @@ const CommSync={
   _cachedSha(){try{return localStorage.getItem("tbCloudShaComm")||null;}catch(e){return null;}},
   _saveSha(v){if(v)this.sha=v;try{localStorage.setItem("tbCloudShaComm",v||"");}catch(e){}},
   recs(){return State.data.comm||[];},
-  changed(){this.dirty=true;clearTimeout(this._gt);this._gt=setTimeout(()=>{this.push().catch(()=>{});},1200);},
+  changed(){this.dirty=true;clearTimeout(this._gt);this._gt=setTimeout(()=>{this.push().catch(e=>{
+    /* v137：沟通记录=最重要数据，上传失败不再静默——提示+保留 dirty（下轮轮询补推） */
+    console.error("[沟通] 上传失败：",(e&&e.message)||e);
+    const now=Date.now();
+    if(!this._failAt)this._failAt=0;
+    if(now-this._failAt>300000){this._failAt=now;toast("⚠️ 沟通记录上传失败（网络不稳），已保留待传，稍后自动重试");}
+  });},1200);},
   async persistComm(){
     await DB.clear("comm");
     for(const r of this.recs())await DB.put("comm",r);
@@ -8821,6 +8882,8 @@ const CommSync={
         return true;
       }
     }
+    /* v137：有记录待传时轮询顺手补推（不再只依赖刷新页面时的 init） */
+    if(this.dirty&&!Sync.visitorRO()){this.push().catch(e=>{try{console.error("[沟通] 补推失败：",(e&&e.message)||e);}catch(_e){}});}
     return false;
   },
   async init(){
