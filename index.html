@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v127";
+window.APP_VERSION="v128";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1108,6 +1108,34 @@ function schedRangeOf(timeStr){
   return m?[+m[1]*60+ +m[2],+m[3]*60+ +m[4]]:null;
 }
 function schedNowMinutes(){const d=new Date();return d.getHours()*60+d.getMinutes();}
+/* ===== v128 周末补课表（数据=State.meta.weekend，由「资料上传→导入周末补课表」写入）=====
+   日期→轮次→当日课表格（复用周中作息键）；段按星期几匹配：周六=周六段，周日=周日下午段，
+   调休到工作日的日期按周六段全天。opt.cls=只取某班（绿条/班级课表）；opt.mine=按「我的姓名」
+   过滤全部班级的课（个人课表）。 */
+function wkendSegsFor(wd){return wd===6?["satAM","satPM"]:wd===0?["sunPM"]:["satAM","satPM"];}
+function wkendRotFor(dateStr){const w=State.meta.weekend;return (w&&w.dates&&w.dates[dateStr])||null;}
+function wkendGridFor(dateStr,opt){
+  const rid=wkendRotFor(dateStr);if(!rid)return null;
+  const rot=((State.meta.weekend||{}).rot||{})[rid];if(!rot)return null;
+  const wd=new Date(dateStr+"T12:00:00").getDay();
+  const segs=wkendSegsFor(wd);
+  const my=(settings().myName||"").trim();
+  const grid={};
+  Object.keys(rot.byCls||{}).forEach(cls=>{
+    if(opt&&opt.cls!=null&&String(cls)!==String(opt.cls))return;
+    (rot.byCls[cls]||[]).forEach(it=>{
+      if(!segs.includes(it.seg))return;
+      if(opt&&opt.mine){
+        const tea=String(it.v||"").split(/\s+/).slice(1).join(" ");
+        if(!my||!tea.includes(my))return;
+      }
+      const ks=WK_SEG_KEYS[it.seg]||[];
+      const k=ks[(it.p||1)-1];
+      if(k)grid[k]=it.v;
+    });
+  });
+  return grid;
+}
 function schedTable(key,opt={}){
   const g=State.meta[key]||schedEmpty();
   const periods=schedPeriods();
@@ -1453,14 +1481,16 @@ function collectAgenda(){
   State.data.todos.forEach(t=>{if(!t.done&&t.due)items.push({date:t.due,text:"⏰ 待办截止："+t.content,kind:"待办"});});
   return items.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
 }
-/* 首页·今天的课（时间轴，含"进行中"标记，v58） */
+/* 首页·今天的课（时间轴，含"进行中"标记，v58；v128 补课日自动切周末轮次课表） */
 function homeTodaySched(){
-  const g=State.meta.mySched;if(!g)return {day:WEEK[new Date().getDay()],items:[]};
+  const todayIso=todayStr();
+  const isWk=!!wkendRotFor(todayIso);
   const day=SCHED_DAYS[(new Date().getDay()+6)%7];
   const items=[];
+  const grid=isWk?(wkendGridFor(todayIso,{mine:true})||{}):(State.meta.mySched&&State.meta.mySched[day])||{};
   schedPeriods().forEach(p=>{
     if(p.type!=="class")return;
-    const v=g[day]&&g[day][p.k];
+    const v=grid[p.k];
     if(!v||!v.trim())return;
     items.push({title:p.t,time:p.time||"",v:v.trim(),now:timeRangeNow(p.time)});
   });
@@ -1492,18 +1522,20 @@ function homeCdCalc(items){
     return{color:cdTier(gap),pct:Math.min(1,Math.max(.02,(nxt.r[0]-nm)/total)),
       label:`距下节课 · ${esc(subj)}`,count:gap<1?"马上开始":`${gap} 分钟`,sub:`${cdHM(nxt.r[0])} 上课 · ${esc(nxt.it.title||"")}`};
   }
-  /* 今天课上完了 → 往后找未来 7 天内第一个有课的日子（v64） */
+  /* 今天课上完了 → 往后找未来 7 天内第一个有课的日子（v64；v128 补课日也算有课） */
   const grid=State.meta.mySched;
-  if(grid){
+  if(grid||State.meta.weekend){
     let lastEnd=0;items.forEach(it=>{const pr=parse(it.time);if(pr)lastEnd=Math.max(lastEnd,pr[1]);});
     if(!lastEnd)lastEnd=18*60;
     for(let off=1;off<=7;off++){
       const nd=new Date();nd.setDate(nd.getDate()+off);
       const dayName=SCHED_DAYS[(nd.getDay()+6)%7];
+      const iso=nd.getFullYear()+"-"+String(nd.getMonth()+1).padStart(2,"0")+"-"+String(nd.getDate()).padStart(2,"0");
+      const grid2=wkendRotFor(iso)?(wkendGridFor(iso,{mine:true})||{}):((grid&&grid[dayName])||{});
       const list=[];
       schedPeriods().forEach(p=>{
         if(p.type!=="class")return;
-        const v=grid[dayName]&&grid[dayName][p.k];
+        const v=grid2[p.k];
         if(v&&v.trim()){const r=parse(p.time);if(r)list.push({title:p.t,v:v.trim(),r});}
       });
       const first=list.sort((a,b)=>a.r[0]-b.r[0])[0];
@@ -1531,11 +1563,17 @@ function cdInline(count,color,pct,sub){
    右侧挂下一节（距开始），数据有空洞也不会整段消失；今天课上完才隐藏。
    数据源=State.meta.classSched（班主任班级课表），无课表/今天没课时整条隐藏 ===== */
 function homeClsBarHtml(){
+  /* v128：补课日（weekend 映射表命中今天）→ 绿条切周末轮次课表，标题带"补课表" */
+  const todayIso=todayStr();
+  const isWk=!!wkendRotFor(todayIso);
+  const wkGrid=isWk?wkendGridFor(todayIso,settings().cls):null;
+  if(isWk&&!wkGrid)return ""; /* 补课日但本班整天没排课 → 绿条隐藏 */
   const g=State.meta.classSched;
-  if(!g)return "";
+  if(!isWk&&!g)return "";
   const nm=schedNowMinutes();
   const today=SCHED_DAYS[(new Date().getDay()+6)%7];
-  const val=p=>String((g[today]&&g[today][p.k])||"").trim();
+  const dayGrid=isWk?(wkGrid||{}):(g[today]||{});
+  const val=p=>String(dayGrid[p.k]||"").trim();
   const periods=schedPeriods();
   /* 今天班级课表一格课都没有 → 整条隐藏（避免空课表整天显示"未排课"） */
   if(!periods.some(p=>p.type==="class"&&val(p)))return "";
@@ -1559,7 +1597,7 @@ function homeClsBarHtml(){
   }
   if(!inner)return "";
   return `<div id="homeClsBar" style="display:flex;align-items:center;gap:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:7px 12px;margin-bottom:10px;font-size:12.5px;color:#166534;max-width:100%">
-    <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"")))}课表</span>${inner}</div>`;
+    <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"")))}${isWk?"补课表":"课表"}</span>${inner}</div>`;
 }
 function homeTlHtml(){
   const items=window._homeCdItems||[];
@@ -2187,6 +2225,139 @@ ACTIONS.schedSyncMine=async()=>{
   render();
 };
 
+/* ================= v128 周末补课表导入 =================
+   补课表 sheet：4 套隔周轮换的周末课（2×2 块）。块结构：
+   块首行=日期串（如「9月5.6日 10月17.18日」）→ 下一行=班级号行 → 之后数据行
+   （col0=时段「周六上午/周六下午/周日下午」，col1=节次，col2+=班级格「学科 老师」）。
+   周六=上午5节+下午4节，周日=下午4节，无早/晚自习。
+   日期→段匹配按星期几：周六→周六段，周日→周日下午段，调休到工作日→按周六段全天。
+   节次时间复用周中作息（上午1-5=p02/p04/p06/p08/p09，下午1-4=p12/p14/p16/p17）。 */
+const WK_SEG_KEYS={satAM:["p02","p04","p06","p08","p09"],satPM:["p12","p14","p16","p17"],sunPM:["p12","p14","p16","p17"]};
+function wkendSegKey(label){
+  const s=String(label||"");
+  const day=/周日/.test(s)?"sun":/周六/.test(s)?"sat":"";
+  const part=/下午/.test(s)?"PM":/上午/.test(s)?"AM":"";
+  return day&&part?day+part:"";
+}
+function wkendDateStr(m,d){
+  const now=new Date();
+  const base=now.getMonth()+1>=8?now.getFullYear():now.getFullYear()-1; /* 8月起=本学年，1-7月跨到次年 */
+  const y=m>=8?base:base+1;
+  return y+"-"+String(m).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+}
+function wkendParseDates(text){
+  const out=[];const seen=new Set();
+  String(text||"").split(/\s+/).forEach(tok=>{
+    let lastM=0;
+    /* 日期对写法：「9月5.6日」→ 9月5 + 6日；「10月31.11月1日」→ 10月31 + 11月1日；
+       「9月19.10月11日」→ 9月19 + 10月11日。首段可无「日」，续段月份可省略。 */
+    tok.split(/[.．、，,]/).forEach(pt0=>{
+      const pt=pt0.trim();
+      const m=/^(?:(\d{1,2})月)?(\d{1,2})(?:日)?$/.exec(pt);
+      if(!m||(!m[1]&&!/日$/.test(pt)))return;
+      const mo=m[1]?+m[1]:lastM,dy=+m[2];
+      if(!mo||mo<1||mo>12||dy<1||dy>31)return;
+      lastM=mo;
+      const iso=wkendDateStr(mo,dy);
+      if(!seen.has(iso)){seen.add(iso);out.push(iso);}
+    });
+  });
+  return out;
+}
+function parseWkendGrid(grid){
+  const g=grid||[];
+  const res={rot:[],dates:{},warnings:[],filled:0};
+  /* 1. 找轮次块头：唯一含「N月N日」日期串的单元格（真实格式如「9月5.6日」月与日隔点号，
+        不能用严格的 月DD日 匹配，用"含N月且含N日"宽松识别） */
+  const heads=[];
+  for(let r=0;r<g.length;r++){const row=g[r]||[];
+    for(let c=0;c<row.length;c++){
+      const t=String(row[c]==null?"":row[c]).trim();
+      if(/(\d{1,2})\s*月/.test(t)&&/(\d{1,2})\s*日/.test(t))heads.push({r,c,text:t});
+    }}
+  if(!heads.length)throw new Error("未找到轮次日期串：块首行应含如「9月5.6日 10月17.18日」");
+  const W=Math.max(...g.map(r=>(r||[]).length)); /* 全表宽度：块右界用全局宽（表头行可能比数据行短） */
+  heads.sort((a,b)=>a.r-b.r||a.c-b.c);
+  heads.forEach((h,i)=>{
+    const nextRow=heads.find(x=>x!==h&&x.c===h.c&&x.r>h.r);
+    const nextCol=heads.find(x=>x!==h&&x.r===h.r&&x.c>h.c);
+    const rEnd=nextRow?nextRow.r-1:g.length-1;
+    const cEnd=nextCol?nextCol.c-1:W-1;
+    const dates=wkendParseDates(h.text);
+    if(!dates.length){res.warnings.push("块「"+h.text.slice(0,12)+"…」日期串解析失败，已跳过");return;}
+    const rotId="r"+(i+1);
+    const byCls={};let n=0,curSeg="";
+    const clsCols={};
+    const clsRow=g[h.r+1]||[];
+    for(let c=h.c+2;c<=cEnd;c++){
+      const v=String(clsRow[c]==null?"":clsRow[c]).trim();
+      if(/^\d{1,3}$/.test(v))clsCols[c]=String(parseInt(v,10));
+    }
+    if(!Object.keys(clsCols).length){res.warnings.push("块「"+h.text.slice(0,12)+"…」班级号行未识别，已跳过");return;}
+    for(let r=h.r+2;r<=rEnd;r++){
+      const row=g[r]||[];
+      const lab=String(row[h.c]==null?"":row[h.c]).trim();
+      if(lab)curSeg=wkendSegKey(lab);
+      if(!curSeg)continue;
+      const p=parseInt(String(row[h.c+1]==null?"":row[h.c+1]).trim(),10);
+      if(!p||p<1||p>9)continue;
+      for(const c in clsCols){
+        const v=schedCellText(row[c]);
+        if(!v)continue;
+        const cls=clsCols[c];
+        (byCls[cls]=byCls[cls]||[]).push({seg:curSeg,p,v});
+        n++;
+      }
+    }
+    if(!n){res.warnings.push("块「"+h.text.slice(0,12)+"…」未解析到课表格子，已跳过");return;}
+    dates.forEach(iso=>{
+      if(res.dates[iso]&&res.dates[iso]!==rotId)res.warnings.push(iso+" 同时出现在多个轮次，以后者为准");
+      res.dates[iso]=rotId;
+    });
+    res.rot.push({id:rotId,text:h.text,dates,byCls,n});
+    res.filled+=n;
+  });
+  if(!res.rot.length)throw new Error(res.warnings.join("；")||"补课表解析为空");
+  return res;
+}
+ACTIONS.wkendImport=()=>{
+  openModal("导入周末补课表",`
+    <div class="notice blue">读取课表文件中的「<b>补课表</b>」工作表（4 套隔周轮换的周末课）：自动解析轮次日期串与各班格子。周六=上午5+下午4节、周日=下午4节（节次时间沿用周中作息）。导入后首页「今天的课」在补课日自动切换周末课表，个人课按「我的姓名」自动过滤。</div>
+    <div class="frow"><div class="field"><label>课表文件（.xlsx / .xls）</label><input type="file" id="wkFile" accept=".xlsx,.xls"></div></div>
+    <div id="wkPrev" class="muted"></div>`,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="wkDo" disabled>确认导入</button>`);
+  let parsed=null;
+  $("#wkFile").onchange=async ev=>{
+    const f=ev.target.files[0];if(!f)return;
+    $("#wkPrev").textContent="正在解析…";
+    try{
+      const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});
+      const sn=wb.SheetNames.find(n=>/补课/.test(n));
+      if(!sn)throw new Error("没找到「补课表」工作表（sheet 名需含「补课」）");
+      parsed=parseWkendGrid(XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null}));
+      const wk=d=>["周日","周一","周二","周三","周四","周五","周六"][new Date(d+"T12:00:00").getDay()];
+      const rows=Object.keys(parsed.dates).sort().map(iso=>{
+        const rot=parsed.rot.find(r=>r.id===parsed.dates[iso]);
+        return `<tr><td><b>${iso}</b></td><td>${wk(iso)}</td><td>${escA(parsed.dates[iso])}</td><td class="muted" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escA(rot?rot.text:"")}</td></tr>`;
+      }).join("");
+      const clsN=new Set();parsed.rot.forEach(r=>Object.keys(r.byCls).forEach(c=>clsN.add(c)));
+      $("#wkPrev").innerHTML=`
+        <div class="notice blue">识别到 <b>${parsed.rot.length}</b> 套轮次 · 覆盖 <b>${Object.keys(parsed.dates).length}</b> 个补课日 · <b>${clsN.size}</b> 个班 · 共 <b>${parsed.filled}</b> 格课。<b>请核对「日期→轮次」映射</b>（这是首页判断今天上哪套周末课的依据）：</div>
+        ${parsed.warnings.length?`<div class="notice" style="border-left:4px solid #f97316;background:#fff7ed;margin-top:6px">${parsed.warnings.map(w=>escA(w)).join("<br>")}</div>`:""}
+        <div class="twrap" style="max-height:240px;overflow:auto;margin-top:6px"><table class="tb"><thead><tr><th>日期</th><th>星期</th><th>轮次</th><th>原日期串</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      $("#wkDo").disabled=false;
+    }catch(err){$("#wkPrev").innerHTML=`<span style="color:var(--red)">解析失败：${escA(err.message||String(err))}</span>`;}
+  };
+  $("#wkDo").onclick=async()=>{
+    if(!parsed)return;
+    State.meta.weekend={dates:parsed.dates,rot:{}};
+    parsed.rot.forEach(r=>{State.meta.weekend.rot[r.id]={dates:r.dates,byCls:r.byCls};});
+    await saveMeta("weekend",State.meta.weekend);
+    closeModal();render();
+    toast(`周末补课表已导入：${parsed.rot.length} 套轮次 · ${Object.keys(parsed.dates).length} 个补课日 · ${parsed.filled} 格课`);
+  };
+};
+
 /* ===== v81 模块注册（AppModule 见 core/core.js） ===== */
 AppModule({id:"bzr",icon:"school",label:"班主任",order:2,render:renderBzr});
 
@@ -2659,6 +2830,7 @@ function profileCard(st){
       </div>
       <button class="btn sm" data-act="profEdit" data-id="${st.id}">✏️ 编辑</button>
       <button class="btn sm primary" data-act="commPanel" data-name="${escA(st.name)}" data-cls="${escA(st.cls||"")}">＋ 记录沟通</button>
+      <button class="btn sm${profPrivacyOn()?"":" primary"}" data-act="profPrivacy" id="profPrivacyBtn" title="切换打印模式（本机记住）：隐私=身份证/电话打码；完整=还原真实值">${profPrivacyOn()?"🛡 隐私打印":"📄 完整打印"}</button>
       <button class="btn sm" data-act="profPrint">🖨 打印</button>
       <button class="btn sm" data-go="home" title="回到首页">⬅ 返回首页</button>
     </div>
@@ -2990,16 +3162,28 @@ ACTIONS.profQuickAdd=(id,el)=>{
 };
 ACTIONS.profClear=()=>{State.bzrQ="";State.bzrSelId=null;renderKeep();};
 ACTIONS.profAllScope=()=>{State.bzrCls="all";renderKeep();};
+/* ===== v128 打印隐私开关：默认隐私打印（身份证/电话打码印出，住址保持原样），本机记住选择；
+   完整打印=旧口径B（还原真实值），先 confirm 防误触。隐私打印前先把屏显上已点开展开的
+   打码字段全部折叠回打码态——防止刚核对过真值就直接印出去。 ===== */
+function profPrivacyOn(){try{return localStorage.getItem("bzrPrintPrivacy")!=="0";}catch(e){return true;}}
+ACTIONS.profPrivacy=()=>{
+  const on=profPrivacyOn();
+  try{localStorage.setItem("bzrPrintPrivacy",on?"0":"1");}catch(e){}
+  toast(on?"已切换：📄 完整打印（将输出真实身份证/电话）":"已切换：🛡 隐私打印（敏感信息打码）");
+  render();
+};
 ACTIONS.profPrint=()=>{
   const card=document.getElementById("profCard");if(!card)return;
+  const privacy=profPrivacyOn();
+  if(!privacy&&!confirm("完整打印将包含身份证、电话等真实敏感信息，确定继续？"))return;
   /* 打印专用：卡片临时搬到 body 顶层（配合 @media print 只显示它），打完放回原位 */
   const anchor=card.parentElement,next=card.nextSibling;
   document.body.appendChild(card);
-  /* 口径B：打印永远输出真实值——临时还原所有打码字段，打印完恢复打码显示 */
   const restore=[];
   card.querySelectorAll("[data-mid]").forEach(el=>{
     const m=_maskMap[el.dataset.mid];if(!m)return;
-    restore.push([el,el.textContent]);el.textContent=m.val;
+    restore.push([el,el.textContent]);
+    el.textContent=privacy?(m.kind==="id"?maskId(m.val):maskTel(m.val)):m.val;
   });
   let done=false;
   const fin=()=>{if(done)return;done=true;
@@ -3010,6 +3194,7 @@ ACTIONS.profPrint=()=>{
   window.print();
   fin(); /* 阻塞式打印对话框关闭后返回即还原；afterprint 兜底（幂等） */
   if(anchor)anchor.insertBefore(card,next);else document.body.appendChild(card); /* 放回原位 */
+  toast(privacy?"已按隐私模式打印（身份证/电话打码，住址保持原样）":"已按完整模式打印（含真实敏感信息）");
 };
 ACTIONS.maskToggle=(id,el)=>{
   const m=_maskMap[el.dataset.mid];if(!m)return;
@@ -3438,7 +3623,7 @@ function setTabUpload(){
     <div style="margin:14px 0 4px 2px;font-size:12px;color:var(--muted,#64748b)">— 其他资料 —</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
     ${card("📊","考试成绩","支持 .xlsx / .xls / .csv：自动定位表头、识别选科列与排名列。导入后自动进「年级→考试与成绩」。",`<button class="btn primary" data-act="importStart">＋ 导入考试成绩</button>`)}
-    ${card("🏫","课表（班级+个人）","导入学校 Excel 课表：写入班级课表，并按「我的姓名」自动提取个人课表（驱动首页绿条与今日课程）。",`<button class="btn primary" data-act="schedImport">📥 导入 Excel 课表</button>`)}
+    ${card("🏫","课表（班级+个人+周末补课）","导入学校 Excel 课表：写入班级课表，并按「我的姓名」自动提取个人课表（驱动首页绿条与今日课程）。<b>周末补课</b>：读「补课表」sheet 的 4 套隔周轮次，补课日首页自动切周末课表。",`<button class="btn primary" data-act="schedImport">📥 导入 Excel 课表</button><button class="btn" data-act="wkendImport">📥 导入周末补课表</button>`)}
     ${card("👩‍🏫","教师任课对照","从学校任课表 Excel 复制后粘贴导入：按「班级+科目」原位更新，不产生重复；驱动教师维度对比。",`<button class="btn primary" data-act="teachersPaste">📋 批量粘贴导入</button>`)}
     </div>
     <div style="margin:14px 0 4px 2px;font-size:12px;color:var(--muted,#64748b)">— 官方格式文件（上级/系统下发的原件，无法要求按总表填，各自专属解析；平时不用管）—</div>
@@ -7642,7 +7827,7 @@ const Sync={
     {key:"cfg",file:"配置.json",app:"tbCfg",meta:["settings","periods","seededClsSched","seededTeachers"],stores:[],label:"配置"},
     {key:"jd",file:"年级.json",app:"tbJd",meta:["kbKid","kbCombo","kbDef"],stores:["students","transfers","teachers","examplan","invigilate"],label:"年级"},
     {key:"ex",file:"成绩数据.json",app:"teacherBoardExams",stores:["exams"],mode:"replace",label:"成绩"},
-    {key:"cls",file:"班级.json",app:"tbCls",meta:["classSched","mySched","commMigrated"],stores:["duties","activities","contacts"],label:"班级"},
+    {key:"cls",file:"班级.json",app:"tbCls",meta:["classSched","mySched","weekend","commMigrated"],stores:["duties","activities","contacts"],label:"班级"},
     {key:"jks",file:"教科室.json",app:"tbJks",meta:[],stores:["projects","projTasks","docs","archive","achievements","jyacts","files"],label:"教科室"},
     {key:"gr",file:"个人.json",app:"tbGr",meta:[],stores:["todos","notes","events"],label:"个人"},
   ],
