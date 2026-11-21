@@ -415,7 +415,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v129";
+window.APP_VERSION="v130";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1468,21 +1468,36 @@ document.addEventListener("keydown",e=>{
 });
 gsInit();
 /* ===== v129 深链直达：URL 带 #q=名字（桌面小组件查学生用）=====
-   唯一匹配 → 直接打开档案卡；多个候选 → 填入搜索框展示候选让用户选 */
+   v130 重写：轮询等待学生数据就绪（boot 异步加载 IndexedDB，固定 700ms 会跳空），
+   就绪后：唯一匹配直达档案卡；多同名 → 打开档案页并按名字过滤名单条让用户消歧；
+   无匹配 → 提示。跳转后清掉 URL 参数防刷新重复执行。 */
 function gsDeepLink(){
   try{
     const m=/[?#]q=([^&]+)/.exec(location.href);
     if(!m)return;
-    const name=decodeURIComponent(m[1].replace(/\+/g," "));
-    if(!String(name).trim())return;
-    setTimeout(()=>{
-      const hits=gsMatches(name);
-      if(hits.length===1){gsGo(hits[0].id);}
-      else{
-        const inp=document.getElementById("gsq");
-        if(inp){inp.value=name;inp.focus();inp.dispatchEvent(new Event("input"));}
+    const name=decodeURIComponent(m[1].replace(/\+/g," ")).trim();
+    if(!name){history.replaceState(null,"",location.pathname);return;}
+    let n=0;
+    const t=setInterval(()=>{
+      n++;
+      const ready=(State.data.students||[]).length>0;
+      if(!ready){
+        if(n<40)return; /* 最多等 20 秒，放弃并清参数 */
+        clearInterval(t);history.replaceState(null,"",location.pathname);
+        return;
       }
-    },700);
+      clearInterval(t);
+      history.replaceState(null,"",location.pathname);
+      const hits=gsMatches(name);
+      if(hits.length===1){gsGo(hits[0].id);return;}
+      if(hits.length>1){
+        State.bzrQ=name;State.bzrSelId=null;State.bzrCls=null;
+        go("bzr","profile");
+        toast("找到 "+hits.length+" 位「"+name+"」，请在名单条中点选对应班级的学生");
+        return;
+      }
+      toast("没有找到名为「"+name+"」的学生");
+    },500);
   }catch(e){console.error(e);}
 }
 gsDeepLink();
