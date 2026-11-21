@@ -44,7 +44,6 @@ input,select,textarea{font-family:inherit;font-size:14px;color:var(--text)}
 /* v112 扁平导航图标（描边 SVG，单色随主题） */
 .ico{width:15px;height:15px;display:inline-block;vertical-align:-3px;margin-right:4px}
 #nav .tab .icon .ico{width:27px;height:27px;vertical-align:-7.5px;margin-right:0}
-.qi .ico{width:17px;height:17px;vertical-align:-3.5px;margin-right:0}
 @media(max-width:600px){#gsq{width:120px}#gsList{width:230px}}
 #cloudChip{flex:0 0 auto;font-size:12px}
 #nav{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:49}
@@ -204,19 +203,15 @@ table.tb tr.hl td{background:#fffbeb}
 .nexttag{color:#0d9488;font-weight:600;font-size:10px;margin-left:2px;opacity:.85}
 .sched td.breakrow.nowbreak{background:repeating-linear-gradient(45deg,#ecfdf5,#ecfdf5 8px,#d1fae5 8px,#d1fae5 16px)}
 /* 首页 hero 问候条 + 快捷入口（v58） */
-.hero{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:14px;padding:18px 22px;color:#fff;margin-bottom:12px;box-shadow:0 8px 24px rgba(37,99,235,.22)}
-.hero-greet{font-size:20px;font-weight:700}
+.hero{background:linear-gradient(135deg,#1d4ed8,#3b82f6);border-radius:14px;padding:12px 18px 10px;color:#fff;margin-bottom:12px;box-shadow:0 8px 24px rgba(37,99,235,.22)}
+.hero-top{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}.hero-greet{font-size:19px;font-weight:700}
 .hero-date{font-size:13px;opacity:.85;margin-top:2px}
-.hero-stats{display:flex;gap:10px;flex-wrap:wrap}
+.hero-stats{display:flex;gap:8px;flex-wrap:wrap}.hero-quick{display:flex;gap:7px;overflow-x:auto;border-top:1px solid rgba(255,255,255,.28);margin-top:8px;padding-top:8px;scrollbar-width:none}.hero-quick::-webkit-scrollbar{display:none}.hqi{background:rgba(255,255,255,.14);border:none;border-radius:9px;padding:5px 11px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-weight:500}.hqi:hover{background:rgba(255,255,255,.26)}.hqi .ico{width:15px;height:15px;flex:none}
 .hstat{display:flex;flex-direction:column;align-items:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:8px 14px;color:#fff;cursor:pointer;min-width:78px}
 .hstat:hover{background:rgba(255,255,255,.28)}
 .hstat b{font-size:20px;line-height:1.2}
 .hstat span{font-size:11px;opacity:.92}
 .hstat.bad{background:#dc2626;border-color:#fca5a5}
-.quicknav{display:flex;justify-content:center;gap:10px;margin-bottom:12px;overflow-x:auto}
-.qnav{flex:0 0 84px;display:flex;flex-direction:column;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 4px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);box-shadow:var(--shadow)}
-.qnav:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-1px)}
-.qnav .qi{font-size:26px;line-height:1.1}
 /* 首页·今天的课：时间轴（v58） */
 .tl{margin-left:8px}
 .tl-item{position:relative;padding:0 0 14px 18px;border-left:2px solid var(--line)}
@@ -415,7 +410,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v134";
+window.APP_VERSION="v135";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1600,7 +1595,7 @@ function homeClsBarHtml(){
   /* v128：补课日（weekend 映射表命中今天）→ 绿条切周末轮次课表，标题带"补课表" */
   const todayIso=todayStr();
   const isWk=!!wkendRotFor(todayIso);
-  const wkGrid=isWk?wkendGridFor(todayIso,settings().cls):null;
+  const wkGrid=isWk?wkendGridFor(todayIso,{cls:settings().cls}):null; /* v135 修复：必须传 {cls:..} 对象，原直传字符串导致班过滤失效、全班混采被最大班号覆盖（显示成 21 班张德民） */
   if(isWk&&!wkGrid)return ""; /* 补课日但本班整天没排课 → 绿条隐藏 */
   const g=State.meta.classSched;
   if(!isWk&&!g)return "";
@@ -1674,6 +1669,8 @@ function homeSchedRefresh(){
 setInterval(homeSchedRefresh,30000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)homeSchedRefresh();});
 /* 问候横条：所有主页面顶部共用（v61） */
+/* v135 快捷入口（原 renderHome 独立白卡排，融合进蓝色 hero 条内） */
+const HQ_NAV=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
 function heroBar(){
   const today=todayStr();
   const todos=State.data.todos.filter(t=>!t.done);
@@ -1685,14 +1682,19 @@ function heroBar(){
   const s=settings();
   const hh=new Date().getHours();
   const greet=hh<6?"夜深了":hh<9?"早上好":hh<12?"上午好":hh<14?"中午好":hh<18?"下午好":"晚上好";
+  /* v118 领导视图：访客快捷入口=年级类 + 学生档案（班主任模块仅开放档案单页） */
+  const hq=visitorView()?HQ_NAV.filter(q=>q[0]==="jw"||(q[0]==="bzr"&&q[1]==="profile")):HQ_NAV;
   return `<div class="hero">
-    <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
-    <div class="hero-stats">
-      <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
-      <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
-      <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
-      <button class="hstat" data-go="gr" data-sub="events"><b>${week7}</b><span>近7天事项</span></button>
+    <div class="hero-top">
+      <div class="hero-l"><div class="hero-greet">${greet}，${esc(s.myName||"老师")}</div><div class="hero-date">${esc(today)} ${WEEK[new Date().getDay()]}<span class="wx" id="heroWx"></span></div></div>
+      <div class="hero-stats">
+        <button class="hstat${overdue.length?" bad":""}" data-go="gr" data-sub="todos"><b>${overdue.length}</b><span>逾期待办</span></button>
+        <button class="hstat" data-go="gr" data-sub="todos"><b>${todayTodos.length}</b><span>今日待办</span></button>
+        <button class="hstat" data-go="gr" data-sub="mysched"><b>${sched.items.length}</b><span>今日课程</span></button>
+        <button class="hstat" data-go="gr" data-sub="events"><b>${week7}</b><span>近7天事项</span></button>
+      </div>
     </div>
+    <div class="hero-quick">${hq.map(q=>`<button class="hqi" data-go="${q[0]}" data-sub="${q[1]}">${ico(q[2])}${q[3]}</button>`).join("")}</div>
   </div>`;
 }
 function renderHome(){
@@ -1710,14 +1712,8 @@ function renderHome(){
     const d=Math.min(...[p.midDate,p.endDate].filter(Boolean).map(daysFromToday).filter(x=>x!=null&&x>=0).map(x=>x),999);
     return d<=30;}).map(p=>p);
   const upcomingTasks=State.data.projTasks.filter(t=>!t.done&&t.due&&daysFromToday(t.due)>=0&&daysFromToday(t.due)<=7);
-  /* v105 快捷入口：修 kb→plan 深链 bug；加入学生档案；按使用频率排序
-     v111：学生查询页已移除（查人走学生档案/全局搜索），快捷入口改指学生名册
-     v112：图标扁平化（ico 键），⚠️ 离线版变换 4e 锚点同步维护 */
-  const qnAll=[["gr","todos","check","待办事项"],["bzr","sched","cal","班级课表"],["bzr","profile","user","学生档案"],["bzr","score","grade","班级成绩"],["jw","overview","pie","年级总览"],["jw","roster","users","学生名册"],["jw","plan","clip","考试日程"],["gr","events","cal","日程"]];
-  /* v118 领导视图：访客快捷入口=年级类 + 学生档案（班主任模块仅开放档案单页） */
-  const qn=visitorView()?qnAll.filter(q=>q[0]==="jw"||(q[0]==="bzr"&&q[1]==="profile")):qnAll;
+  /* v135 快捷入口已融合进 hero 蓝条（hero-quick），此处不再渲染独立卡排 */
   return `
-  <div class="quicknav">${qn.map(q=>`<button class="qnav" data-go="${q[0]}" data-sub="${q[1]}"><span class="qi">${ico(q[2])}</span>${q[3]}</button>`).join("")}</div>
   <div class="grid2">
     <div class="card"><h3>⏰ 待办事项 <span class="sub">${overdue.length?`<span class="tag t-red">${overdue.length} 项逾期</span>`:""}今天 ${todayTodos.length} 项</span>
       <span class="spacer"></span><button class="btn sm" data-go="gr" data-sub="todos">全部待办 →</button></h3>
