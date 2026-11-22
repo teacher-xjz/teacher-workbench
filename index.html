@@ -431,7 +431,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v146";
+window.APP_VERSION="v147";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2747,7 +2747,11 @@ function addrShort(s){
   let a=String(s||"").trim();if(!a)return "";
   const m=a.match(/[\u4e00-\u9fa5]{0,4}镇/);
   if(m&&m.index<14)return a.slice(m.index);
-  return a.replace(/^.*?[县区旗]/,"");
+  /* v147：剥"省/县/区"前缀要求后面还有内容（(?=.)），否则"同州街道信义社区"这类
+     "……社区"结尾的地址会被结尾的"区"整段吞空、档案卡显示成"—"（熊静兰/李庆案例）；
+     截短结果为空则退回原地址 */
+  const t=a.replace(/^.*?省/,"").replace(/^.*?[县区旗](?=.)/,"");
+  return t||a;
 }
 function birthFromId(t){
   const s=String(t||"").replace(/\s+/g,"");
