@@ -431,7 +431,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v147";
+window.APP_VERSION="v148";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -457,7 +457,7 @@ function nowLocal(){const d=new Date();return todayStr()+" "+pad2(d.getHours())+
 function dateD(s){if(!s)return null;const p=String(s).split("-").map(Number);if(p.length<3||!p[0])return null;return new Date(p[0],p[1]-1,p[2]);}
 function daysFromToday(s){const d=dateD(s);if(!d)return null;const t=new Date();t.setHours(0,0,0,0);d.setHours(0,0,0,0);return Math.round((d-t)/864e5);}
 function fmtMD(s){const d=dateD(s);return d?(d.getMonth()+1)+"月"+d.getDate()+"日":(s||"");}
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._tm);t._tm=setTimeout(()=>t.classList.remove("show"),2200);}
+function toast(m,ms){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._tm);t._tm=setTimeout(()=>t.classList.remove("show"),ms||2200);}
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
 function num(v){if(v==null||String(v).trim()==="")return null;const n=Number(v);return isNaN(n)?null:n;}
 function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;}
@@ -3090,6 +3090,7 @@ function commTimeline(list){
 function commWhoOptions(st){
   const opts=[];
   if(st){
+    if(st.name)opts.push({v:"本|"+st.name,t:"本人 "+st.name});
     if(st.father)opts.push({v:"父|"+st.father,t:"父亲 "+st.father});
     if(st.mother)opts.push({v:"母|"+st.mother,t:"母亲 "+st.mother});
   }
@@ -3101,12 +3102,12 @@ ACTIONS.commPanel=(id,el)=>{
   let st=null;
   if(name){st=State.data.students.find(s=>s.name===name&&(!cls||String(s.cls||"")===String(cls)))||State.data.students.find(s=>s.name===name);}
   const scope=profStudents();
-  const opts=commWhoOptions(st);
+  const opts=commWhoOptions(st||State.data.students.find(x=>x.id===(scope[0]&&scope[0].id)));
   openModal("＋ 记录沟通"+(st?` · ${esc(st.name)}（${escA(clsLabel(st.cls||""))}）`:""),`
     ${st?"":`<div class="frow" style="margin-bottom:6px"><div class="field"><label>学生</label><select id="commStu">${scope.map(s=>`<option value="${escA(s.id)}">${escA(s.name)}（${escA(clsLabel(s.cls||""))}）</option>`).join("")}</select></div></div>`}
     <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
       <input type="datetime-local" id="commDt" value="${escA(nowLocal().replace(" ","T"))}" style="width:180px">
-      <select id="commWay" style="width:84px">${["电话","微信","面谈","家访","其他"].map(w=>`<option>${w}</option>`).join("")}</select>
+      <select id="commWay" style="width:84px">${["面谈","电话","微信","家访","其他"].map(w=>`<option>${w}</option>`).join("")}</select>
       <select id="commWho">${opts.map(o=>`<option value="${escA(o.v)}">${escA(o.t)}</option>`).join("")}</select>
     </div>
     <div style="margin-bottom:6px" id="commTopicBar">${["成绩反馈","行为表现","身心健康","请假事务","其他"].map((t,i)=>commTag(t,i===0)).join("")}</div>
@@ -3135,7 +3136,7 @@ ACTIONS.commPanel=(id,el)=>{
     const whoV=$("#commWho").value.split("|");
     const dt=$("#commDt").value.trim().replace("T"," ");
     await putRec("comm",{cls:stu.cls||"",name:stu.name,dt:dt||nowLocal(),ts:Date.now(),
-      way:$("#commWay").value,rel:whoV[0]==="父"?"父亲":whoV[0]==="母"?"母亲":"其他",who:whoV[1]||$("#commWho").options[$("#commWho").selectedIndex].text.replace(/^其他（手填）$/,"其他"),
+      way:$("#commWay").value,rel:whoV[0]==="本"?"本人":whoV[0]==="父"?"父亲":whoV[0]==="母"?"母亲":"其他",who:whoV[0]==="本"?(whoV[1]||stu.name):(whoV[1]||$("#commWho").options[$("#commWho").selectedIndex].text.replace(/^其他（手填）$/,"其他")),
       topic:State._commTopic||"其他",content,follow:$("#commFollow").value.trim(),by:(settings().myName||"").trim()});
     closeModal();render();
     toast("已保存 · 约1秒后自动上传云端");
@@ -4205,20 +4206,20 @@ ACTIONS.archExam=async id=>{
   try{
     await Sync.examArchive(e);
     Sync.status="on";Sync.lastSync=new Date();Sync.updateChip();
-    toast("✅ 已归档「"+e.name+"」：归档文件已上传，主文件正在瘦身重传");
+    toast("✅ 已归档「"+e.name+"」：归档文件已上传，主文件正在瘦身重传",6000);
   }catch(err){
     Sync.status=Sync.ghConn?"on":"off";Sync.updateChip();
     const m=(err&&err.message)||String(err);
     toast(m==="EXISTS"
       ?"云端已存在该考试的归档文件（此前可能归档过）。本机数据未变动，该考试仍在主文件中正常使用。"
-      :"归档失败："+m+"（本机数据未变动）");
+      :"归档失败："+m+"（本机数据未变动）",6000);
   }
   render();
 };
 ACTIONS.viewExam=id=>{State.currentExamId=id;go("jw","overview");};
 ACTIONS.delExam=async id=>{
   const e=examById(id);if(!e)return;
-  if(e.arch){toast("已归档考试锁定，不能删除（归档文件一次写入永不改动；修改数据会自动解除归档）");return;}
+  if(e.arch){toast("已归档考试锁定，不能删除（归档文件一次写入永不改动；修改数据会自动解除归档）",6000);return;}
   if(!confirm(`确定删除考试「${e.name}」及其全部成绩数据吗？`))return;
   await delRec("exams",id);toast("已删除");render();
 };
@@ -5490,7 +5491,7 @@ ACTIONS.saveLines=async()=>{
 };
 ACTIONS.clearExamLines=async id=>{
   const exam=examById(id);if(!exam)return;
-  if(exam.arch){toast("已归档考试锁定，划线不可修改（修改数据会自动解除归档）");return;}
+  if(exam.arch){toast("已归档考试锁定，划线不可修改（修改数据会自动解除归档）",6000);return;}
   if(!confirm("清除该考试的自定义分数线，改用全局默认线？"))return;
   delete exam.lines;
   await putRec("exams",exam);
@@ -5499,7 +5500,7 @@ ACTIONS.clearExamLines=async id=>{
 /* v80：考试级划线覆盖入口 —— 「考试与成绩」每场考试行的「📐 划线覆盖」按钮弹窗 */
 ACTIONS.examLinesModal=id=>{
   const exam=examById(id);if(!exam){toast("考试不存在");return;}
-  if(exam.arch){toast("已归档考试锁定，划线覆盖不可修改（修改数据会自动解除归档）");return;}
+  if(exam.arch){toast("已归档考试锁定，划线覆盖不可修改（修改数据会自动解除归档）",6000);return;}
   State.lnScope=id; /* saveLines/clearExamLines 按此定位考试 */
   openModal("📐 划线覆盖 · "+exam.name,linesPanel(exam,true),
     `<button class="btn" data-act="closeModal">关闭</button>`);
@@ -7401,7 +7402,7 @@ function rosterCheckResult(exam){
 }
 ACTIONS.examRosterCheck=id=>{
   const e=examById(id);if(!e)return;
-  if(e.arch){toast("已归档考试锁定，考后核对不可再用（补缺考行等操作会改动数据）");return;}
+  if(e.arch){toast("已归档考试锁定，考后核对不可再用（补缺考行等操作会改动数据）",6000);return;}
   const C=rosterCheckResult(e);
   const snap=C.snap,rows=C.rows,absent=C.absent,missing=C.missing,extra=C.extra,moved=C.moved;
   const lis=(arr,f)=>arr.length?arr.slice(0,30).map(f).join("、")+(arr.length>30?` 等${arr.length}人`:""):"<b>无 ✓</b>";
@@ -7996,7 +7997,7 @@ const Sync={
     if(added){await this.persistAll();toast("📦 已从云端补齐 "+added+" 场归档考试");}
     if(failed){
       const now=Date.now();
-      if(now-(this._archFailAt||0)>300000){this._archFailAt=now;toast("⚠️ "+failed+" 场归档考试下载失败（网络不稳），稍后自动重试");}
+      if(now-(this._archFailAt||0)>300000){this._archFailAt=now;toast("⚠️ "+failed+" 场归档考试下载失败（网络不稳），稍后自动重试",6000);}
     }
   },
   /* 归档文件只允许"新建"，绝不覆盖（422/409=已存在 → 明确报错，不取新 sha 重写） */
