@@ -439,7 +439,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v149";
+window.APP_VERSION="v150";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7114,15 +7114,17 @@ ACTIONS.bzrReportExport=()=>{
   download(`考试分析报告_${cls}班_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
   toast("已导出分析数据（含口径与来源），可据此生成 PPT");
 };
-/* ================= v149：线上生与临界生名单导出 =================
+/* ================= v149/v150：线上生与临界生名单导出 =================
    一份 Excel：总览 / 总分名单 / 每科一个 sheet / 口径说明。
    四类独立分组（本科上线→本科临界→特控上线→特控临界，本科特控分开）；
-   总分按总分浮动、单科按单科浮动（留空沿用总分）；临界按距线差值降序（最接近线的排最前）。 */
+   总分按总分浮动、单科按单科浮动（留空沿用总分）；临界按距线差值降序（最接近线的排最前）。
+   v150：每 sheet 两行动态表头（年级名/班级名自动带入）+ 序号列 + 总览竖排 +
+   全 sheet 显式列宽（A4 纵向直接打印）+ 口径说明含打印说明。 */
 function lnNamesCollect(exam,scopeCls){
   const rows=exam.rows.filter(r=>scopeCls==="__all"||String(r.cls)===String(scopeCls));
-  const blk=(title,line,rng,list,head)=>({title,line,rng,list,head});
+  const blk=(title,line,rng,list)=>({title,line,rng,list});
   const sortUp=(a,b)=>b.v-a.v, sortCrit=(a,b)=>b.d-a.d; /* 临界：距线差值降序=最接近线在前 */
-  const out={total:[],subj:{},cnt:{total:{},subj:{}}}; /* cnt[方向]={passUp,passCr,excUp,excCr} */
+  const out={total:[],subj:{},cnt:{total:{},subj:{}}};
   ["物理","历史"].forEach(d=>{
     const c={passUp:0,passCr:0,excUp:0,excCr:0};
     const rowsD=rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
@@ -7134,8 +7136,8 @@ function lnNamesCollect(exam,scopeCls){
       const cr=rowsD.map(r=>({r,v:r.total,d:r.total-line})).filter(x=>x.d<0&&x.d>=rng.lo).sort(sortCrit);
       c[kind==="pass"?"passUp":"excUp"]=up.length;
       c[kind==="pass"?"passCr":"excCr"]=cr.length;
-      if(up.length)out.total.push(blk(`${kLab}上线 · ${d}方向 · 线${line} · 共${up.length}人`,line,rng,up,["班级","姓名","方向","总分","线","距线"]));
-      if(cr.length)out.total.push(blk(`${kLab}临界 · ${d}方向 · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr,["班级","姓名","方向","总分","线","距线"]));
+      if(up.length)out.total.push(blk(`${kLab}上线 · ${d}方向 · 线${line} · 共${up.length}人`,line,rng,up));
+      if(cr.length)out.total.push(blk(`${kLab}临界 · ${d}方向 · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr));
     });
     out.cnt.total[d]=c;
   });
@@ -7156,21 +7158,30 @@ function lnNamesCollect(exam,scopeCls){
         c[kind==="pass"?"passUp":"excUp"]=up.length;
         c[kind==="pass"?"passCr":"excCr"]=cr.length;
         const dTxt=d?d+"方向":"";
-        const cols=["班级","姓名","方向",subj,"线","距线","总分"];
         const arr=out.subj[subj]=out.subj[subj]||[];
-        if(up.length)arr.push(blk(`${kLab}上线${dTxt?" · "+dTxt:""} · 线${line} · 共${up.length}人`,line,rng,up,cols));
-        if(cr.length)arr.push(blk(`${kLab}临界${dTxt?" · "+dTxt:""} · 线${line} · 浮动${critRangeTxt(exam,kind,true)} · 共${cr.length}人`,line,rng,cr,cols));
+        if(up.length)arr.push(blk(`${kLab}上线${dTxt?" · "+dTxt:""} · 线${line} · 共${up.length}人`,line,rng,up));
+        if(cr.length)arr.push(blk(`${kLab}临界${dTxt?" · "+dTxt:""} · 线${line} · 浮动${critRangeTxt(exam,kind,true)} · 共${cr.length}人`,line,rng,cr));
       });
     });
     if(out.subj[subj])out.cnt.subj[subj]=blocks;
   });
   return out;
 }
-function lnBlkAoa(blk,isTotal){
-  const aoa=[[blk.title],blk.head];
-  blk.list.forEach(x=>{
-    if(isTotal)aoa.push([x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d]);
-    else aoa.push([x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d,x.r.total!=null?x.r.total:""]);
+/* 名单块 → aoa（v150：首列序号；单班版省班级列；subj=单科 sheet 传入科目名做列头） */
+function lnBlkAoa(blk,isTotal,isAll,subj){
+  const head=isTotal
+    ?(isAll?["序号","班级","姓名","方向","总分","线","距线"]:["序号","姓名","方向","总分","线","距线"])
+    :(isAll?["序号","班级","姓名","方向",subj||"","线","距线","总分"]:["序号","姓名","方向",subj||"","线","距线","总分"]);
+  const aoa=[[blk.title],head];
+  blk.list.forEach((x,i)=>{
+    const n=i+1;
+    if(isTotal){
+      if(isAll)aoa.push([n,x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d]);
+      else aoa.push([n,x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d]);
+    }else{
+      if(isAll)aoa.push([n,x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d,x.r.total!=null?x.r.total:""]);
+      else aoa.push([n,x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d,x.r.total!=null?x.r.total:""]);
+    }
   });
   aoa.push([]);
   return aoa;
@@ -7184,7 +7195,7 @@ ACTIONS.linesExportModal=()=>{
   const body=`<div class="frow" style="flex-direction:column;gap:10px">
     <div class="field"><label>考试</label><select id="lnxExam">${exs.map(e=>`<option value="${escA(e.id)}"${cur&&e.id===cur.id?" selected":""}>${escA(e.name)}（${escA(e.date||"")}）${e.arch?" · 已归档":""}</option>`).join("")}</select></div>
     <div class="field"><label>范围</label><select id="lnxCls">${clsOpts.join("")}</select></div>
-    <div class="muted" style="font-size:12px">导出内容：总览（各科四类人数）+ 总分名单 + 每科一个 sheet + 口径说明；本科/特控分开列，临界生按距线差值排序（最接近线的排最前）。单科临界按单科浮动算（留空沿用总分浮动）。</div></div>`;
+    <div class="muted" style="font-size:12px">导出内容：总览（各科四类人数）+ 总分名单 + 每科一个 sheet + 口径说明；本科/特控分开列，临界生按距线差值排序（最接近线的排最前），名单带序号。已按 A4 纵向排版（表头自动带年级名/班级名），打开直接打印即可。</div></div>`;
   openModal("导出线上生 / 临界生名单",body,
     `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="lnxGo">⬇️ 导出 Excel</button>`);
   $("#lnxGo").onclick=()=>{
@@ -7198,34 +7209,49 @@ ACTIONS.linesExportModal=()=>{
 function lineNamesXlsx(exam,scopeCls){
   const P=lnNamesCollect(exam,scopeCls);
   const subjects=(exam.subjects||[]).filter(s=>P.subj[s]&&P.subj[s].length);
-  const scopeTxt=scopeCls==="__all"?"全年级":scopeCls+"班";
+  const isAll=scopeCls==="__all";
+  const scopeTxt=isAll?"全年级":scopeCls+"班";
+  const grade=(settings().grade||"").trim();
+  const title1=(grade?grade+" ":"")+scopeTxt+" 线上生/临界生名单";
+  const title2="考试："+exam.name+"（"+(exam.date||"")+"） · 范围："+scopeTxt+" · 导出："+new Date().toLocaleString("zh-CN")+" · 本科临界"+critRangeTxt(exam,"pass")+" · 特控临界"+critRangeTxt(exam,"exc");
   const wb=XLSX.utils.book_new();
-  const add=(name,aoa)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),name);
-  /* Sheet1 总览 */
-  const ov=[["科目","物理·本科上线","物理·本科临界","物理·特控上线","物理·特控临界","历史·本科上线","历史·本科临界","历史·特控上线","历史·特控临界"]];
+  const mkSheet=(aoa,widths)=>{
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    if(widths)ws["!cols"]=widths.map(w=>({wch:w}));
+    const n=widths?widths.length:1;
+    ws["!rows"]=[{hpt:26},{hpt:18}];
+    ws["!merges"]=[{s:{r:0,c:0},e:{r:0,c:n-1}},{s:{r:1,c:0},e:{r:1,c:n-1}}];
+    return ws;
+  };
+  const add=(name,aoa,widths)=>XLSX.utils.book_append_sheet(wb,mkSheet(aoa,widths),name);
+  /* Sheet1 总览（v150 竖排：科目|方向|四类人数） */
+  const ov=[[title1],[title2],["科目","方向","本科上线","本科临界","特控上线","特控临界"]];
   const row4=c=>[c.passUp,c.passCr,c.excUp,c.excCr];
-  const t1=P.cnt.total["物理"]||{passUp:0,passCr:0,excUp:0,excCr:0},t2=P.cnt.total["历史"]||{passUp:0,passCr:0,excUp:0,excCr:0};
-  ov.push(["总分",...row4(t1),...row4(t2)]);
+  const zero={passUp:0,passCr:0,excUp:0,excCr:0};
+  const t1=P.cnt.total["物理"]||zero,t2=P.cnt.total["历史"]||zero;
+  ov.push(["总分","物理",...row4(t1)]);ov.push(["总分","历史",...row4(t2)]);
   subjects.forEach(s=>{
     const p=P.cnt.subj[s]||{};
-    const c1=p["物理"]||{passUp:0,passCr:0,excUp:0,excCr:0},c2=p["历史"]||p["共用"]||{passUp:0,passCr:0,excUp:0,excCr:0};
-    ov.push([s,...row4(c1),...row4(c2)]);
+    (s==="历史"?["历史"]:["物理","历史"]).forEach(d=>{
+      const c=p[d]||p["共用"]||zero;
+      ov.push([s,d,...row4(c)]);
+    });
   });
-  ov.push([]);ov.push(["注","上线=分数≥线（本科上线名单含已上特控者，各类独立统计）；临界=落在临界浮动区间；方向科目只算对应方向。"]);
-  add("总览",ov);
+  ov.push([]);ov.push(["注","上线=分数≥线（各类独立统计，本科上线名单含已上特控者）；临界=落在临界浮动区间；方向科目只算对应方向。"]);
+  add("总览",ov,[7,6,9,9,9,9]);
   /* Sheet2 总分名单 */
-  const tot=[["线上生 / 临界生名单 · 总分 · "+scopeTxt]];
-  if(P.total.length)P.total.forEach(b=>tot.push(...lnBlkAoa(b,true)));
+  const tot=[[title1],[title2]];
+  if(P.total.length)P.total.forEach(b=>tot.push(...lnBlkAoa(b,true,isAll)));
   else tot.push(["（无可用划线或名单为空）"]);
-  add("总分名单",tot);
+  add("总分名单",tot,isAll?[4,5,9,5,6,6,6]:[4,9,5,6,6,6]);
   /* Sheet3+ 每科一个 */
   subjects.forEach(s=>{
-    const sh=[["线上生 / 临界生名单 · "+s+" · "+scopeTxt]];
-    P.subj[s].forEach(b=>sh.push(...lnBlkAoa(b,false)));
-    add(s,sh);
+    const sh=[[title1],[title2]];
+    P.subj[s].forEach(b=>sh.push(...lnBlkAoa(b,false,isAll,s)));
+    add(s,sh,isAll?[4,5,9,5,6,6,6,6]:[4,9,5,6,6,6,6]);
   });
   /* 口径说明 */
-  const expl=[["项目","内容"],
+  const expl=[[title1],[title2],["项目","内容"],
     ["考试",exam.name+"（"+(exam.date||"")+"）"],
     ["范围",scopeTxt],
     ["总分线",["物理","历史"].map(d=>d+"：本科"+(totalLine(exam,d,"pass")!=null?totalLine(exam,d,"pass"):"—")+" / 特控"+(totalLine(exam,d,"exc")!=null?totalLine(exam,d,"exc"):"—")).join("　")],
@@ -7233,12 +7259,13 @@ function lineNamesXlsx(exam,scopeCls){
     ["单科临界浮动","本科 "+critRangeTxt(exam,"pass",true)+"；特控 "+critRangeTxt(exam,"exc",true)+"（留空沿用总分浮动）"],
     ["单科线","各科分方向本科线/特控线见「成绩统计口径」；方向科目只算对应方向"],
     ["缺考口径",exam.zeroAsMissing?"0分视为缺考，剔除后不计入":"0分计入"],
-    ["排序","上线=分数从高到低；临界=距线差值从高到低（最接近线的排最前）"],
+    ["排序","上线=分数从高到低；临界=距线差值从高到低（最接近线的排最前）；序号为各名单块内独立编号"],
+    ["打印说明","本文件已按 A4 纵向排版（列宽已调好），打开直接打印即可；名单较长跨页时如需每页重复列头：Excel「页面布局 → 打印标题 → 顶端标题行」选中列头行，设置一次保存在文件里"],
     ["隐私","本表仅供校内教学使用，请勿外传学生成绩"],
     ["生成时间",new Date().toLocaleString("zh-CN")+" · 教师工作台 v"+(window.APP_VERSION||"")]];
-  add("口径说明",expl);
-  XLSX.writeFile(wb,"线上临界名单_"+exam.name+(scopeCls==="__all"?"":"_"+scopeCls+"班")+".xlsx");
-  toast("已导出线上/临界名单（"+(2+subjects.length+1)+" 个 sheet）");
+  add("口径说明",expl,[12,70]);
+  XLSX.writeFile(wb,"线上临界名单_"+exam.name+(isAll?"":"_"+scopeCls+"班")+".xlsx");
+  toast("已导出线上/临界名单（"+(2+subjects.length+1)+" 个 sheet，A4 纵向直接可打）");
 }
 
 /* ================= 学生异动记录（v83） =================
