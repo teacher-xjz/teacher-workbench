@@ -98,6 +98,14 @@ details.lnsec[open] summary{margin-bottom:4px}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary)}
 /* 表格 */
 .twrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:10px}
+/* v149 划线主表：科目列横向钉住 + 物理/历史方向列配色 */
+.lntbl .lnsubj{position:sticky;left:0;z-index:1;background:#fff}
+.lntbl thead .lnsubj{z-index:3;background:#f8fafc}
+.lntbl .col-ph{background:#F2F8FE}
+.lntbl .col-hi{background:#FDFAF1}
+.lntbl thead .hd-ph{background:#DBEBFA;color:#0C447C}
+.lntbl thead .hd-hi{background:#F7E9C8;color:#854F0B}
+.lntbl .lnTotal{background:#EAF3DE;font-weight:600}
 .tscr{max-height:420px;overflow-y:auto}
 /* v60 临界生科目×方向矩阵 */
 .crit-pill{border:1px solid #bfd7f2;background:#eef5fd;color:#1d4ed8;border-radius:14px;padding:3px 11px;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}
@@ -431,7 +439,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v148";
+window.APP_VERSION="v149";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4033,11 +4041,15 @@ function parseCritRange(v){
   if(parts.length===1)return {lo:-parts[0],hi:parts[0]};
   return {lo:Math.min(parts[0],parts[1]),hi:Math.max(parts[0],parts[1])};
 }
-function critRangeOf(exam,kind){
+function critRangeOf(exam,kind,subj){
   const st=settings();const L=(exam&&exam.lines)||{};
   const k=kind==="exc"?"te":"ben";
   const def=k==="ben"?15:10;
-  const raw=(L.critBands&&L.critBands[k]!=null)?L.critBands[k]:(st.critBands&&st.critBands[k]!=null)?st.critBands[k]:def;
+  /* v149：单科浮动键 sben/ste；留空时沿用总分浮动（考试级优先于全局） */
+  const pick=(m,key)=>(m&&m[key]!=null)?m[key]:null;
+  const raw=subj
+    ?(pick(L.critBands,"s"+k)!=null?pick(L.critBands,"s"+k):pick(L.critBands,k)!=null?pick(L.critBands,k):pick(st.critBands,"s"+k)!=null?pick(st.critBands,"s"+k):pick(st.critBands,k))
+    :(pick(L.critBands,k)!=null?pick(L.critBands,k):pick(st.critBands,k));
   return parseCritRange(raw)||{lo:-def,hi:def};
 }
 function critRangeTxt(exam,kind){
@@ -4046,10 +4058,10 @@ function critRangeTxt(exam,kind){
   if(r.lo===-r.hi)return "±"+r.hi;
   return off(r.lo)+"~"+off(r.hi);
 }
-/* 总分/单科 v 是否落在临界区间（相对线 lo~hi） */
-function isCritScore(v,line,kind,exam){
+/* 总分/单科 v 是否落在临界区间（相对线 lo~hi）；subj=true 时用单科浮动（留空沿用总分） */
+function isCritScore(v,line,kind,exam,subj){
   if(v==null||line==null)return false;
-  const r=critRangeOf(exam,kind);
+  const r=critRangeOf(exam,kind,subj);
   return v>=line+r.lo&&v<=line+r.hi;
 }
 /* 兼容旧调用：返回区间绝对值上界（仅用于"最多浮动N分"类文案） */
@@ -5034,9 +5046,9 @@ AppModule({id:"jw",icon:"grade",label:"年级",order:4,render:renderJw});
 /* ================= 重点关注名单 ================= */
 /* 临界生分两类概念：本科临界（锚本科线）/ 特控临界（锚特控线）；总分按方向、各科按科目（方向科再分方向） */
 function critGroups(exam,kind){ // kind:"pass"(本科)|"exc"(特控)
-  const rng=critRangeOf(exam,kind);
   const groups=[];
   ["物理","历史"].forEach(d=>{
+    const rng=critRangeOf(exam,kind); /* 总分用总分浮动 */
     const rows=exam.rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
     const line=totalLine(exam,d,kind);
     if(line==null||!rows.length)return;
@@ -5046,6 +5058,7 @@ function critGroups(exam,kind){ // kind:"pass"(本科)|"exc"(特控)
   exam.subjects.forEach(subj=>{
     const dirs=isDirSubj(subj)?["物理","历史"]:[null];
     dirs.forEach(d=>{
+      const rng=critRangeOf(exam,kind,true); /* v149：单科用单科浮动（留空沿用总分） */
       const scored=exam.rows.filter(r=>(!d||rowDir(r)===d)).map(r=>({r,v:validScore(exam,r,subj)})).filter(x=>x.v!=null);
       if(!scored.length)return;
       const line=subjLine(exam,subj,d,kind);
@@ -5142,7 +5155,8 @@ function jwWatch(){
   <div class="card"><h3>🎯 临界生名单 · ${scopeTxt}<span class="sub">${critLabel}临界浮动 ${critBand} · 共 ${critTotal} 人 · 点人数看名单</span><span class="spacer"></span>
     <button class="btn sm${critKind==="pass"?" primary":""}" data-act="watchCritKind" data-id="pass">本科临界</button>
     <button class="btn sm${critKind==="exc"?" primary":""}" data-act="watchCritKind" data-id="exc">特控临界</button>
-    <button class="btn sm" data-act="copyCrit" data-kind="${critKind}" data-id="${exam.id}">📋 复制</button></h3>
+    <button class="btn sm" data-act="copyCrit" data-kind="${critKind}" data-id="${exam.id}">📋 复制</button>
+    <button class="btn sm" data-act="linesExportModal">⬇ 导出名单</button></h3>
     ${critOrder.length?`<div class="twrap" id="critWrap"><table class="tb"><thead><tr><th class="ctr" style="width:110px">科目</th><th class="ctr">物理方向</th><th class="ctr">历史方向</th></tr></thead><tbody>
     ${critBody}
     </tbody></table></div>`:`<div class="empty">无${critLabel}临界生</div>`}
@@ -5346,45 +5360,42 @@ function linesPanel(exam,modal){
   /* 输入框当前值：全局=全局方向线；考试=考试自定义（留空沿用全局，灰色占位显示当前生效值） */
   const dval=(src,subj,d,kind)=>{const m=src[kind==="pass"?"dpass":"dexc"];const v=m&&m[subj]&&m[subj][d];return v!=null?String(v):"";};
   const dEff=(subj,d,kind)=>ph(subjLine(exam,subj,d,kind));
+  const dTotalVal=(d,key)=>{const v=isG?(st.dtotal[d]&&st.dtotal[d][key]):(L.dtotal&&L.dtotal[d]&&L.dtotal[d][key]);return v!=null?String(v):"";};
   const title=isG?`📐 成绩统计口径<span class="sub">本科线 / 特控线 分方向设置 · 全局默认</span>`
                  :`📐 划线覆盖 · ${esc(exam.name)}<span class="sub">仅该考试生效，其余考试沿用全局默认线</span>`;
+  const totRow=`<tr><td class="lnsubj lnTotal">总分</td><td class="ctr">750</td>
+    ${["物理","历史"].map(d=>["ben","te"].map(k=>`<td class="ctr col-${d==="物理"?"ph":"hi"}"><input type="number" class="searchbox" style="width:70px" id="lnDTotal_${d}_${k}" placeholder="${ph(totalLine(exam,d,k==="ben"?"pass":"exc"))}" value="${dTotalVal(d,k)}"></td>`).join("")).join("")}</tr>`;
   return `<div class="card"><h3>${title}</h3>
-  <div class="notice blue"><b>口径说明：</b><b>所有科目（含语文/数学/外语）都按物理、历史方向分设本科线/特控线</b>，与高考口径一致；物理、历史各自只有一个方向考；化学/生物/政治/地理两个方向都考、分方向各设；总分线（本科/特控/优秀）物理、历史各一套。继承顺序：<b>本考试自定义 &gt; 全局方向线 &gt; 共用回退线（老数据）</b>；某个方向留空时自动沿用共用回退线（输入框右侧灰色数字即当前生效值）。临界生不再单独设线：<b>本科临界锚本科线、特控临界锚特控线</b>，各配一个浮动范围。</div>
+  <div class="notice blue"><b>口径说明：</b><b>所有科目（含语文/数学/外语）都按物理、历史方向分设本科线/特控线</b>，与高考口径一致；物理、历史各自只有一个方向考；化学/生物/政治/地理两个方向都考、分方向各设；总分线在表格第一行直接填。继承顺序：<b>本考试自定义 &gt; 全局方向线 &gt; 共用回退线（老数据，界面已收起，已有数值照常生效）</b>；某个方向留空时自动沿用共用回退线（输入框右侧灰色数字即当前生效值）。临界生锚各自线，浮动见表格下方（单科浮动留空=沿用总分浮动）。</div>
   <details class="lnsec"><summary>📋 从文字粘贴分数线（微信提取文字后粘贴，自动填表）</summary>
   <textarea id="lnPaste" class="searchbox" style="width:100%;min-height:90px;font-size:13px" placeholder="把学校发的分数线通知图片在微信里长按→提取文字→复制，粘贴到这里。&#10;例如：&#10;物理方向 特控线 本科线&#10;总分 480.0 412.0&#10;语文 107.0 100.5&#10;历史方向 特控线 本科线&#10;总分 502.0 432.0"></textarea>
   <div class="flex" style="margin-top:6px;align-items:center"><button class="btn" data-act="lnParsePaste">🔍 解析文字</button><span class="muted">识别「物理/历史方向」+「特控线/本科线」表头 + 科目行；解析结果先核对，再点「填入表单」，最后照常点保存。</span></div>
   <div id="lnPasteOut" style="margin-top:8px"></div></details>
-  <details open class="lnsec"><summary>① 各科分方向划线（语文/数学/外语也分物理 / 历史方向）</summary>
-  <div class="twrap" style="margin-top:8px"><table class="tb"><thead><tr><th>科目</th><th class="ctr">满分</th><th class="ctr">物理方向·本科线</th><th class="ctr">物理方向·特控线</th><th class="ctr">历史方向·本科线</th><th class="ctr">历史方向·特控线</th></tr></thead><tbody>
+  <div style="margin-top:10px"><b style="font-size:13.5px">① 各科分方向划线（含总分 · 语文/数学/外语也分物理 / 历史方向）</b>
+  <div class="twrap" style="margin-top:8px"><table class="tb lntbl" style="min-width:820px"><thead>
+  <tr><th class="lnsubj" style="min-width:100px">科目</th><th class="ctr" style="min-width:56px">满分</th><th colspan="2" class="ctr hd-ph">物理方向</th><th colspan="2" class="ctr hd-hi">历史方向</th></tr>
+  <tr><th class="lnsubj"></th><th class="ctr"></th><th class="ctr hd-ph" style="min-width:92px">本科线</th><th class="ctr hd-ph" style="min-width:92px">特控线</th><th class="ctr hd-hi" style="min-width:92px">本科线</th><th class="ctr hd-hi" style="min-width:92px">特控线</th></tr>
+  </thead><tbody>
+  ${totRow}
   ${subjects.map(s=>{
     const dirs=ddirs(s);
     const cell=(d,kind,idp)=>dirs.includes(d)
-      ?`<td class="ctr"><input type="number" class="searchbox" style="width:70px" id="${idp}_${escA(s)}_${d}" placeholder="${dEff(s,d,kind)}" value="${isG?dval(st,s,d,kind):dval(L,s,d,kind)}"></td>`
-      :`<td class="ctr muted">—</td>`;
-    return `<tr><td><b>${esc(s)}</b><span class="muted">${s==="物理"?"（仅物理方向）":s==="历史"?"（仅历史方向）":"（两方向都考）"}</span></td>
+      ?`<td class="ctr col-${d==="物理"?"ph":"hi"}"><input type="number" class="searchbox" style="width:70px" id="${idp}_${escA(s)}_${d}" placeholder="${dEff(s,d,kind)}" value="${isG?dval(st,s,d,kind):dval(L,s,d,kind)}"></td>`
+      :`<td class="ctr muted col-${d==="物理"?"ph":"hi"}">—</td>`;
+    return `<tr><td class="lnsubj"><b>${esc(s)}</b><span class="muted">${s==="物理"?"（仅物理方向）":s==="历史"?"（仅历史方向）":"（两方向都考）"}</span></td>
     <td class="ctr"><input type="number" class="searchbox" style="width:70px" id="ln_full_${escA(s)}" value="${st.full[s]||""}"${isG?"":" disabled"}></td>
     ${cell("物理","pass","ln_dpass")}${cell("物理","exc","ln_dexc")}${cell("历史","pass","ln_dpass")}${cell("历史","exc","ln_dexc")}</tr>`;
   }).join("")}
-  </tbody></table></div></details>
-  <details class="lnsec"><summary>② 共用回退线（某个方向留空时使用，兼容老数据）</summary>
-  <div class="twrap" style="margin-top:8px"><table class="tb"><thead><tr><th>科目</th><th class="ctr">共用·本科线</th><th class="ctr">共用·特控线</th></tr></thead><tbody>
-  ${subjects.map(s=>`<tr><td><b>${esc(s)}</b></td>
-    <td class="ctr"><input type="number" class="searchbox" style="width:80px" id="ln_pass_${escA(s)}" placeholder="${ph(examCfg(exam).pass(s))}" value="${isG?(st.pass[s]||""):(L.pass&&L.pass[s]!=null?L.pass[s]:"")}"></td>
-    <td class="ctr"><input type="number" class="searchbox" style="width:80px" id="ln_exc_${escA(s)}" placeholder="${ph(examCfg(exam).exc(s))}" value="${isG?(st.exc[s]||""):(L.exc&&L.exc[s]!=null?L.exc[s]:"")}"></td></tr>`).join("")}
-  </tbody></table></div></details>
-  <details class="lnsec"><summary>③ 总分线、临界浮动与分数段（物理 / 历史各一套）</summary>
-  <div class="frow" style="margin-top:8px">
-  ${["物理","历史"].map(d=>`
-    <div class="field" style="flex:.6"><label>${d}方向 本科线</label><input type="number" id="lnDTotal_${d}_ben" placeholder="${ph(totalLine(exam,d,"pass"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].ben!=null?st.dtotal[d].ben:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].ben!=null?L.dtotal[d].ben:"")}"></div>
-    <div class="field" style="flex:.6"><label>${d}方向 特控线</label><input type="number" id="lnDTotal_${d}_te" placeholder="${ph(totalLine(exam,d,"exc"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].te!=null?st.dtotal[d].te:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].te!=null?L.dtotal[d].te:"")}"></div>
-    <div class="field" style="flex:.6"><label>${d}方向 优秀线（原优生线/top线）</label><input type="number" id="lnDTotal_${d}_top" placeholder="${ph(totalLine(exam,d,"top"))}" value="${isG?(st.dtotal[d]&&st.dtotal[d].top!=null?st.dtotal[d].top:""):(L.dtotal&&L.dtotal[d]&&L.dtotal[d].top!=null?L.dtotal[d].top:"")}"></div>`).join("")}
+  </tbody></table></div>
+  <div class="muted" style="margin-top:4px;font-size:12px">左列科目与表头已钉住：左右拖动滑块时科目名和列名始终可见；淡蓝=物理方向列、淡米=历史方向列。总分优秀线暂不在此显示（后台数据保留，页面优秀率照常）。</div></div>
+  <div class="frow" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+    <div class="field" style="flex:.9;min-width:150px"><label>总分·本科临界浮动</label><input id="lnCritBen" placeholder="如 -10,0 / +10,-10 / 10" value="${isG?(st.critBands.ben!=null?st.critBands.ben:""):(L.critBands&&L.critBands.ben!=null?L.critBands.ben:"")}"></div>
+    <div class="field" style="flex:.9;min-width:150px"><label>总分·特控临界浮动</label><input id="lnCritTe" placeholder="如 -5,0 / +8,-8 / 8" value="${isG?(st.critBands.te!=null?st.critBands.te:""):(L.critBands&&L.critBands.te!=null?L.critBands.te:"")}"></div>
+    <div class="field" style="flex:.9;min-width:150px"><label>单科·本科临界浮动（留空=用总分）</label><input id="lnCritBenS" placeholder="留空=用总分的 ${critRangeTxt(exam,"pass")}" value="${isG?(st.critBands.sben!=null?st.critBands.sben:""):(L.critBands&&L.critBands.sben!=null?L.critBands.sben:"")}"></div>
+    <div class="field" style="flex:.9;min-width:150px"><label>单科·特控临界浮动（留空=用总分）</label><input id="lnCritTeS" placeholder="留空=用总分的 ${critRangeTxt(exam,"exc")}" value="${isG?(st.critBands.ste!=null?st.critBands.ste:""):(L.critBands&&L.critBands.ste!=null?L.critBands.ste:"")}"></div>
+    <div class="field" style="flex:2;min-width:220px"><label>总分分数段（两方向共用，从高到低，逗号分隔）</label><input id="lnBands" placeholder="${ph(examCfg(exam).bands.join(","))}" value="${isG?st.bands.join(","):(L.bands&&L.bands.length?L.bands.join(","):"")}"></div>
   </div>
-  <div class="frow" style="margin-top:6px">
-    <div class="field" style="flex:.8"><label>本科临界浮动（如 +10,-10）</label><input id="lnCritBen" placeholder="如 +10,-10 / -10,0 / 12" value="${isG?(st.critBands.ben!=null?st.critBands.ben:""):(L.critBands&&L.critBands.ben!=null?L.critBands.ben:"")}"></div>
-    <div class="field" style="flex:.8"><label>特控临界浮动（如 +8,-8）</label><input id="lnCritTe" placeholder="如 +8,-8 / -8,0 / 10" value="${isG?(st.critBands.te!=null?st.critBands.te:""):(L.critBands&&L.critBands.te!=null?L.critBands.te:"")}"></div>
-    <div class="field" style="flex:2"><label>总分分数段（两方向共用，从高到低，逗号分隔）</label><input id="lnBands" placeholder="${ph(examCfg(exam).bands.join(","))}" value="${isG?st.bands.join(","):(L.bands&&L.bands.length?L.bands.join(","):"")}"></div>
-  </div>
-  <div class="muted" style="margin-top:4px;font-size:12px">临界浮动填法：<b>+10,-10</b> = 线上10分~线下10分；<b>-10,0</b> = 线下10分内算临界生；只填一个数（如 12）= 上下对称 ±12。总分线和单科临界共用同一区间。</div></details>
+  <div class="muted" style="margin-top:4px;font-size:12px">临界浮动填法：<b>+10,-10</b> = 线上10分~线下10分；<b>-10,0</b> = 线下10分内算临界生；只填一个数（如 12）= 上下对称 ±12。清空单科浮动框保存后即恢复「沿用总分浮动」。</div>
   ${isG?`
   <details class="lnsec"><summary>④ 其他（科目列表、0分视为缺考）</summary>
   <div class="frow" style="margin-top:8px">
@@ -5412,12 +5423,19 @@ ACTIONS.saveLines=async()=>{
   const scope=State.lnScope||"__global";
   const ddirs=subj=>subj==="物理"?["物理"]:subj==="历史"?["历史"]:["物理","历史"];
   const readN=id=>{const el=document.getElementById(id);return el?num(el.value):null;};
-  /* 临界浮动：支持 "10"（±对称）或 "+10,-10"/"-10,0" 区间；非法格式提示并跳过保存（v56） */
+  /* 临界浮动：支持 "10"（±对称）或 "+10,-10"/"-10,0" 区间；非法格式提示并跳过保存（v56）
+     v149：bandSave——框清空=删除该键（单科恢复沿用总分浮动/总分恢复默认）；非法格式不覆盖旧值 */
   const readBand=id=>{const el=document.getElementById(id);if(!el)return null;
     const s=el.value.trim();if(!s)return null;
     const parts=s.replace(/，/g,",").split(/[,,\s]+/).filter(Boolean).map(Number);
     if(!parts.length||parts.length>2||parts.some(x=>isNaN(x))){toast("临界浮动格式：如 +10,-10 / -10,0 / 10（单个数=上下对称）");return null;}
     return parts.length===1?parts[0]:parts.join(",");};
+  const bandSave=(obj,key,id)=>{const el=document.getElementById(id);if(!el)return;
+    const s=el.value.trim();
+    if(!s){delete obj[key];return;}
+    const parts=s.replace(/，/g,",").split(/[,,\s]+/).filter(Boolean).map(Number);
+    if(!parts.length||parts.length>2||parts.some(x=>isNaN(x))){toast("临界浮动格式：如 +10,-10 / -10,0 / 10（单个数=上下对称）");return;}
+    obj[key]=parts.length===1?parts[0]:parts.join(",");};
   if(scope==="__global"){
     st.subjects=$("#lnSubjects").value.split(/[,，\s]+/).filter(Boolean);
     st.dpass=st.dpass||{};st.dexc=st.dexc||{};st.pass=st.pass||{};st.exc=st.exc||{};
@@ -5447,6 +5465,10 @@ ACTIONS.saveLines=async()=>{
     st.critBands=st.critBands||{};
     if(cb!=null)st.critBands.ben=cb;
     if(ct!=null)st.critBands.te=ct;
+    bandSave(st.critBands,"ben","lnCritBen");
+    bandSave(st.critBands,"te","lnCritTe");
+    bandSave(st.critBands,"sben","lnCritBenS");
+    bandSave(st.critBands,"ste","lnCritTeS");
     st.bands=$("#lnBands").value.split(/[,，\s]+/).map(Number).filter(v=>v>0);
     st.zeroAsMissing=$("#lnZero").checked;
     /* v100 班级分析统计口径：方向默认历史、口径=方向内/年级总榜；N 值非法回退 20 并提示（V4） */
@@ -5478,12 +5500,18 @@ ACTIONS.saveLines=async()=>{
     if(e2&&num(e2.value)!=null)lines.exc[s]=num(e2.value);
   });
   ["物理","历史"].forEach(d=>{
-    const o={ben:readN("lnDTotal_"+d+"_ben"),te:readN("lnDTotal_"+d+"_te"),top:readN("lnDTotal_"+d+"_top")};
-    if(o.ben!=null||o.te!=null||o.top!=null)lines.dtotal[d]=o;
+    /* v149：合并写入（UI 已无 top 优秀线框），只更新填了的字段，不覆盖已存的 te/top */
+    const o={};
+    const ben=readN("lnDTotal_"+d+"_ben"),te=readN("lnDTotal_"+d+"_te");
+    if(ben!=null)o.ben=ben;
+    if(te!=null)o.te=te;
+    if(Object.keys(o).length)lines.dtotal[d]=Object.assign({},lines.dtotal[d]||{},o);
   });
-  const cb=readBand("lnCritBen"),ct=readBand("lnCritTe");
-  if(cb!=null)lines.critBands.ben=cb;
-  if(ct!=null)lines.critBands.te=ct;
+  lines.critBands=lines.critBands||{};
+  bandSave(lines.critBands,"ben","lnCritBen");
+  bandSave(lines.critBands,"te","lnCritTe");
+  bandSave(lines.critBands,"sben","lnCritBenS");
+  bandSave(lines.critBands,"ste","lnCritTeS");
   lines.bands=$("#lnBands").value.split(/[,，\s]+/).map(Number).filter(v=>v>0);
   exam.lines=lines;
   await putRec("exams",exam);
@@ -7086,6 +7114,132 @@ ACTIONS.bzrReportExport=()=>{
   download(`考试分析报告_${cls}班_${exam.name}.json`,JSON.stringify(payload,null,2),"application/json");
   toast("已导出分析数据（含口径与来源），可据此生成 PPT");
 };
+/* ================= v149：线上生与临界生名单导出 =================
+   一份 Excel：总览 / 总分名单 / 每科一个 sheet / 口径说明。
+   四类独立分组（本科上线→本科临界→特控上线→特控临界，本科特控分开）；
+   总分按总分浮动、单科按单科浮动（留空沿用总分）；临界按距线差值降序（最接近线的排最前）。 */
+function lnNamesCollect(exam,scopeCls){
+  const rows=exam.rows.filter(r=>scopeCls==="__all"||String(r.cls)===String(scopeCls));
+  const blk=(title,line,rng,list,head)=>({title,line,rng,list,head});
+  const sortUp=(a,b)=>b.v-a.v, sortCrit=(a,b)=>b.d-a.d; /* 临界：距线差值降序=最接近线在前 */
+  const out={total:[],subj:{},cnt:{total:{},subj:{}}}; /* cnt[方向]={passUp,passCr,excUp,excCr} */
+  ["物理","历史"].forEach(d=>{
+    const c={passUp:0,passCr:0,excUp:0,excCr:0};
+    const rowsD=rows.filter(r=>rowDir(r)===d&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+    [["pass","本科"],["exc","特控"]].forEach(([kind,kLab])=>{
+      const line=totalLine(exam,d,kind);
+      if(line==null)return;
+      const rng=critRangeOf(exam,kind);
+      const up=rowsD.map(r=>({r,v:r.total,d:r.total-line})).filter(x=>x.d>=0).sort(sortUp);
+      const cr=rowsD.map(r=>({r,v:r.total,d:r.total-line})).filter(x=>x.d<0&&x.d>=rng.lo).sort(sortCrit);
+      c[kind==="pass"?"passUp":"excUp"]=up.length;
+      c[kind==="pass"?"passCr":"excCr"]=cr.length;
+      if(up.length)out.total.push(blk(`${kLab}上线 · ${d}方向 · 线${line} · 共${up.length}人`,line,rng,up,["班级","姓名","方向","总分","线","距线"]));
+      if(cr.length)out.total.push(blk(`${kLab}临界 · ${d}方向 · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr,["班级","姓名","方向","总分","线","距线"]));
+    });
+    out.cnt.total[d]=c;
+  });
+  (exam.subjects||[]).forEach(subj=>{
+    const blocks={};
+    const dList=(subj==="物理")?["物理"]:(subj==="历史")?["历史"]:["物理","历史"];
+    ["pass","exc"].forEach(kind=>{
+      const kLab=kind==="pass"?"本科":"特控";
+      dList.forEach(d=>{
+        const line=subjLine(exam,subj,d,kind);
+        if(line==null)return;
+        const rng=critRangeOf(exam,kind,true);
+        const scored=rows.filter(r=>(!d||rowDir(r)===d)).map(r=>({r,v:validScore(exam,r,subj)})).filter(x=>x.v!=null);
+        const up=scored.map(x=>({r:x.r,v:x.v,d:x.v-line})).filter(x=>x.d>=0).sort(sortUp);
+        const cr=scored.map(x=>({r:x.r,v:x.v,d:x.v-line})).filter(x=>x.d<0&&x.d>=rng.lo).sort(sortCrit);
+        const key=d||"共用";
+        const c=blocks[key]=blocks[key]||{passUp:0,passCr:0,excUp:0,excCr:0};
+        c[kind==="pass"?"passUp":"excUp"]=up.length;
+        c[kind==="pass"?"passCr":"excCr"]=cr.length;
+        const dTxt=d?d+"方向":"";
+        const cols=["班级","姓名","方向",subj,"线","距线","总分"];
+        const arr=out.subj[subj]=out.subj[subj]||[];
+        if(up.length)arr.push(blk(`${kLab}上线${dTxt?" · "+dTxt:""} · 线${line} · 共${up.length}人`,line,rng,up,cols));
+        if(cr.length)arr.push(blk(`${kLab}临界${dTxt?" · "+dTxt:""} · 线${line} · 浮动${critRangeTxt(exam,kind,true)} · 共${cr.length}人`,line,rng,cr,cols));
+      });
+    });
+    if(out.subj[subj])out.cnt.subj[subj]=blocks;
+  });
+  return out;
+}
+function lnBlkAoa(blk,isTotal){
+  const aoa=[[blk.title],blk.head];
+  blk.list.forEach(x=>{
+    if(isTotal)aoa.push([x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d]);
+    else aoa.push([x.r.cls||"",x.r.name||"",rowDir(x.r)||"",x.v,blk.line,x.d,x.r.total!=null?x.r.total:""]);
+  });
+  aoa.push([]);
+  return aoa;
+}
+ACTIONS.linesExportModal=()=>{
+  const exs=examsSorted();
+  if(!exs.length)return toast("还没有考试数据");
+  const cur=ensureExam();
+  const cls=State.watchCls||"__all";
+  const clsOpts=['<option value="__all">全年级</option>',...classList(cur||exs[0]).map(c=>`<option value="${escA(c)}"${String(cls)===String(c)?" selected":""}>${escA(clsLabel(c))}</option>`)];
+  const body=`<div class="frow" style="flex-direction:column;gap:10px">
+    <div class="field"><label>考试</label><select id="lnxExam">${exs.map(e=>`<option value="${escA(e.id)}"${cur&&e.id===cur.id?" selected":""}>${escA(e.name)}（${escA(e.date||"")}）${e.arch?" · 已归档":""}</option>`).join("")}</select></div>
+    <div class="field"><label>范围</label><select id="lnxCls">${clsOpts.join("")}</select></div>
+    <div class="muted" style="font-size:12px">导出内容：总览（各科四类人数）+ 总分名单 + 每科一个 sheet + 口径说明；本科/特控分开列，临界生按距线差值排序（最接近线的排最前）。单科临界按单科浮动算（留空沿用总分浮动）。</div></div>`;
+  openModal("导出线上生 / 临界生名单",body,
+    `<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="lnxGo">⬇️ 导出 Excel</button>`);
+  $("#lnxGo").onclick=()=>{
+    const exam=examById($("#lnxExam").value);
+    if(!exam){toast("考试不存在");return;}
+    const sc=$("#lnxCls").value;
+    lineNamesXlsx(exam,sc);
+    closeModal();
+  };
+};
+function lineNamesXlsx(exam,scopeCls){
+  const P=lnNamesCollect(exam,scopeCls);
+  const subjects=(exam.subjects||[]).filter(s=>P.subj[s]&&P.subj[s].length);
+  const scopeTxt=scopeCls==="__all"?"全年级":scopeCls+"班";
+  const wb=XLSX.utils.book_new();
+  const add=(name,aoa)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),name);
+  /* Sheet1 总览 */
+  const ov=[["科目","物理·本科上线","物理·本科临界","物理·特控上线","物理·特控临界","历史·本科上线","历史·本科临界","历史·特控上线","历史·特控临界"]];
+  const row4=c=>[c.passUp,c.passCr,c.excUp,c.excCr];
+  const t1=P.cnt.total["物理"]||{passUp:0,passCr:0,excUp:0,excCr:0},t2=P.cnt.total["历史"]||{passUp:0,passCr:0,excUp:0,excCr:0};
+  ov.push(["总分",...row4(t1),...row4(t2)]);
+  subjects.forEach(s=>{
+    const p=P.cnt.subj[s]||{};
+    const c1=p["物理"]||{passUp:0,passCr:0,excUp:0,excCr:0},c2=p["历史"]||p["共用"]||{passUp:0,passCr:0,excUp:0,excCr:0};
+    ov.push([s,...row4(c1),...row4(c2)]);
+  });
+  ov.push([]);ov.push(["注","上线=分数≥线（本科上线名单含已上特控者，各类独立统计）；临界=落在临界浮动区间；方向科目只算对应方向。"]);
+  add("总览",ov);
+  /* Sheet2 总分名单 */
+  const tot=[["线上生 / 临界生名单 · 总分 · "+scopeTxt]];
+  if(P.total.length)P.total.forEach(b=>tot.push(...lnBlkAoa(b,true)));
+  else tot.push(["（无可用划线或名单为空）"]);
+  add("总分名单",tot);
+  /* Sheet3+ 每科一个 */
+  subjects.forEach(s=>{
+    const sh=[["线上生 / 临界生名单 · "+s+" · "+scopeTxt]];
+    P.subj[s].forEach(b=>sh.push(...lnBlkAoa(b,false)));
+    add(s,sh);
+  });
+  /* 口径说明 */
+  const expl=[["项目","内容"],
+    ["考试",exam.name+"（"+(exam.date||"")+"）"],
+    ["范围",scopeTxt],
+    ["总分线",["物理","历史"].map(d=>d+"：本科"+(totalLine(exam,d,"pass")!=null?totalLine(exam,d,"pass"):"—")+" / 特控"+(totalLine(exam,d,"exc")!=null?totalLine(exam,d,"exc"):"—")).join("　")],
+    ["总分临界浮动","本科 "+critRangeTxt(exam,"pass")+"；特控 "+critRangeTxt(exam,"exc")],
+    ["单科临界浮动","本科 "+critRangeTxt(exam,"pass",true)+"；特控 "+critRangeTxt(exam,"exc",true)+"（留空沿用总分浮动）"],
+    ["单科线","各科分方向本科线/特控线见「成绩统计口径」；方向科目只算对应方向"],
+    ["缺考口径",exam.zeroAsMissing?"0分视为缺考，剔除后不计入":"0分计入"],
+    ["排序","上线=分数从高到低；临界=距线差值从高到低（最接近线的排最前）"],
+    ["隐私","本表仅供校内教学使用，请勿外传学生成绩"],
+    ["生成时间",new Date().toLocaleString("zh-CN")+" · 教师工作台 v"+(window.APP_VERSION||"")]];
+  add("口径说明",expl);
+  XLSX.writeFile(wb,"线上临界名单_"+exam.name+(scopeCls==="__all"?"":"_"+scopeCls+"班")+".xlsx");
+  toast("已导出线上/临界名单（"+(2+subjects.length+1)+" 个 sheet）");
+}
 
 /* ================= 学生异动记录（v83） =================
    台账 + 时间线模型：异动只追加不改历史，任何日期的应考状态由 rosterAt() 按时间线回放推导。
@@ -7498,8 +7652,9 @@ function jwDataio(){
     :`<div class="frow" style="gap:10px;flex-wrap:wrap">
       <button class="btn" data-act="rosterExport">📋 下次考试应考名单</button>
       <button class="btn primary" data-act="gradeInfoExport">🗂️ 全年级学生信息（给年级领导）</button>
+      <button class="btn" data-act="linesExportModal">🎯 线上生与临界生名单（按考试）</button>
     </div>
-    <div class="muted" style="margin:6px 0 0 4px">应考名单=按基准日期回放（在异动记录页与考务组「应考名单」页签也可导出，含姓名/班级/身份证号三列）；全年级学生信息=双表 Excel：①在班学生花名册（全字段）②异动台账（含已离校/休学等全部记录），供年级领导掌握全局。</div>`}
+    <div class="muted" style="margin:6px 0 0 4px">应考名单=按基准日期回放（在异动记录页与考务组「应考名单」页签也可导出，含姓名/班级/身份证号三列）；全年级学生信息=双表 Excel：①在班学生花名册（全字段）②异动台账（含已离校/休学等全部记录），供年级领导掌握全局；线上/临界名单=总分与各科的四类名单 Excel（也可在「成绩分析→重点关注」页导出）。</div>`}
 
     <h3 style="margin-top:14px">💾 备份 <span class="muted" style="font-size:12px">（系统级，全数据）</span></h3>
     <div class="frow" style="gap:10px;flex-wrap:wrap">
