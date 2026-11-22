@@ -431,7 +431,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v144";
+window.APP_VERSION="v145";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2113,31 +2113,31 @@ async function doInfoImport(){
 /* ================= 班主任 ================= */
 /* v105 分组两级导航；v111 班务组并入日常、只读名册页移除
    （查人看板=学生档案页，名册增删改=年级→学生名册，同一库自动联动）
-   v112 图标扁平化：组名不带 emoji，图标由 ico() 渲染 */
+   v112 图标扁平化：组名不带 emoji，图标由 ico() 渲染
+   v145：日常/成绩两组取消（对齐年级平铺导航）；「班会与活动」页签删除（旧深链改道班委与值日）；
+   页签顺序=成绩优先（班级成绩分析/分析报告/班级课表/学生档案/沟通记录/班委与值日），默认仍开学生档案 */
 const BZR_GROUPS=[
-  {key:"daily",icon:"cal",name:"日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"],["duties","班委与值日"],["activities","班会与活动"]]},
   {key:"score",icon:"grade",name:"成绩",pages:[["score","班级成绩分析"],["report","分析报告"]]},
+  {key:"daily",icon:"cal",name:"日常",pages:[["sched","班级课表"],["profile","学生档案"],["comm","沟通记录"],["duties","班委与值日"]]},
 ];
 const BZR_TABS=BZR_GROUPS.flatMap(g=>g.pages);
 function renderBzr(){
   let sub=State.sub.bzr||"profile"; /* v110：默认打开学生档案（最常用），班级课表由首页绿条+页签兜底 */
   if(sub==="contacts"){sub="comm";State.sub.bzr="comm";} /* v105 旧深链：家长联系 → 沟通记录 */
   if(sub==="students"){sub="profile";State.sub.bzr="profile";} /* v111 旧深链：只读名册 → 学生档案（查人看板） */
+  if(sub==="activities"){sub="duties";State.sub.bzr="duties";} /* v145 旧深链：班会与活动已删除 → 班委与值日 */
   const f={
     sched:()=>`<div class="card"><h3>🏫 班级课表 · ${esc(settings().cls)}<span class="sub">蓝色列=今天 · 自动定位当前课程</span><span class="spacer"></span><a href="javascript:void(0)" data-go="set" data-sub="upload" style="font-size:12px;color:var(--blue)">📥 课表 Excel 导入入口已收口到「设置→资料上传」→</a></h3><div class="notice blue">导入学校的 Excel 课表后，将自动写入班级课表，并同步到「个人 → 个人课表」（只保留含自己姓名的课）。也可随时点个人课表页的「从班级课表同步」重新提取。</div>${schedTable("classSched",{highlight:true,locate:true})}</div>`,
     duties:()=>crudView("duties",CRUDCFG.duties),
-    activities:()=>crudView("activities",CRUDCFG.activities),
     profile:()=>bzrProfileView(),
     comm:()=>bzrCommView(),
     score:()=>clsScoreView(),
     report:()=>bzrReportView(),
-  }[sub];
+  }[sub]||bzrProfileView();
   renderBzr.after=(sub==="sched")?bzrSchedLocate
     :(sub==="score")?clsScoreView.after
     :(sub==="report"&&typeof bzrReportView!=="undefined"?bzrReportView.after:null);
-  const grp=BZR_GROUPS.find(g=>g.pages.some(p=>p[0]===sub))||BZR_GROUPS[0];
-  return `<div class="grouptabs">${BZR_GROUPS.map(g=>`<div class="gtab${g===grp?" active":""}" data-gtab="${g.key}" data-mod="bzr">${ico(g.icon)}${g.name}</div>`).join("")}</div>
-  <div class="subtabs">${grp.pages.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
+  return `<div class="subtabs">${BZR_TABS.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+f();
 }
 /* v105：打开班级课表自动滚动定位到当前课程（无课进行中则定位下一节） */
 function bzrSchedLocate(){
