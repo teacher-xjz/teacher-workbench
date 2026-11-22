@@ -439,7 +439,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v152";
+window.APP_VERSION="v153";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -7126,7 +7126,7 @@ function lnScopeRows(exam,scopeCls){
 }
 function lnNamesCollect(exam,scopeCls,single){
   const rows=lnScopeRows(exam,scopeCls);
-  const blk=(title,line,rng,list)=>({title,line,rng,list});
+  const blk=(title,line,rng,list,dir)=>({title,line,rng,list,dir});
   const sortUp=(a,b)=>b.v-a.v, sortCrit=(a,b)=>b.d-a.d;
   const out={total:[],subj:{},cnt:{total:{},subj:{}}};
   const dTag=d=>single?"":` · ${d}方向`; /* 单班单方向时块标题不带方向字样 */
@@ -7142,8 +7142,8 @@ function lnNamesCollect(exam,scopeCls,single){
       const cr=rowsD.map(r=>({r,v:r.total,d:r.total-line})).filter(x=>x.d<0&&x.d>=rng.lo).sort(sortCrit);
       c[kind==="pass"?"passUp":"excUp"]=up.length;
       c[kind==="pass"?"passCr":"excCr"]=cr.length;
-      if(up.length)out.total.push(blk(`${kLab}上线${dTag(d)} · 线${line} · 共${up.length}人`,line,rng,up));
-      if(cr.length)out.total.push(blk(`${kLab}临界${dTag(d)} · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr));
+      if(up.length)out.total.push(blk(`${kLab}上线${dTag(d)} · 线${line} · 共${up.length}人`,line,rng,up,d));
+      if(cr.length)out.total.push(blk(`${kLab}临界${dTag(d)} · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr,d));
     });
     out.cnt.total[d]=c;
   });
@@ -7214,8 +7214,8 @@ function lnRankCollect(exam,scopeCls,single,N){
     const ranked=lnDirRank(rowsD.map(r=>({r,v:r.total})));
     const up=ranked.filter(x=>x.rank<=nn.n1);
     const cr=ranked.filter(x=>x.rank>nn.n1&&x.rank<=nn.n2);
-    if(up.length)out.total.push({title:`总分 · 前${nn.n1}名${dTag(d)} · 线上生 ${up.length}人`,list:up});
-    if(cr.length)out.total.push({title:`总分 · 第${nn.n1+1}~${nn.n2}名${dTag(d)} · 临界生 ${cr.length}人`,list:cr});
+    if(up.length)out.total.push({title:`总分 · 前${nn.n1}名${dTag(d)} · 线上生 ${up.length}人`,list:up,dir:d});
+    if(cr.length)out.total.push({title:`总分 · 第${nn.n1+1}~${nn.n2}名${dTag(d)} · 临界生 ${cr.length}人`,list:cr,dir:d});
   });
   (exam.subjects||[]).forEach(subj=>{
     let dList=(subj==="物理")?["物理"]:(subj==="历史")?["历史"]:["物理","历史"];
@@ -7362,11 +7362,19 @@ function lineNamesXlsx(exam,scopeCls){
   });
   ov.push([]);ov.push(["注","上线=分数≥线（各类独立统计，本科上线名单含已上特控者）；临界=落在临界浮动区间；方向科目只算对应方向。"]);
   lnSheet(wb,"总览",ov,[7,6,9,9,9,9]);
-  /* Sheet2 总分名单 */
-  const tot=[[tt[0]],[tt[1]]];
-  if(P.total.length)P.total.forEach(b=>tot.push(...lnBlkAoa(b,true,isAll,null,noDir)));
-  else tot.push(["（无可用划线或名单为空）"]);
-  lnSheet(wb,"总分名单",tot,isAll?[4,5,9,noDir?0:5,6,6,6].filter(w=>w>0):[4,9,noDir?0:5,6,6,6].filter(w=>w>0));
+  /* Sheet2 总分名单（v153：物理类/历史类分表；单方向班仍一张） */
+  const totW=(isAll?[4,5,9,noDir?0:5,6,6,6]:[4,9,noDir?0:5,6,6,6]).filter(w=>w>0);
+  const mkTotSheet=(name,arr)=>{
+    const sh=[[tt[0]],[tt[1]]];
+    if(arr.length)arr.forEach(b=>sh.push(...lnBlkAoa(b,true,isAll,null,noDir)));
+    else sh.push(["（该方向无名单）"]);
+    lnSheet(wb,name,sh,totW);
+  };
+  if(single)mkTotSheet("总分名单",P.total);
+  else{
+    mkTotSheet("物理类总分",P.total.filter(b=>b.dir==="物理"));
+    mkTotSheet("历史类总分",P.total.filter(b=>b.dir==="历史"));
+  }
   /* Sheet3+ 每科一个 */
   subjects.forEach(s=>{
     const sh=[[tt[0]],[tt[1]]];
@@ -7406,11 +7414,19 @@ function rankXlsx(exam,scopeCls,N){
   }).filter(Boolean).join("；");
   tt[1]+=" · "+nTxt;
   const wb=XLSX.utils.book_new();
-  /* Sheet1 总分名单 */
-  const tot=[[tt[0]],[tt[1]]];
-  if(R.total.length)R.total.forEach(b=>tot.push(...lnRankAoa(b,isAll,noDir)));
-  else tot.push(["（该范围内无学生）"]);
-  lnSheet(wb,"总分名单",tot,isAll?[4,5,9,noDir?0:5,6,6].filter(w=>w>0):[4,9,noDir?0:5,6,6].filter(w=>w>0));
+  /* Sheet1 总分名单（v153：物理类/历史类分表；单方向班仍一张） */
+  const rkW=(isAll?[4,5,9,noDir?0:5,6,6]:[4,9,noDir?0:5,6,6]).filter(w=>w>0);
+  const mkRkSheet=(name,arr)=>{
+    const sh=[[tt[0]],[tt[1]]];
+    if(arr.length)arr.forEach(b=>sh.push(...lnRankAoa(b,isAll,noDir)));
+    else sh.push(["（该方向无名单）"]);
+    lnSheet(wb,name,sh,rkW);
+  };
+  if(single)mkRkSheet("总分名单",R.total);
+  else{
+    mkRkSheet("物理类总分",R.total.filter(b=>b.dir==="物理"));
+    mkRkSheet("历史类总分",R.total.filter(b=>b.dir==="历史"));
+  }
   /* Sheet2+ 每科一个 */
   subjects.forEach(s=>{
     const sh=[[tt[0]],[tt[1]]];
