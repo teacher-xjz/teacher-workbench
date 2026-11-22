@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v142";
+window.APP_VERSION="v143";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -1633,7 +1633,7 @@ function homeClsBarHtml(){
   if(!inner&&periods.some(p=>p.type==="class"&&val(p)))inner=`<span style="flex:none">✅ 今日课程已结束</span>`;
   if(!inner)return "";
   return `<div id="homeClsBar" style="display:flex;align-items:center;gap:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:7px 12px;margin-bottom:10px;font-size:12.5px;color:#166534;max-width:100%">
-    <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"")))}课表</span>${inner}</div>`;
+    <span style="font-weight:600;flex:none">🏫 ${escA(clsLabel(String(settings().cls||"").replace(/班$/,"")))}课表</span>${inner}</div>`;
 }
 function homeTlHtml(){
   const items=window._homeCdItems||[];
