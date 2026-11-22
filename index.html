@@ -2745,12 +2745,13 @@ function maskTel(t){const s=String(t||"").replace(/\s+/g,"");return /^\d{11}$/.t
 function maskId(t){const s=String(t||"").replace(/\s+/g,"");return /^\d{17}[\dXx]$/.test(s)?s.slice(0,4)+"**********"+s.slice(-4):(s?s:"—");}
 function addrShort(s){
   let a=String(s||"").trim();if(!a)return "";
-  const m=a.match(/[\u4e00-\u9fa5]{0,4}镇/);
-  if(m&&m.index<14)return a.slice(m.index);
-  /* v147：剥"省/县/区"前缀要求后面还有内容（(?=.)），否则"同州街道信义社区"这类
-     "……社区"结尾的地址会被结尾的"区"整段吞空、档案卡显示成"—"（熊静兰/李庆案例）；
-     截短结果为空则退回原地址 */
-  const t=a.replace(/^.*?省/,"").replace(/^.*?[县区旗](?=.)/,"");
+  /* v147：先剥"省/县/区"前缀（要求后面还有内容 (?=.)，防"同州街道信义社区"这类
+     "……社区"结尾被结尾的"区"整段吞空→档案卡显示"—"）；再做"镇"切片（切片点>0 才切）；
+     结果为空退回原地址 */
+  const b=a.replace(/^.*?省/,"");
+  const t=b.replace(/^.*?[县区旗](?=.)/,"")||b;
+  const m=t.match(/[\u4e00-\u9fa5]{0,4}镇/);
+  if(m&&m.index>0&&m.index<14)return t.slice(m.index);
   return t||a;
 }
 function birthFromId(t){
