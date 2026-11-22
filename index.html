@@ -431,7 +431,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v145";
+window.APP_VERSION="v146";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2250,6 +2250,9 @@ ACTIONS.schedImport=()=>{
     const who=$("#schWho")?$("#schWho").value:"";
     State.meta.classSched=parsed.map;
     await saveMeta("classSched",State.meta.classSched);
+    /* v146：导入真实课表即消费种子标记——否则 v140b 的启动清理会把刚导入的课表当种子清空（11-22 事故根因） */
+    await saveMeta("seededClsSched",false);
+    await saveMeta("classSchedCleaned",true);
     const ex=schedExtractMine(who);
     State.meta.mySched=ex.dst;
     await saveMeta("mySched",ex.dst);
@@ -9053,13 +9056,9 @@ async function boot(){
       for(const[c,s,t]of TEACHER_SEED)await putRec("teachers",{id:uid(),cls:c,subject:s,teacher:t,note:""});
       await saveMeta("seededTeachers",true);
     }
-    /* v140b：移除 15 班种子课表——本机若仍是种子版（seededClsSched 标记）则清空待导入真实课表；
-       classSched=null 以新 metaTime 参与同步，会反推云端覆盖种子 */
-    if(State.meta.seededClsSched&&!State.meta.classSchedCleaned){
-      await saveMeta("classSched",null);
-      await saveMeta("seededClsSched",false);
-      await saveMeta("classSchedCleaned",true);
-    }
+    /* v146：v140b 的种子课表启动清理块【已删除】——它按 seededClsSched 标记清空 classSched，
+       但课表导入此前不清标记，导致 11-22 把用户已导入的真实课表误当种子清空（云端 git rev17 起）。
+       现改为：导入课表时（bzr.js schDo）即时消费标记；启动不再做任何清空，杜绝误删。 */
   }catch(e){console.error(e);}
   /* v60：本机数据先渲染（秒开），云同步放后台跑；指纹一致时后台几乎零流量，
      合并到云端新数据或有成绩覆盖时由 Sync.init 内部触发 render() */
