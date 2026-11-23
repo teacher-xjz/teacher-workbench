@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v158";
+window.APP_VERSION="v159";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3006,6 +3006,232 @@ const CRUDCFG={
       {label:"路径",k:"path",f:r=>`<span style="white-space:normal;display:inline-block;max-width:180px" class="muted">${esc(r.path||"—")}</span>`}]},
 };
 function stTag(s){const m={"撰写中":"t-orange","待审核":"t-blue","已申报":"t-blue","申报中":"t-blue","已立项":"t-green","中期检查":"t-purple","待结题":"t-orange","已完成":"t-green","已获奖":"t-green","已结题":"t-green","未获奖":"t-gray"};return `<span class="tag ${m[s]||"t-gray"}">${esc(s||"—")}</span>`;}
+
+/* ================= v159 AI 能力模块（隔离设计） =================
+   原则：本模块自包含——AI 配置、模型调用、专家提示词、大纲解析、课件渲染
+   全部收在此文件内；对外只暴露 aiSettingsView / aiBeiView / ACTIONS.ai*，
+   不触碰 State 主数据、不同步通道、异常不外溢（所有 AI 调用自带 try/catch）。
+   后端：deepseek（浏览器直连，CORS 已实测放行）为主；workbuddy 云服务为预留（Origin 校验待验证）。 */
+
+/* ---- 配置 ---- */
+function aiCfg(){
+  const st=settings();
+  st.ai=st.ai||{backend:"deepseek",dsKey:"",dsModel:"deepseek-v4-flash",temperature:1.3};
+  return st.ai;
+}
+function aiReady(){
+  const c=aiCfg();
+  return !!(c.backend==="deepseek"&&c.dsKey);
+}
+/* ---- 统一调用入口（双后端） ---- */
+async function callLLM(userText,opts){
+  opts=opts||{};
+  const c=aiCfg();
+  if(c.backend==="workbuddy"){
+    if(!window._wbCloud||!window._wbCloudReady)throw new Error("WorkBuddy 云服务未连接（实验功能，暂用 DeepSeek）");
+    return await window._wbCloud.llm.chat({messages:opts.messages||[{role:"user",content:userText}]});
+  }
+  /* deepseek 浏览器直连 */
+  if(!c.dsKey)throw new Error("请先在设置 → AI 服务中填写 DeepSeek API Key");
+  const model=c.dsModel||"deepseek-v4-flash";
+  const messages=(opts.system?[{role:"system",content:opts.system}]:[]).concat([{role:"user",content:userText}]);
+  const ctrl=new AbortController();
+  const tm=setTimeout(()=>ctrl.abort(),opts.timeout||120000);
+  let resp;
+  try{
+    resp=await fetch("https://api.deepseek.com/chat/completions",{
+      method:"POST",
+      headers:{Authorization:"Bearer "+c.dsKey,"Content-Type":"application/json"},
+      body:JSON.stringify({model,messages,temperature:opts.temperature!=null?opts.temperature:1.3,max_tokens:opts.maxTokens||8192,stream:false}),
+      signal:ctrl.signal
+    });
+  }catch(e){
+    clearTimeout(tm);
+    throw new Error(e.name==="AbortError"?"AI 请求超时（120 秒），可重试或改用空闲时段":"AI 请求失败："+(e.message||"网络异常"));
+  }
+  clearTimeout(tm);
+  if(resp.status===401)throw new Error("API Key 无效（401）——请到设置 → AI 服务检查 Key");
+  if(resp.status===402)throw new Error("DeepSeek 账户余额不足（402）——请到 platform.deepseek.com 充值");
+  if(resp.status===429)throw new Error("请求过于频繁（429）——稍等几秒再试");
+  if(!resp.ok){
+    let msg="HTTP "+resp.status;
+    try{const j=await resp.json();if(j.error&&j.error.message)msg=j.error.message;}catch(e){}
+    throw new Error("AI 请求失败："+msg);
+  }
+  const j=await resp.json();
+  const txt=j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
+  if(!txt)throw new Error("AI 返回为空");
+  return txt;
+}
+/* ---- 专家提示词模板（提炼自语文教学课件方法论；{占位}由表单填充） ----
+   输出契约：严格 JSON，slides 数组，每页 {type,title,subtitle?,blocks:[{kind,text,sub?}],imgHint?}
+   kind：original 原文 / trans 译文 / note 重点字标注 / point 要点 / qa 问答 / word 字词 / plain 文本 */
+function aiSysPrompt(kind){
+  const common="你是资深高中语文教师兼课件设计师。以统编版教材口径为准，内容要能直接用于课堂（不要空洞要点，每页写满实质内容）。";
+  const contract="\n\n输出要求：只输出一个 JSON 对象（不要 markdown 代码块标记、不要解释文字），结构："
+    +'{slides:[{type:"cover"|"section"|"content",title,subtitle?,blocks:[{kind:"original"|"trans"|"note"|"point"|"qa"|"word"|"plain",text,sub?}],imgHint?}]}。'
+    +"\n页面数量 14~24 页；每页至少一个 block；content 页 blocks 1~4 个；原文页逐句成对（original+trans 交替）；"
+    +"每页 imgHint 给 2~4 个中文配图关键词；问答页需附参考答案。";
+  if(kind==="guwen")return common+"本次为文言文课文设计课件：必须包含封面、学习目标、课文朗读页（原文整段）、逐句对照翻译页（原文+白话成对，重点实词虚词以 note 标注用法：通假字/词类活用/特殊句式/古今异义）、字词归纳表页（word）、内容与手法分析页（成段文字）、常考问答页（qa 带参考答案）、课堂小结、作业布置。"+contract;
+  if(kind==="shige")return common+"本次为古代诗歌设计课件：必须包含封面、学习目标、诗歌原文页（含注音 note）、意象梳理页、逐联赏析页（手法/炼字/情感成段分析，引用原句）、主旨与情感脉络页、常考问答页（qa 带参考答案）、比较拓展、作业布置。"+contract;
+  return common+"本次为现代文课文设计课件：必须包含封面、学习目标、作者与背景、段落梳理页、重点语段精读页（关键句赏析成段）、写法归纳页、主题探究问答页（qa 带参考答案）、课堂小结、作业布置。"+contract;
+}
+function aiUserPrompt(f){
+  let s="课文标题："+f.title+"\n年级："+f.grade+"\n课型："+f.kind+"（"+f.cat+"）\n";
+  if(f.focus)s+="教学重点（务必在课件中落实）："+f.focus+"\n";
+  s+="请生成完整课件大纲 JSON。";
+  return s;
+}
+/* ---- 大纲解析（容错：剥离 ```json 围栏 / 提取首个 { 到最后一个 } ） ---- */
+function aiParseSlides(text){
+  let t=String(text||"").trim();
+  t=t.replace(/```json/gi,"```").replace(/```/g,"");
+  const a=t.indexOf("{"),b=t.lastIndexOf("}");
+  if(a>=0&&b>a)t=t.slice(a,b+1);
+  let j;
+  try{j=JSON.parse(t);}catch(e){throw new Error("AI 返回的大纲不是合法 JSON（可点重新生成）；原文前 120 字："+t.slice(0,120));}
+  if(!j||!Array.isArray(j.slides)||!j.slides.length)throw new Error("AI 大纲缺少 slides 数组");
+  j.slides=j.slides.filter(s=>s&&s.title).map(s=>({type:s.type==="cover"||s.type==="section"?s.type:"content",title:String(s.title||""),
+    subtitle:s.subtitle?String(s.subtitle):"",blocks:Array.isArray(s.blocks)?s.blocks.filter(b=>b&&b.text).map(b=>({kind:["original","trans","note","point","qa","word","plain"].includes(b.kind)?b.kind:"plain",text:String(b.text),sub:b.sub?String(b.sub):""})):[],imgHint:s.imgHint?String(s.imgHint):""}));
+  if(!j.slides.length)throw new Error("AI 大纲为空");
+  return j;
+}
+/* ---- 课件渲染（PptxGenJS 已由 ppt 模块加载）——两套学科版式 ---- */
+function aiTheme(kindCat){
+  return kindCat==="shige"||kindCat==="guwen"
+    ?(kindCat==="guwen"
+      ?{bg:"F5EFE0",bg2:"EFE6D0",title:"9E2B25",text:"333333",sub:"6B5D3F",accent:"8A7A55",bar:"9E2B25",name:"guwen"}
+      :{bg:"1F2937",bg2:"111827",title:"D4AF37",text:"E5E7EB",sub:"9CA3AF",accent:"6B7280",bar:"D4AF37",name:"shige"})
+    :{bg:"F5F9FF",bg2:"EAF2FB",title:"1F4E79",text:"1E293B",sub:"64748B",accent:"94A3B8",bar:"1F4E79",name:"modern"};
+}
+function aiCourseSpec(outline,f){
+  const th=aiTheme(f.cat);
+  return {theme:th,slides:outline.slides.map(s=>{
+    const o={type:s.type,title:s.title,subtitle:s.subtitle,imgHint:s.imgHint,blocks:s.blocks};
+    return o;
+  })};
+}
+async function aiCourseRender(outline,f){
+  if(typeof PptxGenJS==="undefined")throw new Error("PPT 组件未加载");
+  const th=aiTheme(f.cat);
+  const ppt=new PptxGenJS();
+  ppt.defineLayout({name:"W16x9",width:13.333,height:7.5});
+  ppt.layout="W16x9";
+  ppt.author="教师工作台";
+  const W=13.333,H=7.5;
+  const baseBg=s=>{const sl=ppt.addSlide();sl.background={color:s.type==="section"?th.bg2:th.bg};return sl;};
+  outline.slides.forEach(s=>{
+    const sl=baseBg(s);
+    /* 左侧色条（古文）或顶部金色条（诗歌） */
+    if(th.name==="guwen")sl.addShape("rect",{x:0,y:0,w:0.14,h:H,fill:{color:th.bar}});
+    if(th.name==="shige")sl.addShape("rect",{x:0,y:0,w:W,h:0.12,fill:{color:th.bar}});
+    if(s.type==="cover"){
+      sl.addText(s.title,{x:0.8,y:2.4,w:W-1.6,h:1.4,fontSize:40,bold:true,color:th.title,align:"center",fontFace:"Microsoft YaHei"});
+      if(s.subtitle)sl.addText(s.subtitle,{x:0.8,y:3.9,w:W-1.6,h:0.7,fontSize:18,color:th.sub,align:"center",fontFace:"Microsoft YaHei"});
+      if(s.blocks&&s.blocks.length)sl.addText(s.blocks.map(b=>b.text).join("　"),{x:0.8,y:5.4,w:W-1.6,h:0.5,fontSize:13,color:th.accent,align:"center",fontFace:"Microsoft YaHei"});
+    }else{
+      /* 竖排题眉（古文/诗歌） */
+      if(th.name!=="modern"&&s.subtitle)sl.addText(s.subtitle,{x:W-1.05,y:0.35,w:0.62,h:2.2,fontSize:12,color:th.accent,fontFace:"Microsoft YaHei",vert:"eaVert",align:"center"});
+      sl.addText(s.title,{x:0.75,y:0.5,w:W-2.2,h:0.85,fontSize:26,bold:true,color:th.title,fontFace:"Microsoft YaHei"});
+      sl.addShape("line",{x:0.8,y:1.42,w:W-2.4,h:0,line:{color:th.bar,width:1.2}});
+      let y=1.75;
+      s.blocks.forEach(b=>{
+        if(b.kind==="word"){
+          if(s.blocks.find(x=>x.kind==="word")!==b)return; /* v159：整表只在首个字词块渲染一次 */
+          const rows=[["词语","释义"]].concat(s.blocks.filter(x=>x.kind==="word").map(x=>[x.text,x.sub||""]));
+          sl.addTable(rows.map((r,ri)=>r.map(c=>({text:c,options:{fontSize:ri===0?13:14,bold:ri===0===true,color:ri===0?th.title:th.text,fill:{color:ri===0?"E8E0C8":(th.name==="shige"?"26303E":"F3ECDA")}}}))),
+            {x:0.85,y:y,w:W-2.2,colW:[2.6,W-4.8],border:{pt:1,color:"B9A97D"},rowH:0.42,fontFace:"Microsoft YaHei"});
+          y+=Math.min(rows.length*0.46+0.3,4.6);
+        }else{
+          const fs=b.kind==="trans"?15:16;
+          const color=b.kind==="original"?th.text:b.kind==="trans"?th.sub:b.kind==="note"?th.title:th.text;
+          const bold=b.kind==="note"||b.kind==="point";
+          const h=Math.min(0.62+Math.ceil(b.text.length/26)*0.34,2.4);
+          sl.addText(b.text,{x:0.85,y:y,w:W-2.3,h:h,fontSize:fs,bold:bold,color:color,fontFace:"Microsoft YaHei",valign:"top",lineSpacingMultiple:1.15});
+          y+=h+0.12;
+        }
+      });
+      if(s.imgHint)sl.addText("配图建议："+s.imgHint,{x:0.85,y:H-0.5,w:W-2,h:0.35,fontSize:10,italic:true,color:th.accent,fontFace:"Microsoft YaHei"});
+    }
+  });
+  const fn="课件_"+(f.title||"")+"_"+f.grade+"_"+f.cat+".pptx";
+  await ppt.writeFile({fileName:fn});
+  return fn;
+}
+/* ---- 备课页签视图 ---- */
+function aiBeiView(){
+  const c=aiCfg();
+  const ready=aiReady();
+  return `<div class="card"><h3>🎨 AI 课件生成<span class="sub">DeepSeek 生成满内容大纲 → 可编辑 .pptx（约 0.03~0.1 元/份）</span></h3>
+  ${ready?"":`<div class="notice" style="border-left:3px solid #b45309;background:#fef3c7">⚙️ 尚未配置 AI 服务——请先到 <b>设置 → AI 服务</b> 填写 DeepSeek API Key（注册与充值见 platform.deepseek.com，充 10 元可用一两年）。</div>`}
+  <div class="frow">
+    <div class="field" style="flex:1.4"><label>课文标题（含作者更佳）</label><input id="aiT" placeholder="如：背影 · 朱自清 / 劝学 · 荀子 / 望洞庭 · 刘禹锡"></div>
+    <div class="field" style="flex:.6"><label>年级</label><select id="aiG">${["七年级","八年级","九年级","高一","高二","高三"].map(g=>`<option${g==="高二"?" selected":""}>${g}</option>`).join("")}</select></div>
+  </div>
+  <div class="frow">
+    <div class="field" style="flex:.8"><label>课文类型（决定版式与结构）</label><select id="aiK"><option value="guwen">文言文</option><option value="shige">古代诗歌</option><option value="modern">现代文</option></select></div>
+    <div class="field" style="flex:.8"><label>课时</label><select id="aiC">${["第一课时","第二课时","第三课时","复习课"].map((k,i)=>`<option value="${k}"${i===0?" selected":""}>${k}</option>`).join("")}</select></div>
+  </div>
+  <div class="field"><label>教学重点（可选，务必落实进课件）</label><textarea id="aiF" rows="2" placeholder="如：抓住四次背影的描写，体会父子深情；品味朴实而饱含深情的语言"></textarea></div>
+  <div class="flex"><button class="btn primary" data-act="aiGenCourse" id="aiGenBtn">🎨 生成课件（.pptx）</button>
+  <span class="muted" id="aiGenState"></span></div>
+  <div id="aiGenOut" style="margin-top:8px"></div>
+  <div class="muted" style="margin-top:8px;font-size:12px">生成的是可编辑 PowerPoint：文字内容与版式已就位，配图按每页底部"配图建议"关键词自行插入；翻译与鉴赏建议上课前快速校对。生成约需 30~60 秒。</div></div>`;
+}
+/* ---- 设置页 AI 服务卡片 ---- */
+function aiSettingsView(){
+  const c=aiCfg();
+  return `<div class="card"><h3>🤖 AI 服务<span class="sub">DeepSeek 浏览器直连（Key 仅存你的配置，随私仓同步到三机）</span></h3>
+  <div class="notice blue">① 登录 <b>platform.deepseek.com</b>（与聊天 App 同一账号）→「API keys」创建一个 <b>sk-</b> 开头的 Key；② 开放平台里充值（API 余额与 App 会员独立），充 <b>10 元</b>可轻度使用一两年；③ 把 Key 填到这里。浏览器直连已实测可行，无需任何服务器。</div>
+  <div class="frow">
+    <div class="field" style="flex:2"><label>API Key（sk- 开头）</label><input type="password" id="aiDsKey" value="${escA(c.dsKey||"")}" placeholder="sk-…"></div>
+    <div class="field" style="flex:1"><label>模型</label><select id="aiDsModel">${[["deepseek-v4-flash","V4-Flash（推荐·便宜）"],["deepseek-v4-pro","V4-Pro（更强·贵3倍）"]].map(m=>`<option value="${m[0]}"${(c.dsModel||"deepseek-v4-flash")===m[0]?" selected":""}>${m[1]}</option>`).join("")}</select></div>
+  </div>
+  <div class="flex"><button class="btn primary" data-act="aiSaveSettings">保存 AI 配置</button>
+  <button class="btn" data-act="aiTestKey" id="aiTestBtn">🔗 测试连通</button><span class="muted" id="aiTestState"></span></div>
+  <div class="muted" style="margin-top:6px;font-size:12px">计费参考：V4-Flash 高峰 输入3元/输出9元（每百万tokens），空闲时段减半（0点-9点、13-14点、18点后）；提示词缓存命中输入仅 0.1 元。重度使用一年约 5~10 元。</div></div>`;
+}
+ACTIONS.aiSaveSettings=async()=>{
+  const st=settings();
+  st.ai=st.ai||{};
+  st.ai.backend="deepseek";
+  st.ai.dsKey=($("#aiDsKey").value||"").trim();
+  st.ai.dsModel=$("#aiDsModel").value;
+  await saveMeta("settings",st);
+  toast("AI 配置已保存（随配置同步到三机）");
+};
+ACTIONS.aiTestKey=async()=>{
+  const btn=$("#aiTestBtn"),st=$("#aiTestState");
+  btn.disabled=true;st.textContent=" 测试中…";
+  try{
+    const r=await callLLM("请只回复两个字：正常",{maxTokens:16,temperature:0});
+    st.innerHTML=` <span style="color:#16a34a">✅ 连通正常：${escA(String(r).slice(0,20))}</span>`;
+  }catch(e){
+    st.innerHTML=` <span style="color:#dc2626">❌ ${escA(e.message)}</span>`;
+  }
+  btn.disabled=false;
+};
+ACTIONS.aiGenCourse=async()=>{
+  const f={title:($("#aiT").value||"").trim(),grade:$("#aiG").value,kind:($("#aiC").value||"第一课时"),cat:$("#aiK").value,focus:($("#aiF").value||"").trim()};
+  if(!f.title){toast("请填写课文标题");return;}
+  if(!aiReady()){toast("请先到 设置 → AI 服务 填写 DeepSeek API Key");return;}
+  const btn=$("#aiGenBtn"),st=$("#aiGenState"),out=$("#aiGenOut");
+  btn.disabled=true;
+  st.innerHTML=` <span style="color:#2563eb">⏳ AI 正在生成课件大纲（约 30~60 秒，请勿关闭页面）…</span>`;
+  out.innerHTML="";
+  try{
+    const raw=await callLLM(aiUserPrompt(f),{system:aiSysPrompt(f.cat),temperature:1.3,maxTokens:8192});
+    st.textContent=" 正在渲染 .pptx…";
+    const outline=aiParseSlides(raw);
+    const fn=await aiCourseRender(outline,f);
+    st.innerHTML=` <span style="color:#16a34a">✅ 完成</span>`;
+    out.innerHTML=`<div class="notice" style="border-left:3px solid #16a34a;background:#ecfdf5">✅ 已生成并下载 <b>${escA(fn)}</b>（${outline.slides.length} 页）。翻译与鉴赏请在上课前快速校对；配图按每页底部关键词插入。</div>`;
+  }catch(e){
+    st.innerHTML=` <span style="color:#dc2626">❌</span>`;
+    out.innerHTML=`<div class="notice" style="border-left:3px solid #dc2626;background:#fef2f2">生成失败：${escA(e.message)}</div>`;
+  }
+  btn.disabled=false;
+};
 
 /* ================= v111 顶栏全局学生搜索 =================
    任何模块任何页面都能搜学生：输入姓名（模糊+名字纠错口径）→ 候选下拉
@@ -5010,7 +5236,7 @@ ACTIONS.markMine=()=>{};
 AppModule({id:"jks",icon:"lab",label:"教科室",order:3,render:renderJks});
 
 /* ================= 个人事务 ================= */
-const GR_TABS=[["mysched","个人课表"],["todos","待办事项"],["notes","随手记"],["events","日程"]];
+const GR_TABS=[["mysched","个人课表"],["todos","待办事项"],["notes","随手记"],["events","日程"],["bei","AI 备课","pie"]];
 function renderGr(){
   const sub=State.sub.gr||"mysched";
   return `<div class="subtabs">${GR_TABS.map(t=>`<div class="stab${sub===t[0]?" active":""}" data-sub="${t[0]}">${t[1]}</div>`).join("")}</div>`+({
@@ -5018,6 +5244,7 @@ function renderGr(){
     todos:()=>todosView(),
     notes:()=>notesView(),
     events:()=>crudView("events",CRUDCFG.events),
+    bei:()=>aiBeiView(),
   }[sub]());
 }
 function todosView(){
@@ -5102,6 +5329,7 @@ const SET_TABS=[
   ["lines","成绩统计口径","sliders"],
   ["sync","同步与备份","cloud"],
   ["periods","作息时间表","clock"],
+  ["aisvc","AI 服务","cog"],
   ["secure","安全与关于","lock"],
 ];
 function setTabBasic(){
@@ -5183,7 +5411,7 @@ function renderSet(){
   /* v117 领导视图：访客模式只留「同步与备份」一个页签（连接状态/六文件版本） */
   const tabs=visitorView()?SET_TABS.filter(t=>t[0]==="sync")
     :SET_TABS.filter(t=>!(typeof Sync!=="undefined"&&Sync.visitorRO&&Sync.visitorRO()&&t[0]==="upload"));
-  const map={basic:setTabBasic,upload:(typeof setTabUpload==="function"?setTabUpload:setTabBasic),lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure};
+  const map={basic:setTabBasic,upload:(typeof setTabUpload==="function"?setTabUpload:setTabBasic),lines:setTabLines,sync:setTabSync,periods:setTabPeriods,secure:setTabSecure,aisvc:(typeof aiSettingsView==="function"?aiSettingsView:setTabBasic)};
   let sub=tab==="upload"&&tabs.every(t=>t[0]!=="upload")?"basic":tab;
   if(visitorView()&&sub!=="sync")sub="sync";
   const body=(map[sub]||setTabBasic)();
