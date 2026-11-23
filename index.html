@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v154";
+window.APP_VERSION="v155";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -8613,7 +8613,7 @@ function lnScopeRows(exam,scopeCls){
 /* 单方向 collect：只收集 dir 方向的名单与计数 */
 function lnNamesCollect(exam,scopeCls,dir){
   const rows=lnScopeRows(exam,scopeCls);
-  const blk=(title,line,rng,list)=>({title,line,rng,list});
+  const blk=(title,line,rng,list,kind,up)=>({title,line,rng,list,kind,up});
   const sortUp=(a,b)=>b.v-a.v, sortCrit=(a,b)=>b.d-a.d;
   const out={total:[],subj:{},cnt:{total:{},subj:{}}};
   const rowsD=rows.filter(r=>rowDir(r)===dir&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
@@ -8626,8 +8626,8 @@ function lnNamesCollect(exam,scopeCls,dir){
     const cr=rowsD.map(r=>({r,v:r.total,d:r.total-line})).filter(x=>x.d<0&&x.d>=rng.lo).sort(sortCrit);
     tc[kind==="pass"?"passUp":"excUp"]=up.length;
     tc[kind==="pass"?"passCr":"excCr"]=cr.length;
-    if(up.length)out.total.push(blk(`${kLab}上线 · 线${line} · 共${up.length}人`,line,rng,up));
-    if(cr.length)out.total.push(blk(`${kLab}临界 · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr));
+    if(up.length)out.total.push(blk(`${kLab}上线 · 线${line} · 共${up.length}人`,line,rng,up,kind,true));
+    if(cr.length)out.total.push(blk(`${kLab}临界 · 线${line} · 浮动${critRangeTxt(exam,kind)} · 共${cr.length}人`,line,rng,cr,kind,false));
   });
   out.cnt.total[dir]=tc;
   (exam.subjects||[]).forEach(subj=>{
@@ -8647,8 +8647,8 @@ function lnNamesCollect(exam,scopeCls,dir){
         c[kind==="pass"?"passUp":"excUp"]=up.length;
         c[kind==="pass"?"passCr":"excCr"]=cr.length;
         const sh=out.subj[subj]=out.subj[subj]||[];
-        if(up.length)sh.push(blk(`${kLab}上线 · 线${line} · 共${up.length}人`,line,rng,up));
-        if(cr.length)sh.push(blk(`${kLab}临界 · 线${line} · 浮动${critRangeTxt(exam,kind,true)} · 共${cr.length}人`,line,rng,cr));
+        if(up.length)sh.push(blk(`${kLab}上线 · 线${line} · 共${up.length}人`,line,rng,up,kind,true));
+        if(cr.length)sh.push(blk(`${kLab}临界 · 线${line} · 浮动${critRangeTxt(exam,kind,true)} · 共${cr.length}人`,line,rng,cr,kind,false));
       });
     });
     if(out.subj[subj])out.cnt.subj[subj]=blocks;
@@ -8833,16 +8833,16 @@ function lnOneXlsx(exam,scopeCls,dir,P,nTxt){
   ov.push([]);ov.push(["注","上线=分数≥线（各类独立统计，本科上线名单含已上特控者）；临界=落在临界浮动区间。"]);
   lnSheet(wb,"总览",ov,[8,9,9,9,9]);
   P.total.forEach(b=>{
-    const nm=b.title.startsWith("本科")?"本科上线":"特控上线";
+    const nm=(b.kind==="pass"?"本科":"特控")+(b.up?"上线":"临界");
     const grade=(settings().grade||"").trim();
-    const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按分数线 · "+dir+"方向）"],tt[1],...lnBlkAoa(b,true,isAll)];
-    lnSheet(wb,nm,sh,isAll?[4,5,9,6,6,6]:[4,9,6,6,6]);
+    const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按分数线 · "+dir+"方向）"],[tt[1]],...lnBlkAoa(b,true,isAll)];
+    lnSheet(wb,nm,sh,isAll?[4,5,9,6,6,6]:[4,9,6,6,5]);
   });
   Object.keys(P.subj).forEach(s=>{
     P.subj[s].forEach(b=>{
-      const nm=b.title.startsWith("本科")?s+"·本科上线":s+"·特控上线";
+      const nm=s+"·"+((b.kind==="pass"?"本科":"特控")+(b.up?"上线":"临界"));
       const grade=(settings().grade||"").trim();
-      const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按分数线 · "+dir+"方向）"],tt[1],...lnBlkAoa(b,false,isAll,s)];
+      const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按分数线 · "+dir+"方向）"],[tt[1]],...lnBlkAoa(b,false,isAll,s)];
       lnSheet(wb,nm,sh,isAll?[4,5,9,6,6,6,6]:[4,9,6,6,6,6]);
     });
   });
@@ -8888,18 +8888,18 @@ function lnOneRankXlsx(exam,scopeCls,dir,nn){
   R.total.forEach(b=>{
     const nm=b.title.includes("线上生")?"上线生":"临界生";
     const grade=(settings().grade||"").trim();
-    const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按位次划 · "+dir+"方向）"],tt[1],...lnRankAoa(b,isAll)];
+    const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按位次划 · "+dir+"方向）"],[tt[1]],...lnRankAoa(b,isAll)];
     lnSheet(wb,nm,sh,isAll?[4,5,9,6,6]:[4,9,6,6]);
   });
   if(!R.total.length){
     const grade=(settings().grade||"").trim();
-    lnSheet(wb,"上线生",[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" 线上生名单（按位次划 · "+dir+"方向）"],tt[1],["（该范围内无学生）"]],[4,5,9,6,6]);
+    lnSheet(wb,"上线生",[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" 线上生名单（按位次划 · "+dir+"方向）"],[tt[1]],["（该范围内无学生）"]],[4,5,9,6,6]);
   }
   subjects.forEach(s=>{
     R.subj[s].forEach(b=>{
       const nm=b.title.includes("线上生")?s+"·上线":s+"·临界";
       const grade=(settings().grade||"").trim();
-      const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按位次划 · "+dir+"方向）"],tt[1],...lnRankAoa(b,isAll)];
+      const sh=[[(grade?grade+" ":"")+(isAll?"全年级":scopeCls+"班")+" "+nm+"名单（按位次划 · "+dir+"方向）"],[tt[1]],...lnRankAoa(b,isAll)];
       lnSheet(wb,nm,sh,isAll?[4,5,9,6,6]:[4,9,6,6]);
     });
   });
