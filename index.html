@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v155";
+window.APP_VERSION="v156";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -8723,12 +8723,22 @@ function lnTitle(exam,scopeCls,tag,dir,extra){
   const t2="考试："+exam.name+"（"+(exam.date||"")+"） · 范围："+scopeTxt+" · 导出："+new Date().toLocaleString("zh-CN")+(extra?" · "+extra:"");
   return [t1,t2];
 }
+/* 列宽自适应：等比放大到 A4 纵向可打印宽度（左右边距 0.39in → 约 19cm ≈ 715px），打印铺满整页 */
+function lnFitCols(widths){
+  if(!widths||!widths.length)return widths;
+  const px=w=>w*7+5;
+  const total=widths.reduce((a,w)=>a+px(w),0);
+  const k=715/total;
+  if(k<=1)return widths;
+  return widths.map(w=>Math.max(3,Math.round(w*k*10)/10));
+}
 /* 建 sheet：标题行加粗居中、表头行加粗灰底、全表细边框（xlsx-js-style） */
 function lnSheet(wb,name,aoa,widths){
   const ws=XLSX.utils.aoa_to_sheet(aoa);
-  if(widths)ws["!cols"]=widths.map(w=>({wch:w}));
+  if(widths)ws["!cols"]=lnFitCols(widths).map(w=>({wch:w}));
   const n=widths?widths.length:1;
   ws["!rows"]=[{hpt:26},{hpt:20}];
+  ws["!margins"]={left:0.39,right:0.39,top:0.59,bottom:0.59,header:0.31,footer:0.31};
   if(aoa.length>2)ws["!merges"]=[{s:{r:0,c:0},e:{r:0,c:n-1}}];
   if(ws["!ref"]){
     const range=XLSX.utils.decode_range(ws["!ref"]);
