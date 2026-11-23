@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v157";
+window.APP_VERSION="v158";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -2213,13 +2213,24 @@ function crudView(store,cfg,opts){
       .sort((a,b)=>Number(a)-Number(b)||a.localeCompare(b));
     clsFilter=clss.length>1?`<select class="searchbox" id="stuClsFilter" style="max-width:120px"><option value="">全部班级</option>${clss.map(c=>`<option value="${escA(c)}"${State.f_students===c?" selected":""}>${escA(clsLabel(c))}</option>`).join("")}</select>`:"";
   }
-  /* v119 学生标签：名册批量打标工具条 + 标签筛选（仅管理员可写的名册页） */
+  /* v119 学生标签：名册批量打标工具条 + 标签筛选（仅管理员可写的名册页）；
+     v158：筛选改多选（任一命中）+ 下拉内「＋自定义标签」入口 */
   let tagFilter="";
   if(store==="students"&&!opts.readOnly&&typeof stuTagDefsAll==="function"&&!(typeof visitorView==="function"&&visitorView())){
-    const cur=State.ftag_students||"";
-    tagFilter=`<select class="searchbox" id="stuTagFilter" style="max-width:120px"><option value="">全部标签</option>${stuTagDefsAll().map(d=>`<option value="${escA(d.k)}"${cur===d.k?" selected":""}>${escA(d.k)}生</option>`).join("")}<option value="__none"${cur==="__none"?" selected":""}>无标签</option></select>
+    if(typeof State.ftag_students==="string")State.ftag_students=State.ftag_students?[State.ftag_students]:[];
+    if(!Array.isArray(State.ftag_students))State.ftag_students=[];
+    const curArr=State.ftag_students;
+    const defs=stuTagDefsAll();
+    const curTxt=curArr.length?curArr.map(k=>k==="__none"?"无标签":k+"生").join("、"):"全部标签";
+    tagFilter=`<span style="position:relative;display:inline-block">
+    <button class="btn sm" data-act="stuTagMulti" style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escA(curTxt)} ▾</button>
+    <div id="stuTagPanel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:60;background:var(--bg,#fff);border:0.5px solid var(--line,#e2e8f0);border-radius:8px;padding:6px;min-width:160px;box-shadow:0 4px 14px rgba(15,23,42,.12)">
+      ${defs.map(d=>`<label style="display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:5px;cursor:pointer;font-size:13px"><input type="checkbox" class="stuTagFk" value="${escA(d.k)}"${curArr.includes(d.k)?" checked":""}> ${escA(d.k)}生</label>`).join("")}
+      <label style="display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:5px;cursor:pointer;font-size:13px"><input type="checkbox" class="stuTagFk" value="__none"${curArr.includes("__none")?" checked":""}> 无标签</label>
+      <div style="border-top:0.5px dashed var(--line,#e2e8f0);margin-top:4px;padding:3px 6px"><a href="javascript:void(0)" data-act="stuTagDefNew" style="color:var(--blue,#2563eb);font-weight:500;font-size:13px">＋ 自定义标签…</a></div>
+    </div></span>
     <span style="font-size:12px;color:var(--blue,#2563eb);white-space:nowrap">已选 <b id="stuTagN">${State._stuTagSel?State._stuTagSel.size:0}</b> 人</span>
-    ${stuTagDefsAll().map(d=>`<button class="btn sm" data-act="stuTagApply" data-tag="${escA(d.k)}" title="给勾选的学生加「${escA(d.k)}」标签" style="color:${d.fg}">+${escA(d.k)}</button>`).join("")}
+    ${defs.map(d=>`<button class="btn sm" data-act="stuTagApply" data-tag="${escA(d.k)}" title="给勾选的学生加「${escA(d.k)}」标签" style="color:${d.fg}">+${escA(d.k)}</button>`).join("")}
     <button class="btn sm" data-act="stuTagClearSel" title="移除勾选学生的全部特长标签">清除</button>`;
   }
   return `<div class="card"><h3>${cfg.title}${opts.cls?`<span class="muted" style="font-size:12px">（${escA(clsLabel(opts.cls))}·只读调阅，数据随全年级名册自动联动）</span>`:""}<span class="spacer"></span>${opts.readOnly?"":(cfg.tools||"")}${clsFilter}${tagFilter}
@@ -2235,11 +2246,13 @@ function crudBody(store,cfg,q,opts){
   if(q){rows=rows.filter(r=>cfg.fields.some(f=>String(r[f.k]||"").toLowerCase().includes(q)));}
   if(store==="students"&&opts.cls){rows=rows.filter(r=>String(r.cls||"")===opts.cls);}
   else if(store==="students"&&State.f_students){rows=rows.filter(r=>String(r.cls||"")===State.f_students);}
-  /* v119 标签筛选：全部标签 / 某标签 / 无标签 */
-  if(store==="students"&&State.ftag_students){
-    const ft=State.ftag_students;
-    if(ft==="__none")rows=rows.filter(r=>!(typeof stuTagsOf==="function")||!stuTagsOf(r).length);
-    else rows=rows.filter(r=>typeof stuTagsOf==="function"&&stuTagsOf(r).includes(ft));
+  /* v119/v158 标签筛选：多选任一命中（__none=无标签，与标签类 OR 组合） */
+  if(store==="students"&&Array.isArray(State.ftag_students)&&State.ftag_students.length){
+    const fa=State.ftag_students;
+    rows=rows.filter(r=>{
+      const t=(typeof stuTagsOf==="function"?stuTagsOf(r):[]);
+      return fa.some(f=>f==="__none"?t.length===0:t.includes(f));
+    });
   }
   const cols=cfg.cols;
   // 列头排序：State.csort_<store>={k,dir}；未设置时用配置默认
@@ -2336,6 +2349,69 @@ ACTIONS.stuTagClearSel=()=>{
     toast(n?`已清除 ${n} 人的特长标签`:"勾选的学生均无特长标签");
   })();
 };
+/* v158：标签筛选多选面板 + 自定义标签登记 */
+ACTIONS.stuTagMulti=(id,el)=>{
+  const p=document.getElementById("stuTagPanel");
+  if(p)p.style.display=p.style.display==="none"?"block":"none";
+};
+ACTIONS.stuTagDefNew=()=>{
+  const box=document.getElementById("stuTagPanel");
+  if(!box)return;
+  if(document.getElementById("stuTagNewInp")){document.getElementById("stuTagNewInp").focus();return;}
+  const row=document.createElement("div");
+  row.style.cssText="padding:3px 6px;display:flex;gap:5px;align-items:center";
+  row.innerHTML=`<input id="stuTagNewInp" class="searchbox" placeholder="标签名，如 音乐" style="flex:1;min-width:0;padding:2px 6px;font-size:12px"><button class="btn sm primary" id="stuTagNewOk">加</button>`;
+  box.insertBefore(row,box.lastElementChild);
+  const apply=()=>{
+    const v=(document.getElementById("stuTagNewInp").value||"").trim().replace(/生$/,"");
+    if(!v){toast("请输入标签名");return;}
+    stuTagDefAdd(v);
+    State.ftag_students=(Array.isArray(State.ftag_students)?State.ftag_students:[]).concat([v]);
+    toast(`已登记标签「${v}」并加入筛选（全设备同步）`);
+    render();
+  };
+  document.getElementById("stuTagNewOk").onclick=apply;
+  document.getElementById("stuTagNewInp").addEventListener("keydown",e=>{if(e.key==="Enter")apply();});
+  document.getElementById("stuTagNewInp").focus();
+};
+if(typeof window!=="undefined"&&!window._stuTagFkBound){
+  window._stuTagFkBound=true;
+  document.addEventListener("change",e=>{
+    if(e.target&&e.target.classList&&e.target.classList.contains("stuTagFk")){
+      const box=document.getElementById("stuTagPanel");
+      const checked=[...box.querySelectorAll(".stuTagFk:checked")].map(x=>x.value);
+      State.ftag_students=checked;
+      render();
+    }
+  });
+  document.addEventListener("click",e=>{
+    const wrap=document.getElementById("stuTagPanel");
+    if(wrap&&wrap.style.display!=="none"){
+      const btn=e.target.closest&&e.target.closest('[data-act="stuTagMulti"]');
+      if(!btn&&!wrap.contains(e.target))wrap.style.display="none";
+    }
+  },true);
+}
+ACTIONS.stuTagNewInline=()=>{
+  const wrap=document.getElementById("stuTagNewWrap");
+  if(!wrap)return;
+  wrap.innerHTML=`<span style="display:inline-flex;gap:5px;align-items:center"><input id="stuTagNewInp2" class="searchbox" placeholder="标签名，如 音乐" style="width:120px;padding:3px 8px;font-size:12px"><button class="btn sm primary" id="stuTagNewOk2">登记</button></span>`;
+  const apply=()=>{
+    const inp=document.getElementById("stuTagNewInp2");
+    const v=(inp.value||"").trim().replace(/生$/,"");
+    if(!v){toast("请输入标签名");return;}
+    const curChecked=[...document.querySelectorAll("#stuTagEditBox .stuTagEdit:checked")].map(x=>x.value);
+    stuTagDefAdd(v);
+    if(!curChecked.includes(v))curChecked.push(v);
+    const defs=typeof stuTagDefsAll==="function"?stuTagDefsAll():[];
+    const box=document.getElementById("stuTagEditBox");
+    box.innerHTML=defs.map(d=>typeof stuTagEditChip==="function"?stuTagEditChip(d,curChecked):"").join("")+`<span id="stuTagNewWrap"><a href="javascript:void(0)" data-act="stuTagNewInline" style="display:inline-flex;align-items:center;font-size:13px;padding:5px 12px;border:0.5px dashed var(--blue,#2563eb);border-radius:8px;color:var(--blue,#2563eb)">＋ 新增标签</a></span>`;
+    toast(`已登记标签「${v}」（全设备同步），已勾上，保存即生效`);
+  };
+  document.getElementById("stuTagNewOk2").onclick=apply;
+  document.getElementById("stuTagNewInp2").addEventListener("keydown",e=>{if(e.key==="Enter")apply();});
+  document.getElementById("stuTagNewInp2").focus();
+};
 function openCrudModal(btn){
   const store=btn.dataset.store,id=btn.dataset.id;
   const cfg=CRUDCFG[store];if(!cfg)return;
@@ -2351,7 +2427,7 @@ function openCrudModal(btn){
   });}
   const body=`<div class="frow">${cfg.fields.map(f=>fHtml(f,id?rec[f.k]:(rec[f.k]||defaults[f.k]||""))).join("")}</div>`
     +(store==="students"&&typeof stuTagDefsAll==="function"
-      ?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px dashed var(--line,#e2e8f0)"><div class="muted" style="font-size:12px;margin-bottom:6px">🏷 特长标签（可多选；不学了取消勾选保存即可）</div><div style="display:flex;gap:8px;flex-wrap:wrap">${stuTagDefsAll().map(d=>`<label style="display:flex;align-items:center;gap:5px;font-size:13px;padding:5px 12px;border:0.5px solid ${d.bd};border-radius:8px;cursor:pointer;background:${stuTagsOf(rec).includes(d.k)?d.bg:"transparent"}"><input type="checkbox" class="stuTagEdit" value="${escA(d.k)}"${stuTagsOf(rec).includes(d.k)?" checked":""}> ${escA(d.k)}</label>`).join("")}</div></div>`:"");
+      ?`<div style="margin-top:10px;padding-top:10px;border-top:0.5px dashed var(--line,#e2e8f0)"><div class="muted" style="font-size:12px;margin-bottom:6px">🏷 特长标签（可多选；不学了取消勾选保存即可）</div><div id="stuTagEditBox" style="display:flex;gap:8px;flex-wrap:wrap">${stuTagDefsAll().map(d=>stuTagEditChip(d,typeof stuTagsOf==="function"?stuTagsOf(rec):[])).join("")}<span id="stuTagNewWrap"><a href="javascript:void(0)" data-act="stuTagNewInline" style="display:inline-flex;align-items:center;font-size:13px;padding:5px 12px;border:0.5px dashed var(--blue,#2563eb);border-radius:8px;color:var(--blue,#2563eb)">＋ 新增标签</a></span></div></div>`:"");
   openModal(id?"编辑 — "+cfg.title:"新增 — "+cfg.title,body,`<button class="btn" data-act="closeModal">取消</button><button class="btn primary" id="modalOk">保存</button>`);
   $("#modalOk").onclick=async()=>{
     const obj=Object.assign({},rec);
@@ -2783,10 +2859,22 @@ const STU_TAG_PALETTE=["#b45309","#0d9488","#7c3aed","#dc2626","#2563eb","#05966
 function stuTagDefsAll(){
   const extra=(typeof settings==="function"&&(settings().stuTags||[]))||[];
   const arr=STU_TAG_DEFS.slice();
+  const seen=k=>arr.some(d=>d.k===k);
   for(const e of extra){
-    if(!e||!e.k||arr.some(d=>d.k===e.k))continue;
+    if(!e||!e.k||seen(e.k))continue;
     arr.push({k:String(e.k),bg:"#f1efe8",fg:e.fg||STU_TAG_PALETTE[arr.length%STU_TAG_PALETTE.length],bd:"#b4b2a9"});
   }
+  /* v158：自动吸收全库学生实际使用的标签（历史手填/旧导入的字典外标签兜底——身上有=选得到） */
+  try{
+    if(typeof State!=="undefined"&&State.data&&Array.isArray(State.data.students)&&typeof stuTagsOf==="function"){
+      for(const st of State.data.students){
+        for(const t of stuTagsOf(st)){
+          if(seen(t))continue;
+          arr.push({k:t,bg:"#f1efe8",fg:STU_TAG_PALETTE[arr.length%STU_TAG_PALETTE.length],bd:"#b4b2a9"});
+        }
+      }
+    }
+  }catch(e){}
   return arr;
 }
 function stuTagDefAdd(k){
@@ -2814,6 +2902,11 @@ function stuTagsHtml(st){
     const d=stuTagDefsAll().find(x=>x.k===t)||{bg:"#f1efe8",fg:"#444441",bd:"#b4b2a9"};
     return `<span style="display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;margin-left:3px;white-space:nowrap;background:${d.bg};color:${d.fg};border:0.5px solid ${d.bd}">${escA(t)}</span>`;
   }).join("");
+}
+/* v158：档案编辑弹窗的标签勾选胶囊（checkedArr=勾选中的标签数组） */
+function stuTagEditChip(d,checkedArr){
+  const on=(checkedArr||[]).includes(d.k);
+  return `<label style="display:flex;align-items:center;gap:5px;font-size:13px;padding:5px 12px;border:0.5px solid ${d.bd};border-radius:8px;cursor:pointer;background:${on?d.bg:"transparent"}"><input type="checkbox" class="stuTagEdit" value="${escA(d.k)}"${on?" checked":""}> ${escA(d.k)}</label>`;
 }
 const CRUDCFG={
   /* v91：导入按钮收进「教务→数据出入口」面板，名册页只留搜索/筛选/新增，减少按钮堆砌 */
