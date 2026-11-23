@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v156";
+window.APP_VERSION="v157";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -8680,12 +8680,15 @@ function lnDirRank(list){
   return sorted;
 }
 function lnRankCollect(exam,scopeCls,dir,nn){
-  const rows=lnScopeRows(exam,scopeCls);
+  /* v157 修复：名次一律按全年级该方向排名（此前单班导出在班内排名，与用户填的全年级方向名次口径错位）；
+     scope 只做输出过滤（单班导出=该班学生中，方向全年级名次落在区间内的名单） */
+  const all=exam.rows.filter(r=>rowDir(r)===dir&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
+  const rankedAll=lnDirRank(all.map(r=>({r,v:r.total})));
+  const inScope=new Set(lnScopeRows(exam,scopeCls));
+  const pick=arr=>arr.filter(x=>inScope.has(x.r));
   const out={total:[],subj:{}};
-  const rowsD=rows.filter(r=>rowDir(r)===dir&&r.total!=null&&!(exam.zeroAsMissing&&r.total===0));
-  const ranked=lnDirRank(rowsD.map(r=>({r,v:r.total})));
-  const up=ranked.filter(x=>x.rank<=nn.n1);
-  const cr=ranked.filter(x=>x.rank>nn.n1&&x.rank<=nn.n2);
+  const up=pick(rankedAll.filter(x=>x.rank<=nn.n1));
+  const cr=pick(rankedAll.filter(x=>x.rank>nn.n1&&x.rank<=nn.n2));
   if(up.length)out.total.push({title:`总分 · 前${nn.n1}名 · 线上生 ${up.length}人`,list:up});
   if(cr.length)out.total.push({title:`总分 · 第${nn.n1+1}~${nn.n2}名 · 临界生 ${cr.length}人`,list:cr});
   (exam.subjects||[]).forEach(subj=>{
@@ -8693,11 +8696,11 @@ function lnRankCollect(exam,scopeCls,dir,nn){
     dList=dList.filter(d=>d===dir);
     const arr=out.subj[subj]=out.subj[subj]||[];
     dList.forEach(()=>{
-      const scored=rows.filter(r=>(!dir||rowDir(r)===dir)).map(r=>({r,v:validScore(exam,r,subj)})).filter(x=>x.v!=null);
+      const scored=exam.rows.filter(r=>(!dir||rowDir(r)===dir)).map(r=>({r,v:validScore(exam,r,subj)})).filter(x=>x.v!=null);
       if(!scored.length)return;
       const ranked=lnDirRank(scored);
-      const up=ranked.filter(x=>x.rank<=nn.n1);
-      const cr=ranked.filter(x=>x.rank>nn.n1&&x.rank<=nn.n2);
+      const up=pick(ranked.filter(x=>x.rank<=nn.n1));
+      const cr=pick(ranked.filter(x=>x.rank>nn.n1&&x.rank<=nn.n2));
       if(up.length)arr.push({title:`${subj} · 前${nn.n1}名 · 线上生 ${up.length}人`,list:up});
       if(cr.length)arr.push({title:`${subj} · 第${nn.n1+1}~${nn.n2}名 · 临界生 ${cr.length}人`,list:cr});
     });
