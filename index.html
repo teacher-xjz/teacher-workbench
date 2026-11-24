@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v162";
+window.APP_VERSION="v163";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3318,15 +3318,6 @@ ACTIONS.aiSaveSettings=async()=>{
   if(a.provider==="siliconflow"&&$("#aiSfModel"))a.sfModel=$("#aiSfModel").value;
   await saveMeta("settings",st);
   toast("AI 配置已保存（"+(AI_PROVIDERS[a.provider]||{}).name+"，随配置同步到三机）");
-};
-ACTIONS.aiSaveSettings=async()=>{
-  const st=settings();
-  st.ai=st.ai||{};
-  st.ai.backend="deepseek";
-  st.ai.dsKey=($("#aiDsKey").value||"").trim();
-  st.ai.dsModel=$("#aiDsModel").value;
-  await saveMeta("settings",st);
-  toast("AI 配置已保存（随配置同步到三机）");
 };
 ACTIONS.aiTestKey=async()=>{
   const btn=$("#aiTestBtn"),st=$("#aiTestState");
