@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v160";
+window.APP_VERSION="v161";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3330,7 +3330,8 @@ ACTIONS.aiSaveSettings=async()=>{
 };
 ACTIONS.aiTestKey=async()=>{
   const btn=$("#aiTestBtn"),st=$("#aiTestState");
-  btn.disabled=true;st.textContent=" 测试中…";
+  btn.disabled=true;st.textContent=" 保存并测试中…";
+  try{await ACTIONS.aiSaveSettings();}catch(e){} /* v161：测试前自动保存表单（修复"填了 key 直接点测试报未配置"）*/
   try{
     const r=await callLLM("请只回复两个字：正常",{maxTokens:16,temperature:0});
     st.innerHTML=` <span style="color:#16a34a">✅ 连通正常：${escA(String(r).slice(0,20))}</span>`;
