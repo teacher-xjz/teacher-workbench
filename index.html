@@ -1926,7 +1926,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v161";
+window.APP_VERSION="v162";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -3055,7 +3055,7 @@ async function callLLM(userText,opts){
   const url=c.provider==="custom"?c.cuUrl:p.url;
   const key=c[p.keyField];
   const model=c.provider==="custom"?c.cuModel:c[p.modelField];
-  if(!url||!key)throw new Error("请先在设置 → AI 服务中配置"+p.name+"的接口地址与 Key");
+  if(!url||!key)throw new Error("配置未生效（诊断：提供商="+c.provider+"，Key长度="+(key||"").length+"，接口="+(url||"空")+"）——请重新填写 Key 并点击「保存 AI 配置」，看到保存成功提示后再测试");
   const messages=(opts.system?[{role:"system",content:opts.system}]:[]).concat(opts.messages||[{role:"user",content:userText}]);
   const body={model,messages,temperature:opts.temperature!=null?opts.temperature:c.temperature,max_tokens:opts.maxTokens||8192,stream:false};
   /* 联网查证：仅 DeepSeek 官方端点支持（服务端工具，附引用）；失败自动降级为不带工具重试 */
@@ -3331,7 +3331,12 @@ ACTIONS.aiSaveSettings=async()=>{
 ACTIONS.aiTestKey=async()=>{
   const btn=$("#aiTestBtn"),st=$("#aiTestState");
   btn.disabled=true;st.textContent=" 保存并测试中…";
-  try{await ACTIONS.aiSaveSettings();}catch(e){} /* v161：测试前自动保存表单（修复"填了 key 直接点测试报未配置"）*/
+  try{
+    await ACTIONS.aiSaveSettings();
+  }catch(e){
+    btn.disabled=false;st.innerHTML=` <span style="color:#dc2626">❌ 保存失败：${escA(e.message)}</span>`;
+    return;
+  } /* v161/v162：测试前自动保存表单，失败显式报错 */
   try{
     const r=await callLLM("请只回复两个字：正常",{maxTokens:16,temperature:0});
     st.innerHTML=` <span style="color:#16a34a">✅ 连通正常：${escA(String(r).slice(0,20))}</span>`;
