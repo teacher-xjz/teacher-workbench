@@ -291,6 +291,14 @@ canvas.chart{width:100%;display:block}
   #gsq{width:100%;min-width:0}
   #gsList{width:230px}
 }
+/* ===== v165 档案卡成绩色块：单科分数 vs 该科年级均分五档（绿=高于均分、红=低于均分，±3 内不着色；打印保留底色） ===== */
+.prof-pill{display:inline-block;min-width:30px;padding:0 6px;border-radius:6px;font-variant-numeric:tabular-nums}
+.prof-pill.p-strong-good{background:var(--green-bg);color:#15803d;font-weight:600}
+.prof-pill.p-good{background:#f0fdf4;color:var(--green)}
+.prof-pill.p-flat{background:#f1f5f9;color:#475569}
+.prof-pill.p-bad{background:#fef2f2;color:#ef4444}
+.prof-pill.p-strong-bad{background:var(--red-bg);color:var(--red);font-weight:600}
+.prof-pill.prof-pill-total{font-weight:700}
 /* ===== v110 学生档案打印：profPrint 把档案卡临时搬到 body 顶层，打印时只显示它（无空白页），保留表格底色，A4 收窄边距 ===== */
 @media print{
   body>*:not(#profCard){display:none!important}
@@ -1928,7 +1936,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v164";
+window.APP_VERSION="v165";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4857,6 +4865,17 @@ function profileRowsOf(st){
 }
 /* 参考性考试（中考等）：仅展示，不参与高中科目列/方向判定 */
 function isRefExam(exam){return /中考/.test(String((exam&&exam.name)||""));}
+/* v165：档案卡成绩色块——分数与同场考试年级均分的差值分五档：
+   ≥+10 强绿 / +3~+10 浅绿 / ±3 内灰(不着重) / −3~−10 浅红 / ≤−10 强红；均分缺失时不着色 */
+function profPillCls(v,a){
+  if(v==null||a==null||!isFinite(v)||!isFinite(a))return "";
+  const d=v-a;
+  if(d>=10)return "p-strong-good";
+  if(d>=3)return "p-good";
+  if(d>-3)return "p-flat";
+  if(d>-10)return "p-bad";
+  return "p-strong-bad";
+}
 function profileCard(st){
   const {list,dir}=profileRowsOf(st);
   const status=st.status||"在读";
@@ -4910,22 +4929,30 @@ function profileCard(st){
           else if(it.row._cr>prev._cr){tr="↓"+(it.row._cr-prev._cr);tc="#dc2626";}
         }
         const yw=it.row.s;
+        const ce=computeExam(it.exam); /* v165 色块口径：同场考试年级均分（与榜单同源重算） */
         const yn=[yw["语文"],yw["数学"],yw["英语"]!=null?yw["英语"]:yw["外语"]].map(v=>num(v)).filter(v=>v!=null);
         const ynTxt=yn.length?fmtN(yn.reduce((a,b)=>a+b,0),1):"—";
         return `<tr><td style="padding:4px;border-bottom:1px solid #f1f5f9">${escA(it.exam.name)}</td>
         ${cols.map(c=>{
           const raw=it.exam.subjects.map(s=>subjKey(s)===c?s:null).filter(Boolean).map(s=>yw&&yw[s]).find(v=>v!=null&&v!=="");
           const miss=raw!=null&&Number(raw)===0&&it.exam.zeroAsMissing;
-          return `<td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9;color:${miss?"#94a3b8":"#0f172a"}">${miss?"缺":esc(raw)}</td>`;
+          const sn=it.exam.subjects.find(s=>subjKey(s)===c);
+          const ga=(sn&&ce.grade.bySubj[sn]&&ce.grade.bySubj[sn].avg!=null)?ce.grade.bySubj[sn].avg:null;
+          const pc=miss?"":profPillCls(num(raw),ga);
+          return `<td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${miss?`<span style="color:#94a3b8">缺</span>`:(pc?`<span class="prof-pill ${pc}">${esc(raw)}</span>`:esc(raw))}</td>`;
         }).join("")}
-        <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9"><b>${esc(fmtN(num(it.row.total),1))}</b></td>
+        ${(()=>{
+          const v=num(it.row.total),a=(ce.grade.total&&ce.grade.total.avg!=null)?ce.grade.total.avg:null;
+          const pc=profPillCls(v,a);
+          return `<td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${pc?`<span class="prof-pill ${pc} prof-pill-total"><b>${esc(fmtN(v,1))}</b></span>`:`<b>${esc(fmtN(v,1))}</b>`}</td>`;
+        })()}
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${ynTxt}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"gr")}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"dir")}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"cr")}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9;color:${tc}">${tr}</td></tr>`;
       }).join("")}</tbody></table></div>
-      <div class="muted" style="font-size:11.5px;margin-top:6px">名次为并列名次（同分同名次），分母=参考人数：年级/全年级 · 方向/该方向 · 班级/本班；"缺"=按缺考口径剔除的 0 分；虚线处点击显示完整号码</div>`
+      <div class="muted" style="font-size:11.5px;margin-top:6px">名次为并列名次（同分同名次），分母=参考人数：年级/全年级 · 方向/该方向 · 班级/本班；"缺"=按缺考口径剔除的 0 分；色块=分数−该科年级均分（绿=高于均分、红=低于均分，±3 分内不着色）；虚线处点击显示完整号码</div>`
       :`<div class="empty" style="padding:16px"><div class="big">📄</div>名册中没有该生的历次考试成绩记录（可能缺考或考试库中无同名学生）</div>`}
     <div style="margin-top:9px;font-size:12.5px;color:#334155;display:flex;align-items:center;gap:8px">
       <b style="font-weight:600">家校沟通</b><span style="color:#64748b">共 ${comms.length} 条</span>
