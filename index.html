@@ -1937,7 +1937,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 </script>
 <script>
 "use strict";
-window.APP_VERSION="v166";
+window.APP_VERSION="v167";
 "use strict";
 /* ================= 工具 ================= */
 /* 版本号：由 build.py 注入 window.APP_VERSION，显示在顶栏标题下方 */
@@ -4953,7 +4953,8 @@ function profileCard(st){
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9">${rankDisp(it.row,"cr")}</td>
         <td style="padding:4px;text-align:center;border-bottom:1px solid #f1f5f9;color:${tc}">${tr}</td></tr>`;
       }).join("")}</tbody></table></div>
-      <div class="muted" style="font-size:11.5px;margin-top:6px">名次为并列名次（同分同名次），分母=参考人数：年级/全年级 · 方向/该方向 · 班级/本班；"缺"=按缺考口径剔除的 0 分；色块=分数−该科年级均分（绿=高于均分、红=低于均分，±3 分内不着色）；虚线处点击显示完整号码</div>`
+      <div style="display:flex;flex-wrap:wrap;gap:5px 8px;align-items:center;margin-top:7px;font-size:11.5px;color:#475569"><span style="color:#64748b">色块＝分数与该科年级均分之差（总分列同理，对比年级总分均分）：</span><span class="prof-pill p-strong-good">≥ +10</span><span>明显优势</span><span class="prof-pill p-good">+3 ~ +10</span><span>略优</span><span class="prof-pill p-flat">±3 内</span><span>相当</span><span class="prof-pill p-bad">−3 ~ −10</span><span>略弱</span><span class="prof-pill p-strong-bad">≤ −10</span><span>明显落后</span></div>
+      <div class="muted" style="font-size:11.5px;margin-top:4px">名次为并列名次（同分同名次），分母=参考人数：年级/全年级 · 方向/该方向 · 班级/本班；"缺"=按缺考口径剔除的 0 分；虚线处点击显示完整号码</div>`
       :`<div class="empty" style="padding:16px"><div class="big">📄</div>名册中没有该生的历次考试成绩记录（可能缺考或考试库中无同名学生）</div>`}
     <div style="margin-top:9px;font-size:12.5px;color:#334155;display:flex;align-items:center;gap:8px">
       <b style="font-weight:600">家校沟通</b><span style="color:#64748b">共 ${comms.length} 条</span>
